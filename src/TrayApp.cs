@@ -269,11 +269,13 @@ namespace Okna
 
             if (found == null)
             {
+                Log.Debug("Update check: no newer release");
                 if (manual) Balloon("Обновлений нет", "У вас последняя версия — " + Updater.CurrentLabel + ".");
                 return;
             }
 
             _ready = found;
+            Log.Info("Update " + Updater.Format(found.Version) + " downloaded and verified");
             UpdateMenu();
 
             if (_settings.AutoUpdate)
