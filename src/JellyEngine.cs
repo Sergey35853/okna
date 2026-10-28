@@ -98,6 +98,17 @@ namespace Okna
 
         private Native.RECT _shakeRect;
         private DateTime _shakeStart;
+        private bool _shakeZoomed;
+
+        // Window-state detection. The foreground window is watched for
+        // maximize/restore transitions and for a return from the taskbar; a
+        // short shake is scheduled once the system animation has finished.
+        private IntPtr _zoomWatch;
+        private bool _zoomWatchState;
+        private IntPtr _minimizedWatch;
+        private IntPtr _shakePending;
+        private double _shakePendingAt;
+        private double _stateCheckAt;
 
         public JellyEngine(AppSettings settings)
         {
@@ -224,6 +235,11 @@ namespace Okna
                 {
                     MoveExact((int)Math.Round(_targetX), (int)Math.Round(_targetY));
                 }
+                else if (_target != IntPtr.Zero && _mode == Mode.Shaking && Native.IsWindow(_target))
+                {
+                    // Never leave a shaken window parked off its original spot.
+                    Native.SetWindowPos(_target, IntPtr.Zero, _shakeRect.Left, _shakeRect.Top, 0, 0, ShakeFlags());
+                }
                 if (_overlay != null) _overlay.Dispose();
                 Native.timeEndPeriod(1);
             }
@@ -246,6 +262,35 @@ namespace Okna
                 if (foreground != IntPtr.Zero && !Native.IsOwnProcessWindow(foreground) &&
                     Native.IsWindowVisible(foreground) && !Native.IsIconic(foreground))
                     _lastExternal = foreground;
+
+                if (_settings.Enabled && _settings.MaxShake)
+                {
+                    // The idle loop runs every few milliseconds, but window
+                    // state changes are far slower: a look every 30 ms is
+                    // plenty and keeps the idle cost where it was.
+                    if (now >= _stateCheckAt)
+                    {
+                        _stateCheckAt = now + 0.03;
+                        WatchWindowState(foreground, now);
+                    }
+                }
+                else
+                {
+                    _zoomWatch = IntPtr.Zero;
+                    _shakePending = IntPtr.Zero;
+                }
+
+                if (_shakePending != IntPtr.Zero && now >= _shakePendingAt)
+                {
+                    IntPtr pending = _shakePending;
+                    _shakePending = IntPtr.Zero;
+                    if (!IsKeyDown(Native.VK_LBUTTON) &&
+                        Native.IsWindow(pending) && Native.IsWindowVisible(pending) &&
+                        !Native.IsIconic(pending) && Native.GetForegroundWindow() == pending)
+                    {
+                        StartShake(pending);
+                    }
+                }
             }
 
             if (_mode == Mode.Shaking)
@@ -1112,7 +1157,7 @@ namespace Okna
             }
             if (fg == IntPtr.Zero) return;
             if (!explicitOwn && Native.IsOwnProcessWindow(fg)) return;
-            if (!Native.IsWindow(fg) || !Native.IsWindowVisible(fg) || Native.IsIconic(fg) || Native.IsZoomed(fg)) return;
+            if (!Native.IsWindow(fg) || !Native.IsWindowVisible(fg) || Native.IsIconic(fg)) return;
 
             Native.RECT rect;
             if (!Native.GetWindowRect(fg, out rect)) return;
@@ -1120,15 +1165,42 @@ namespace Okna
 
             _target = fg;
             _shakeRect = rect;
+            _shakeZoomed = Native.IsZoomed(fg);
             _shakeStart = DateTime.UtcNow;
             _mode = Mode.Shaking;
             SetStatus("Покачивание");
-            Log.Debug("Shake " + fg.ToInt64() + " '" + Native.GetWindowTitle(fg) + "'");
+            Log.Debug("Shake " + fg.ToInt64() + " '" + Native.GetWindowTitle(fg) + "' zoomed=" + _shakeZoomed);
         }
 
         private void TickShake(double now)
         {
-            if (_target == IntPtr.Zero || !Native.IsWindow(_target) || IsKeyDown(Native.VK_LBUTTON))
+            if (_target == IntPtr.Zero || !Native.IsWindow(_target))
+            {
+                ResetEngine(_settings.Enabled ? "Готово" : "Пауза");
+                return;
+            }
+
+            // Hidden or minimized mid-shake: the window is out of sight, but
+            // its placement must not stay offset, or it would come back a few
+            // pixels off. Put it back first, then stop. (A minimized maximized
+            // window reports IsZoomed=false, so this has to run before the
+            // state check below.)
+            if (!Native.IsWindowVisible(_target) || Native.IsIconic(_target))
+            {
+                Native.SetWindowPos(_target, IntPtr.Zero, _shakeRect.Left, _shakeRect.Top, 0, 0, ShakeFlags());
+                ResetEngine(_settings.Enabled ? "Готово" : "Пауза");
+                return;
+            }
+
+            // If the user changed the window state under the shake (restored,
+            // maximized), do not fight it: leave it where the system put it.
+            if (Native.IsZoomed(_target) != _shakeZoomed)
+            {
+                ResetEngine(_settings.Enabled ? "Готово" : "Пауза");
+                return;
+            }
+
+            if (IsKeyDown(Native.VK_LBUTTON))
             {
                 EndShake();
                 return;
@@ -1148,19 +1220,104 @@ namespace Okna
             Native.SetWindowPos(_target, IntPtr.Zero,
                 _shakeRect.Left + (int)Math.Round(dx),
                 _shakeRect.Top + (int)Math.Round(dy),
-                0, 0,
-                Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE |
-                Native.SWP_NOOWNERZORDER | Native.SWP_ASYNCWINDOWPOS);
+                0, 0, ShakeFlags());
+        }
+
+        /// <summary>
+        /// A maximized window normally restores itself as soon as it is moved.
+        /// SWP_NOSENDCHANGING keeps the default handler from seeing the move,
+        /// so the window stays maximized and simply shakes.
+        /// </summary>
+        private uint ShakeFlags()
+        {
+            uint flags = Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE |
+                         Native.SWP_NOOWNERZORDER;
+            if (_shakeZoomed) return flags | Native.SWP_NOSENDCHANGING;
+            return flags | Native.SWP_ASYNCWINDOWPOS;
         }
 
         private void EndShake()
         {
             if (_target != IntPtr.Zero && Native.IsWindow(_target))
             {
-                Native.SetWindowPos(_target, IntPtr.Zero, _shakeRect.Left, _shakeRect.Top, 0, 0,
-                    Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE | Native.SWP_NOOWNERZORDER);
+                Native.SetWindowPos(_target, IntPtr.Zero, _shakeRect.Left, _shakeRect.Top, 0, 0, ShakeFlags());
             }
             ResetEngine(_settings.Enabled ? "Готово" : "Пауза");
+        }
+
+        /// <summary>
+        /// Watches the foreground window for the transitions that deserve a
+        /// shake: becoming maximized, being restored down, and coming back
+        /// from the taskbar. The state is tracked per window, so switching to
+        /// a window that was already maximized (Alt+Tab) does not count.
+        /// </summary>
+        private void WatchWindowState(IntPtr foreground, double now)
+        {
+            if (foreground == IntPtr.Zero || Native.IsOwnProcessWindow(foreground) ||
+                !Native.IsWindowVisible(foreground))
+            {
+                // The window we were watching may have just been minimized;
+                // remember it so its return from the taskbar can be spotted.
+                if (_zoomWatch != IntPtr.Zero && Native.IsWindow(_zoomWatch) && Native.IsIconic(_zoomWatch))
+                    _minimizedWatch = _zoomWatch;
+                _zoomWatch = IntPtr.Zero;
+                _shakePending = IntPtr.Zero;
+                return;
+            }
+
+            if (Native.IsIconic(foreground))
+            {
+                _minimizedWatch = foreground;
+                _zoomWatch = IntPtr.Zero;
+                _shakePending = IntPtr.Zero;
+                return;
+            }
+
+            bool zoomed = Native.IsZoomed(foreground);
+
+            // Back from the taskbar: the window was hidden, so it could not
+            // shake while minimized — it shakes now that it is visible again.
+            if (foreground == _minimizedWatch)
+            {
+                _minimizedWatch = IntPtr.Zero;
+                _zoomWatch = foreground;
+                _zoomWatchState = zoomed;
+                ScheduleShake(foreground, now);
+                return;
+            }
+
+            if (foreground != _zoomWatch)
+            {
+                // A plain switch to another window: keep tracking the old one
+                // only if it is minimized and may still come back.
+                if (_zoomWatch != IntPtr.Zero && Native.IsWindow(_zoomWatch) && Native.IsIconic(_zoomWatch))
+                    _minimizedWatch = _zoomWatch;
+                else if (_minimizedWatch != IntPtr.Zero &&
+                         (!Native.IsWindow(_minimizedWatch) || !Native.IsIconic(_minimizedWatch)))
+                    _minimizedWatch = IntPtr.Zero;
+
+                _zoomWatch = foreground;
+                _zoomWatchState = zoomed;
+                _shakePending = IntPtr.Zero;
+                return;
+            }
+
+            if (zoomed != _zoomWatchState)
+            {
+                _zoomWatchState = zoomed;
+                // Let the system's maximize/restore animation finish first.
+                ScheduleShake(foreground, now);
+            }
+        }
+
+        /// <summary>
+        /// Queues a shake for after the current system animation. The delay is
+        /// what keeps the wobble from fighting the maximize/restore transition.
+        /// </summary>
+        private void ScheduleShake(IntPtr hwnd, double now)
+        {
+            _shakePending = hwnd;
+            _shakePendingAt = now + 0.25;
         }
 
         private void ResetEngine(string status)

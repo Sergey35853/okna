@@ -26,6 +26,7 @@ namespace Okna
         public const uint SWP_NOZORDER = 0x0004;
         public const uint SWP_NOACTIVATE = 0x0010;
         public const uint SWP_NOOWNERZORDER = 0x0200;
+        public const uint SWP_NOSENDCHANGING = 0x0400;
         public const uint SWP_ASYNCWINDOWPOS = 0x4000;
         public const long WS_EX_LAYERED = 0x00080000L;
         public const long WS_EX_TOPMOST = 0x00000008L;
