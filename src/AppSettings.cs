@@ -16,6 +16,7 @@ namespace Okna
         private volatile bool _releaseWobble = false;
         private volatile bool _bend = true;
         private volatile bool _maxShake = true;
+        private volatile bool _shatter = true;
         private volatile bool _autoUpdate = true;
 
         public bool Enabled
@@ -51,6 +52,12 @@ namespace Okna
         {
             get { return _maxShake; }
             set { _maxShake = value; }
+        }
+
+        public bool Shatter
+        {
+            get { return _shatter; }
+            set { _shatter = value; }
         }
 
         public bool AutoUpdate
@@ -103,6 +110,8 @@ namespace Okna
                         if (v != null) s.Bend = Convert.ToInt32(v) != 0;
                         v = key.GetValue("MaxShake");
                         if (v != null) s.MaxShake = Convert.ToInt32(v) != 0;
+                        v = key.GetValue("Shatter");
+                        if (v != null) s.Shatter = Convert.ToInt32(v) != 0;
                         v = key.GetValue("AutoUpdate");
                         if (v != null) s.AutoUpdate = Convert.ToInt32(v) != 0;
                         v = key.GetValue("FirstRun");
@@ -186,6 +195,7 @@ namespace Okna
                     key.SetValue("ReleaseWobble", _releaseWobble ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("Bend", _bend ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("MaxShake", _maxShake ? 1 : 0, RegistryValueKind.DWord);
+            key.SetValue("Shatter", _shatter ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("AutoUpdate", _autoUpdate ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("FirstRun", 0, RegistryValueKind.DWord);
                 }

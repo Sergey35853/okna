@@ -54,6 +54,9 @@ namespace Okna
         public const int VK_LBUTTON = 0x01;
         public const int VK_SHIFT = 0x10;
         public const int VK_ESCAPE = 0x1B;
+        public const int VK_MENU = 0x12;
+        public const int VK_F4 = 0x73;
+        public const int SM_CXSCREEN = 0;
 
         public const int DWMWA_CLOAKED = 14;
         public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;

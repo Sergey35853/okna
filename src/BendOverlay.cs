@@ -27,10 +27,6 @@ namespace Okna
         private IntPtr _srcBmp;
         private IntPtr _srcOld;
         private IntPtr _srcBits;
-        private IntPtr _tmpDc;
-        private IntPtr _tmpBmp;
-        private IntPtr _tmpOld;
-        private IntPtr _tmpBits;
         private IntPtr _liveDc;
         private IntPtr _liveBmp;
         private IntPtr _liveOld;
@@ -65,6 +61,7 @@ namespace Okna
         private bool _visible;
         private double _lastDark;
         private double _lastAvg;
+        private bool _wantLive = true;
 
         public bool IsVisible
         {
@@ -88,6 +85,17 @@ namespace Okna
 
         public bool Capture(IntPtr target, Native.RECT rect)
         {
+            return Capture(target, rect, true);
+        }
+
+        /// <summary>
+        /// Grabs the window's pixels. When <paramref name="live"/> is false the
+        /// buffers needed for continuous refresh are skipped: a one-shot effect
+        /// such as the jelly wobble only needs the single frame.
+        /// </summary>
+        public bool Capture(IntPtr target, Native.RECT rect, bool live)
+        {
+            _wantLive = live;
             // Explorer's custom title bar/content is not rendered by PrintWindow:
             // it returns a dark, empty client area. Grab it from the screen while
             // it is still visible (the same fallback covers a few GPU windows).
@@ -182,12 +190,12 @@ namespace Okna
             // A screen grab is a one-off snapshot; PrintWindow can be repeated
             // while the window is on screen, so only it is live.
             _wgcCapable = screenFirst && good;
-            _liveCapable = printGood || _wgcCapable;
+            _liveCapable = live && (printGood || _wgcCapable);
 
             // Keep the opaque snapshot: Graphics Capture renders Windows 11's
             // Mica backdrop (Explorer's title bar) as transparent pixels, and
             // the snapshot is the only place where that backdrop was captured.
-            if (_wgcCapable)
+            if (_wgcCapable && live)
             {
                 int bytes = w * h * 4;
                 _baseFrame = new byte[bytes];
@@ -332,65 +340,98 @@ namespace Okna
 
         public void Render(int x, int y, double bendX, double bendY, int grabX, int grabY, bool opaqueFill)
         {
+            // Grab point relative to the captured image (the DWM extended frame
+            // for Explorer), not to the larger GetWindowRect rectangle.
+            Compose(x, y, false, bendX, bendY, grabY - _capDy, opaqueFill);
+        }
+
+        /// <summary>
+        /// Draws the copy as a slab of jelly: the whole body is moved by x/y,
+        /// the rows sway sideways in a half-wave (so the top and bottom edges
+        /// stay put and the middle bulges) and a second, slower wave stretches
+        /// the body vertically. Unlike the drag bend this is a standing wave,
+        /// which is what a poked jelly does.
+        /// </summary>
+        public void RenderJelly(int x, int y, double ax, double ay, bool opaqueFill)
+        {
+            Compose(x, y, true, ax, ay, 0, opaqueFill);
+        }
+
+        private void Compose(int x, int y, bool jelly, double ax, double ay, int gy, bool opaqueFill)
+        {
             if (_hwnd == IntPtr.Zero || _memDc == IntPtr.Zero) return;
 
             CommitLive();
 
-            // Grab point relative to the captured image (the DWM extended frame
-            // for Explorer), not to the larger GetWindowRect rectangle.
-            int gy = grabY - _capDy;
-
             Native.PatBlt(_memDc, 0, 0, _ow, _oh, Native.BLACKNESS);
-            Native.PatBlt(_tmpDc, 0, 0, _ow, _oh, Native.BLACKNESS);
 
             int strips = Math.Min(StripTarget, Math.Max(8, _h / 4));
             int sh = Math.Max(2, (_h + strips - 1) / strips);
 
-            // Pass 1: horizontal inertia. Full-width strips are shifted sideways
-            // by an amount that grows with the distance from the grabbed point.
-            for (int sy = 0; sy < _h; sy += sh)
-            {
-                int hh = Math.Min(sh, _h - sy);
-                double t = (sy + hh * 0.5 - gy) / (double)_h;
-                int dx = (int)Math.Round(bendX * t * t * t);
-                if (dx > Margin - 2) dx = Margin - 2;
-                else if (dx < -(Margin - 2)) dx = -(Margin - 2);
-                _dxStrips[sy / sh] = dx;
-                Native.BitBlt(_tmpDc, Margin + dx, Margin + sy, _w, hh, _srcDc, 0, sy, Native.SRCCOPY);
-            }
-
-            // Pass 2: vertical inertia. The grabbed edge follows the cursor while
-            // the far edge lags behind. Rows are stretched to the next boundary so
-            // the window compresses or stretches like a sheet instead of tearing.
+            // One pass: each strip is shifted sideways and its rows are
+            // stretched to the next boundary, so the copy is a single warped
+            // sheet instead of a strip of independent pictures.
             int count = (_h + sh - 1) / sh;
             if (count + 1 > _srcRows.Length) count = _srcRows.Length - 1;
             for (int i = 0; i <= count; i++)
             {
                 int sy = Math.Min(_h, i * sh);
                 _srcRows[i] = sy;
-                double t = (sy - gy) / (double)_h;
-                int dy = (int)Math.Round(bendY * t * t * t);
+                int dy;
+                if (jelly)
+                {
+                    // The body is anchored at its bottom edge and squashed
+                    // against it, like a jelly block landing on a table.
+                    double u = sy / (double)_h;
+                    dy = (int)Math.Round(ay * (1.0 - u));
+                }
+                else
+                {
+                    double t = (sy - gy) / (double)_h;
+                    dy = (int)Math.Round(ay * t * t * t);
+                }
                 if (dy > Margin - 2) dy = Margin - 2;
                 else if (dy < -(Margin - 2)) dy = -(Margin - 2);
                 _dstRows[i] = Margin + sy + dy;
             }
+
             for (int i = 0; i < count; i++)
             {
-                int srcH = _srcRows[i + 1] - _srcRows[i];
+                int sy0 = _srcRows[i];
+                int srcH = _srcRows[i + 1] - sy0;
                 int dstH = _dstRows[i + 1] - _dstRows[i];
                 if (srcH <= 0 || dstH <= 0) continue;
+
+                int dx;
+                if (jelly)
+                {
+                    // Fundamental mode: the body bows sideways, strongest at
+                    // the middle, with a slight lean from top to bottom so it
+                    // does not look like a single straight hinge.
+                    double u = (sy0 + srcH * 0.5) / (double)_h;
+                    dx = (int)Math.Round(ax * (0.75 * Math.Sin(Math.PI * u) +
+                                               0.25 * Math.Cos(Math.PI * u)));
+                }
+                else
+                {
+                    double t = (sy0 + srcH * 0.5 - gy) / (double)_h;
+                    dx = (int)Math.Round(ax * t * t * t);
+                }
+                if (dx > Margin - 2) dx = Margin - 2;
+                else if (dx < -(Margin - 2)) dx = -(Margin - 2);
+                _dxStrips[i] = dx;
+
                 // Copy row by row instead of StretchBlt: GDI's stretch drops the
                 // alpha channel, which made the bent part invisible.
                 for (int j = 0; j < dstH; j++)
                 {
-                    int srcRow = _srcRows[i] + (j * srcH) / dstH;
+                    int srcRow = sy0 + (j * srcH) / dstH;
                     if (srcRow >= _srcRows[i + 1]) srcRow = _srcRows[i + 1] - 1;
                     int dstRow = _dstRows[i] + j;
                     if (dstRow < 0 || dstRow >= _oh) continue;
-                    int dx = _dxStrips[i];
                     Native.CopyMemory(
                         IntPtr.Add(_memBits, (dstRow * _ow + Margin + dx) * 4),
-                        IntPtr.Add(_tmpBits, ((Margin + srcRow) * _ow + Margin + dx) * 4),
+                        IntPtr.Add(_srcBits, srcRow * _w * 4),
                         (IntPtr)(_w * 4));
                 }
             }
@@ -416,7 +457,7 @@ namespace Okna
                 ref blend, Native.ULW_ALPHA);
 
             _dumpIndex++;
-            if (_dumpDir != null && (_dumpIndex % 20) == 0) DumpFrames();
+            if (_dumpDir != null && (_dumpIndex % 5) == 0) DumpFrames();
         }
 
         /// <summary>
@@ -659,7 +700,7 @@ namespace Okna
             // sticks in this shell, so the copy ended up under the real window.
             _hwnd = Native.CreateWindowEx(
                 (uint)(Native.WS_EX_LAYERED | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE |
-                       Native.WS_EX_TOPMOST),
+                       Native.WS_EX_TOPMOST | Native.WS_EX_TRANSPARENT),
                 "STATIC", "JellyBendOverlay", Native.WS_POPUP,
                 0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             return _hwnd != IntPtr.Zero;
@@ -678,9 +719,8 @@ namespace Okna
             {
                 _srcDc = Native.CreateCompatibleDC(screen);
                 _memDc = Native.CreateCompatibleDC(screen);
-                _tmpDc = Native.CreateCompatibleDC(screen);
                 _liveDc = Native.CreateCompatibleDC(screen);
-                if (_srcDc == IntPtr.Zero || _memDc == IntPtr.Zero || _tmpDc == IntPtr.Zero) return false;
+                if (_srcDc == IntPtr.Zero || _memDc == IntPtr.Zero) return false;
 
                 Native.BITMAPINFO info = new Native.BITMAPINFO();
                 info.bmiHeader.biSize = (uint)Marshal.SizeOf(typeof(Native.BITMAPINFOHEADER));
@@ -694,7 +734,7 @@ namespace Okna
                 if (_srcBmp == IntPtr.Zero) return false;
                 _srcOld = Native.SelectObject(_srcDc, _srcBmp);
 
-                if (_liveDc != IntPtr.Zero)
+                if (_liveDc != IntPtr.Zero && _wantLive)
                 {
                     _liveBmp = Native.CreateDIBSection(screen, ref info, 0, out _liveBits, IntPtr.Zero, 0);
                     if (_liveBmp != IntPtr.Zero)
@@ -711,10 +751,6 @@ namespace Okna
                 _memBmp = Native.CreateDIBSection(screen, ref oinfo, 0, out _memBits, IntPtr.Zero, 0);
                 if (_memBmp == IntPtr.Zero) return false;
                 _memOld = Native.SelectObject(_memDc, _memBmp);
-
-                _tmpBmp = Native.CreateDIBSection(screen, ref oinfo, 0, out _tmpBits, IntPtr.Zero, 0);
-                if (_tmpBmp == IntPtr.Zero) return false;
-                _tmpOld = Native.SelectObject(_tmpDc, _tmpBmp);
 
                 _w = w;
                 _h = h;
@@ -736,33 +772,25 @@ namespace Okna
                 Native.SelectObject(_srcDc, _srcOld);
             if (_memDc != IntPtr.Zero && _memOld != IntPtr.Zero)
                 Native.SelectObject(_memDc, _memOld);
-            if (_tmpDc != IntPtr.Zero && _tmpOld != IntPtr.Zero)
-                Native.SelectObject(_tmpDc, _tmpOld);
             if (_liveDc != IntPtr.Zero && _liveOld != IntPtr.Zero)
                 Native.SelectObject(_liveDc, _liveOld);
             if (_srcBmp != IntPtr.Zero) Native.DeleteObject(_srcBmp);
             if (_memBmp != IntPtr.Zero) Native.DeleteObject(_memBmp);
-            if (_tmpBmp != IntPtr.Zero) Native.DeleteObject(_tmpBmp);
             if (_liveBmp != IntPtr.Zero) Native.DeleteObject(_liveBmp);
             if (_srcDc != IntPtr.Zero) Native.DeleteDC(_srcDc);
             if (_memDc != IntPtr.Zero) Native.DeleteDC(_memDc);
-            if (_tmpDc != IntPtr.Zero) Native.DeleteDC(_tmpDc);
             if (_liveDc != IntPtr.Zero) Native.DeleteDC(_liveDc);
             _srcDc = IntPtr.Zero;
             _memDc = IntPtr.Zero;
-            _tmpDc = IntPtr.Zero;
             _liveDc = IntPtr.Zero;
             _srcBmp = IntPtr.Zero;
             _memBmp = IntPtr.Zero;
-            _tmpBmp = IntPtr.Zero;
             _liveBmp = IntPtr.Zero;
             _srcOld = IntPtr.Zero;
             _memOld = IntPtr.Zero;
-            _tmpOld = IntPtr.Zero;
             _liveOld = IntPtr.Zero;
             _srcBits = IntPtr.Zero;
             _memBits = IntPtr.Zero;
-            _tmpBits = IntPtr.Zero;
             _liveBits = IntPtr.Zero;
             _baseFrame = null;
             if (_bandBuf != IntPtr.Zero)

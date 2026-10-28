@@ -16,6 +16,7 @@ namespace Okna
         private JellySwitch _wobbleSwitch;
         private JellySwitch _bendSwitch;
         private JellySwitch _maxShakeSwitch;
+        private JellySwitch _shatterSwitch;
         private JellySwitch _startupSwitch;
         private JellySlider _slider;
         private Label _valueLabel;
@@ -34,7 +35,7 @@ namespace Okna
 
             Text = "Окна";
             Icon = icon;
-            ClientSize = new Size(560, 756);
+            ClientSize = new Size(560, 804);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -72,6 +73,7 @@ namespace Okna
             _wobbleSwitch.Checked = _settings.ReleaseWobble;
             _bendSwitch.Checked = _settings.Bend;
             _maxShakeSwitch.Checked = _settings.MaxShake;
+            _shatterSwitch.Checked = _settings.Shatter;
             _startupSwitch.Checked = _settings.StartWithWindows;
             _slider.Value = _settings.Jelly;
             UpdateJellyLabel();
@@ -195,7 +197,7 @@ namespace Okna
 
             CardPanel optionsCard = new CardPanel();
             optionsCard.Location = new Point(24, 470);
-            optionsCard.Size = new Size(512, 208);
+            optionsCard.Size = new Size(512, 260);
             Controls.Add(optionsCard);
 
             Label wobbleTitle = MakeLabel("Покачивание при отпускании", 20, 14, Theme.FontCardTitle, Theme.Text);
@@ -243,24 +245,39 @@ namespace Okna
             divider4.BackColor = Theme.BorderSoft;
             optionsCard.Controls.Add(divider4);
 
-            Label startupTitle = MakeLabel("Запускать с Windows", 20, 166, Theme.FontCardTitle, Theme.Text);
+            Label shatterTitle = MakeLabel("Разбивать окно при закрытии", 20, 166, Theme.FontCardTitle, Theme.Text);
+            optionsCard.Controls.Add(shatterTitle);
+            Label shatterSub = MakeLabel("Осколки стекла разлетаются от кнопки закрытия", 20, 188, Theme.FontSmall, Theme.Muted);
+            optionsCard.Controls.Add(shatterSub);
+
+            _shatterSwitch = new JellySwitch();
+            _shatterSwitch.Location = new Point(432, 170);
+            optionsCard.Controls.Add(_shatterSwitch);
+
+            Panel divider5 = new Panel();
+            divider5.Location = new Point(20, 206);
+            divider5.Size = new Size(472, 1);
+            divider5.BackColor = Theme.BorderSoft;
+            optionsCard.Controls.Add(divider5);
+
+            Label startupTitle = MakeLabel("Запускать с Windows", 20, 214, Theme.FontCardTitle, Theme.Text);
             optionsCard.Controls.Add(startupTitle);
-            Label startupSub = MakeLabel("Тихо стартовать вместе с системой", 20, 188, Theme.FontSmall, Theme.Muted);
+            Label startupSub = MakeLabel("Тихо стартовать вместе с системой", 20, 236, Theme.FontSmall, Theme.Muted);
             optionsCard.Controls.Add(startupSub);
 
             _startupSwitch = new JellySwitch();
-            _startupSwitch.Location = new Point(432, 170);
+            _startupSwitch.Location = new Point(432, 218);
             optionsCard.Controls.Add(_startupSwitch);
 
-            Label hint = MakeLabel("Shift при перетаскивании — обычное поведение Windows", 24, 694, Theme.FontSmall, Theme.Faint);
+            Label hint = MakeLabel("Shift при перетаскивании — обычное поведение Windows", 24, 742, Theme.FontSmall, Theme.Faint);
             Controls.Add(hint);
 
-            Label version = MakeLabel(Updater.CurrentLabel + "  ·  живёт в трее", 24, 722, Theme.FontTiny, Theme.Faint);
+            Label version = MakeLabel(Updater.CurrentLabel + "  ·  живёт в трее", 24, 770, Theme.FontTiny, Theme.Faint);
             Controls.Add(version);
 
             JellyButton shake = new JellyButton();
             shake.Text = "Потрясти окно";
-            shake.Location = new Point(280, 706);
+            shake.Location = new Point(280, 754);
             shake.Size = new Size(150, 38);
             shake.Click += delegate { _engine.ShakeWindow(Handle); };
             Controls.Add(shake);
@@ -268,7 +285,7 @@ namespace Okna
             JellyButton done = new JellyButton();
             done.Text = "Готово";
             done.Accent = true;
-            done.Location = new Point(440, 706);
+            done.Location = new Point(440, 754);
             done.Size = new Size(96, 38);
             done.Click += delegate { Hide(); };
             Controls.Add(done);
@@ -280,6 +297,7 @@ namespace Okna
             tip.SetToolTip(_wobbleSwitch, "Добавляет боковое покачивание в конце движения");
             tip.SetToolTip(_bendSwitch, "Настоящая гнутость: окно на время перетаскивания замирает и изгибается");
             tip.SetToolTip(_maxShakeSwitch, "Окно качается, когда разворачивается на весь экран, восстанавливается или возвращается из панели задач");
+            tip.SetToolTip(_shatterSwitch, "Окно рассыпается осколками, когда закрывается кнопкой или по Alt+F4");
         }
 
         private static Label MakeLabel(string text, int x, int y, Font font, Color color)
@@ -321,6 +339,12 @@ namespace Okna
                 SaveSoon();
             };
 
+            _shatterSwitch.CheckedChanged += delegate
+            {
+                _settings.Shatter = _shatterSwitch.Checked;
+                SaveSoon();
+            };
+
             _startupSwitch.CheckedChanged += delegate
             {
                 _settings.StartWithWindows = _startupSwitch.Checked;
@@ -354,6 +378,7 @@ namespace Okna
             _wobbleSwitch.Checked = _settings.ReleaseWobble;
             _bendSwitch.Checked = _settings.Bend;
             _maxShakeSwitch.Checked = _settings.MaxShake;
+            _shatterSwitch.Checked = _settings.Shatter;
             _startupSwitch.Checked = _settings.StartWithWindows;
             _slider.Value = _settings.Jelly;
             UpdateJellyLabel();

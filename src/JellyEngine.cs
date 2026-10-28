@@ -14,7 +14,8 @@ namespace Okna
             Candidate,
             Dragging,
             Settling,
-            Shaking
+            Shaking,
+            Jelly
         }
 
         private readonly AppSettings _settings;
@@ -100,6 +101,10 @@ namespace Okna
         private DateTime _shakeStart;
         private bool _shakeZoomed;
 
+        private DateTime _jellyStart;
+        private double _jellyLastRender;
+        private int _jellyFrames;
+
         // Window-state detection. The foreground window is watched for
         // maximize/restore transitions and for a return from the taskbar; a
         // short shake is scheduled once the system animation has finished.
@@ -109,6 +114,16 @@ namespace Okna
         private IntPtr _shakePending;
         private double _shakePendingAt;
         private double _stateCheckAt;
+
+        // Close watcher: the picture of a window is taken when its close
+        // button is under the cursor (or Alt+F4 is held); if the window is gone
+        // a moment later, the picture is shattered.
+        private IntPtr _closeWatch;
+        private Bitmap _closeShot;
+        private Native.RECT _closeFrame;
+        private Native.POINT _closePoint;
+        private double _closeShotAt;
+        private double _closeCheckAt;
 
         public JellyEngine(AppSettings settings)
         {
@@ -169,6 +184,7 @@ namespace Okna
                 catch { }
             }
             _thread = null;
+            ClearCloseWatch();
             Log.Info("Engine stopped.");
         }
 
@@ -220,6 +236,7 @@ namespace Okna
                         case Mode.Candidate: sleep = 2; break;
                         case Mode.Settling: sleep = 3; break;
                         case Mode.Shaking: sleep = 5; break;
+                        case Mode.Jelly: sleep = 2; break;
                         default: sleep = 8; break;
                     }
                     Thread.Sleep(sleep);
@@ -240,7 +257,18 @@ namespace Okna
                     // Never leave a shaken window parked off its original spot.
                     Native.SetWindowPos(_target, IntPtr.Zero, _shakeRect.Left, _shakeRect.Top, 0, 0, ShakeFlags());
                 }
+                else if (_mode == Mode.Jelly)
+                {
+                    // Never leave the real window transparent or the copy up.
+                    RestoreTargetVisibility();
+                    if (_overlayActive)
+                    {
+                        _overlay.Hide();
+                        _overlayActive = false;
+                    }
+                }
                 if (_overlay != null) _overlay.Dispose();
+                ClearCloseWatch();
                 Native.timeEndPeriod(1);
             }
         }
@@ -253,7 +281,7 @@ namespace Okna
                 IntPtr requested = _explicitShakeTarget;
                 _explicitShakeTarget = IntPtr.Zero;
                 if (_mode == Mode.Idle)
-                    StartShake(requested);
+                    StartJelly(requested);
             }
 
             if (_mode == Mode.Idle)
@@ -262,6 +290,11 @@ namespace Okna
                 if (foreground != IntPtr.Zero && !Native.IsOwnProcessWindow(foreground) &&
                     Native.IsWindowVisible(foreground) && !Native.IsIconic(foreground))
                     _lastExternal = foreground;
+
+                if (_settings.Enabled && _settings.Shatter)
+                    WatchClose(foreground, now);
+                else
+                    ClearCloseWatch();
 
                 if (_settings.Enabled && _settings.MaxShake)
                 {
@@ -288,7 +321,7 @@ namespace Okna
                         Native.IsWindow(pending) && Native.IsWindowVisible(pending) &&
                         !Native.IsIconic(pending) && Native.GetForegroundWindow() == pending)
                     {
-                        StartShake(pending);
+                        StartJelly(pending);
                     }
                 }
             }
@@ -296,6 +329,12 @@ namespace Okna
             if (_mode == Mode.Shaking)
             {
                 TickShake(now);
+                return;
+            }
+
+            if (_mode == Mode.Jelly)
+            {
+                TickJelly(now);
                 return;
             }
 
@@ -1246,6 +1285,139 @@ namespace Okna
         }
 
         /// <summary>
+        /// The maximized/restored window is replaced for a moment by a warped
+        /// copy of itself: the copy sways like a slab of jelly instead of the
+        /// whole window being shoved around rigidly. The real window is hidden
+        /// (alpha 1) for the duration, so the copy's deformed silhouette is
+        /// what the user sees. Anything the overlay cannot capture falls back
+        /// to the old physical shake.
+        /// </summary>
+        private void StartJelly(IntPtr explicitTarget)
+        {
+            IntPtr fg = explicitTarget;
+            bool explicitOwn = fg != IntPtr.Zero;
+            if (!explicitOwn)
+            {
+                fg = Native.GetForegroundWindow();
+                if (fg == IntPtr.Zero || Native.IsOwnProcessWindow(fg))
+                    fg = _lastExternal;
+            }
+            if (fg == IntPtr.Zero) return;
+            if (!explicitOwn && Native.IsOwnProcessWindow(fg)) return;
+            if (!Native.IsWindow(fg) || !Native.IsWindowVisible(fg) || Native.IsIconic(fg)) return;
+
+            Native.RECT rect;
+            if (!Native.GetWindowRect(fg, out rect)) return;
+            if (rect.Width < 80 || rect.Height < 40) return;
+
+            // One frozen frame is enough for a one-shot wobble: the window is
+            // not going to change while it jiggles.
+            if (!_overlay.Capture(fg, rect, false))
+            {
+                Log.Debug("Jelly capture failed; using the physical shake");
+                StartShake(explicitTarget);
+                return;
+            }
+
+            _target = fg;
+            _shakeRect = rect;
+            _shakeZoomed = Native.IsZoomed(fg);
+
+            // The copy goes up first, undeformed, so it looks exactly like the
+            // window; only then is the real window made invisible. The other
+            // order would flash the desktop for a frame.
+            _overlay.Show();
+            _overlay.RenderJelly(rect.Left, rect.Top, 0, 0, false);
+            if (!ClearTarget())
+            {
+                _overlay.Hide();
+                _target = IntPtr.Zero;
+                Log.Debug("Jelly takeover failed; using the physical shake");
+                StartShake(explicitTarget);
+                return;
+            }
+
+            _overlayActive = true;
+            _jellyStart = DateTime.UtcNow;
+            _jellyLastRender = 0;
+            _jellyFrames = 0;
+            _mode = Mode.Jelly;
+            SetStatus("Желе");
+            Log.Debug("Jelly " + fg.ToInt64() + " '" + Native.GetWindowTitle(fg) +
+                "' zoomed=" + _shakeZoomed + " rect=" + rect.Left + "," + rect.Top +
+                "," + rect.Width + "x" + rect.Height);
+        }
+
+        private void TickJelly(double now)
+        {
+            if (_target == IntPtr.Zero || !Native.IsWindow(_target) ||
+                !Native.IsWindowVisible(_target) || Native.IsIconic(_target) ||
+                Native.IsZoomed(_target) != _shakeZoomed)
+            {
+                EndJelly();
+                return;
+            }
+
+            // A click or Escape means the user wants the window back now.
+            if (IsKeyDown(Native.VK_LBUTTON) || IsKeyDown(Native.VK_ESCAPE))
+            {
+                EndJelly();
+                return;
+            }
+
+            double elapsed = (DateTime.UtcNow - _jellyStart).TotalSeconds;
+            if (elapsed >= 1.5)
+            {
+                EndJelly();
+                return;
+            }
+
+            // ~80 frames a second is smooth and much cheaper than the drag
+            // path's full rate.
+            if (now - _jellyLastRender < 0.012) return;
+            _jellyLastRender = now;
+
+            // Jelly does not spring back along one axis. It keeps sloshing in
+            // several directions at once, each at its own rate, and the wobble
+            // dies away smoothly instead of stopping abruptly.
+            double rise = 1.0 - Math.Exp(-elapsed / 0.05);
+            double env = rise * Math.Exp(-elapsed / 0.50);
+            double w = _shakeRect.Width;
+            double h = _shakeRect.Height;
+            double phase = 2.0 * Math.PI * elapsed;
+            double ax = 0.010 * w * env * Math.Cos(phase * 1.90 + 0.8);
+            double ay = 0.022 * h * env * Math.Cos(phase * 2.20);
+            double ox = 0.0025 * w * env * Math.Cos(phase * 1.90 + 1.4);
+            double oy = 0.0025 * h * env * Math.Cos(phase * 2.20 + 0.5);
+
+            _overlay.RenderJelly(
+                _shakeRect.Left + (int)Math.Round(ox),
+                _shakeRect.Top + (int)Math.Round(oy),
+                ax, ay, false);
+            _jellyFrames++;
+        }
+
+        private void EndJelly()
+        {
+            if (_overlayActive)
+                Log.Debug("Jelly end frames=" + _jellyFrames + " elapsed=" +
+                    (DateTime.UtcNow - _jellyStart).TotalMilliseconds.ToString("f0") + "ms");
+
+            // Draw the copy undeformed before revealing the real window, so the
+            // hand-over is invisible.
+            if (_overlayActive && _target != IntPtr.Zero && Native.IsWindow(_target))
+                _overlay.RenderJelly(_shakeRect.Left, _shakeRect.Top, 0, 0, false);
+
+            RestoreTargetVisibility();
+            if (_overlayActive)
+            {
+                _overlay.Hide();
+                _overlayActive = false;
+            }
+            ResetEngine(_settings.Enabled ? "Готово" : "Пауза");
+        }
+
+        /// <summary>
         /// Watches the foreground window for the transitions that deserve a
         /// shake: becoming maximized, being restored down, and coming back
         /// from the taskbar. The state is tracked per window, so switching to
@@ -1317,14 +1489,158 @@ namespace Okna
         private void ScheduleShake(IntPtr hwnd, double now)
         {
             _shakePending = hwnd;
-            _shakePendingAt = now + 0.25;
+            _shakePendingAt = now + 0.36;
+        }
+
+        /// <summary>
+        /// Watches for a window that is about to be closed. The picture has to
+        /// be taken while the window still exists, so it is grabbed when the
+        /// pointer reaches the close button (or while Alt+F4 is held) and kept
+        /// until the window is gone; then the shards fly.
+        /// </summary>
+        private void WatchClose(IntPtr foreground, double now)
+        {
+            if (_closeWatch != IntPtr.Zero)
+            {
+                if (!Native.IsWindow(_closeWatch))
+                {
+                    IntPtr gone = _closeWatch;
+                    _closeWatch = IntPtr.Zero;
+                    Bitmap shot = _closeShot;
+                    _closeShot = null;
+                    if (shot != null)
+                    {
+                        Log.Debug("Shatter " + gone.ToInt64() + " '" + Native.GetWindowTitle(gone) + "'");
+                        ShatterOverlay.Play(shot, _closeFrame, _closePoint);
+                    }
+                    return;
+                }
+
+                // Keep the picture fresh while the pointer stays on the button.
+                if (now - _closeShotAt > 8.0)
+                {
+                    ClearCloseWatch();
+                    return;
+                }
+                if (now >= _closeCheckAt)
+                {
+                    _closeCheckAt = now + 0.05;
+                    Native.POINT p;
+                    if (Native.GetCursorPos(out p) && InCloseZone(_closeWatch, p) &&
+                        now - _closeShotAt > 0.4)
+                        TakeCloseShot(_closeWatch, p, now);
+                }
+                return;
+            }
+
+            if (foreground == IntPtr.Zero || Native.IsOwnProcessWindow(foreground) ||
+                !Native.IsWindowVisible(foreground) || Native.IsIconic(foreground) ||
+                IsShellWindowClass(Native.GetWindowClass(foreground)))
+                return;
+
+            if (now < _closeCheckAt) return;
+            _closeCheckAt = now + 0.05;
+
+            Native.POINT cursor;
+            if (!Native.GetCursorPos(out cursor)) return;
+
+            // Alt+F4 closes whatever is in front, wherever the pointer is.
+            if (IsKeyDown(Native.VK_MENU) && IsKeyDown(Native.VK_F4))
+            {
+                TakeCloseShot(foreground, cursor, now);
+                return;
+            }
+
+            if (InCloseZone(foreground, cursor))
+                TakeCloseShot(foreground, cursor, now);
+        }
+
+        /// <summary>
+        /// True when the point is over the window's close button, i.e. in the
+        /// top-right corner of what the user actually sees.
+        /// </summary>
+        private static bool InCloseZone(IntPtr hwnd, Native.POINT p)
+        {
+            Native.RECT ext;
+            if (!GetVisibleFrame(hwnd, out ext)) return false;
+            int zoneW = Math.Min(70, Math.Max(44, ext.Width / 12));
+            int zoneH = Math.Min(48, Math.Max(30, ext.Height / 20));
+            return p.X >= ext.Right - zoneW && p.X <= ext.Right &&
+                   p.Y >= ext.Top && p.Y <= ext.Top + zoneH;
+        }
+
+        private static bool GetVisibleFrame(IntPtr hwnd, out Native.RECT ext)
+        {
+            ext = new Native.RECT();
+            if (Native.DwmGetWindowAttribute(hwnd, Native.DWMWA_EXTENDED_FRAME_BOUNDS, out ext,
+                    Marshal.SizeOf(typeof(Native.RECT))) != 0 ||
+                ext.Width <= 0 || ext.Height <= 0)
+            {
+                if (!Native.GetWindowRect(hwnd, out ext)) return false;
+            }
+            return ext.Width > 0 && ext.Height > 0;
+        }
+
+        private void TakeCloseShot(IntPtr hwnd, Native.POINT point, double now)
+        {
+            Native.RECT ext;
+            if (!GetVisibleFrame(hwnd, out ext)) return;
+            int screenW = Native.GetSystemMetrics(Native.SM_CXSCREEN);
+            int screenH = Native.GetSystemMetrics(Native.SM_CYSCREEN);
+            if (ext.Width < 60 || ext.Height < 40 || ext.Width > 4096 || ext.Height > 4096) return;
+            if (ext.Left < 0 || ext.Top < 0 || ext.Right > screenW || ext.Bottom > screenH) return;
+
+            Bitmap shot = null;
+            try
+            {
+                shot = new Bitmap(ext.Width, ext.Height, System.Drawing.Imaging.PixelFormat.Format32bppRgb);
+                using (Graphics g = Graphics.FromImage(shot))
+                {
+                    g.CopyFromScreen(ext.Left, ext.Top, 0, 0,
+                        new Size(ext.Width, ext.Height), CopyPixelOperation.SourceCopy);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Close snapshot failed: " + ex.GetType().Name + ": " + ex.Message);
+                if (shot != null) shot.Dispose();
+                return;
+            }
+
+            if (_closeShot != null) _closeShot.Dispose();
+            _closeShot = shot;
+            _closeFrame = ext;
+            _closePoint = point;
+            _closeShotAt = now;
+            _closeWatch = hwnd;
+        }
+
+        private void ClearCloseWatch()
+        {
+            _closeWatch = IntPtr.Zero;
+            if (_closeShot != null)
+            {
+                _closeShot.Dispose();
+                _closeShot = null;
+            }
         }
 
         private void ResetEngine(string status)
         {
             if (_overlayActive)
             {
-                RestoreOverlay((int)Math.Round(_x), (int)Math.Round(_y));
+                if (_mode == Mode.Jelly)
+                {
+                    // The jelly copy must never drag the real window back to a
+                    // stale rectangle (the user may have restored it meanwhile).
+                    RestoreTargetVisibility();
+                    _overlay.Hide();
+                    _overlayActive = false;
+                }
+                else
+                {
+                    RestoreOverlay((int)Math.Round(_x), (int)Math.Round(_y));
+                }
             }
             // Safety net: never leave a foreign window hidden or transparent.
             RestoreTargetVisibility();
