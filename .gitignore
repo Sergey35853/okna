@@ -1,0 +1,5 @@
+dist/
+*.pdb
+*.user
+*.log
+.vs/

@@ -1,0 +1,36 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        shell: pwsh
+        run: .\build.ps1
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist\Okna.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  Okna.exe" | Out-File -FilePath dist\Okna.exe.sha256 -Encoding ascii
+          Get-Content dist\Okna.exe.sha256
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            "dist\Okna.exe" "dist\Okna.exe.sha256" `
+            --title "Окна ${{ github.ref_name }}" `
+            --generate-notes
