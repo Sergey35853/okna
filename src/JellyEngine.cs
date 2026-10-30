@@ -125,6 +125,20 @@ namespace Okna
         private double _closeShotAt;
         private double _closeCheckAt;
 
+        // Minimize watcher: the picture is taken while the window is still on
+        // screen — when the pointer is on its minimize button, on a taskbar
+        // button, or while Win/Alt+Space is held — so the window can be rolled
+        // into a tube the moment the system actually minimizes it.
+        private IntPtr _minimizeWatch;
+        private Bitmap _minimizeShot;
+        private Native.RECT _minimizeFrame;
+        private double _minimizeShotAt;
+        private double _minimizeCheckAt;
+        private bool _minimizeDown;
+        private bool _minimizeWinDown;
+        private bool _minimizeTransitions;
+        private double _minimizeTransitionAt;
+
         public JellyEngine(AppSettings settings)
         {
             _settings = settings;
@@ -274,6 +288,7 @@ namespace Okna
                     }
                     if (_overlay != null) _overlay.Dispose();
                     ClearCloseWatch();
+                    ClearMinimizeWatch();
                 }
                 catch (Exception ex)
                 {
@@ -311,6 +326,11 @@ namespace Okna
                     WatchClose(foreground, now);
                 else
                     ClearCloseWatch();
+
+                if (_settings.Enabled && _settings.Roll)
+                    WatchMinimize(foreground, now);
+                else
+                    ClearMinimizeWatch();
 
                 if (_settings.Enabled && _settings.MaxShake)
                 {
@@ -1664,6 +1684,217 @@ namespace Okna
             {
                 _closeShot.Dispose();
                 _closeShot = null;
+            }
+        }
+
+        /// <summary>
+        /// Watches for a window that is about to be minimized. The picture has
+        /// to be taken while the window is still on screen, so it is grabbed
+        /// when the pointer reaches the minimize button, when a taskbar button
+        /// is pressed, or while Win / Alt+Space is held; the moment the window
+        /// turns iconic the picture is rolled into a tube.
+        /// </summary>
+        private void WatchMinimize(IntPtr foreground, double now)
+        {
+            if (_minimizeWatch != IntPtr.Zero)
+            {
+                if (!Native.IsWindow(_minimizeWatch) || now - _minimizeShotAt > 2.5)
+                {
+                    ClearMinimizeWatch();
+                    return;
+                }
+
+                if (Native.IsIconic(_minimizeWatch))
+                {
+                    IntPtr target = _minimizeWatch;
+                    Bitmap shot = _minimizeShot;
+                    Native.RECT frame = _minimizeFrame;
+                    RestoreWindowTransitions();
+                    _minimizeWatch = IntPtr.Zero;
+                    _minimizeShot = null;
+                    ClearCloseWatch();
+                    Log.Debug("Roll " + target.ToInt64());
+                    RollOverlay.Play(shot, frame, target);
+                    return;
+                }
+
+                // The user only hovered the button or pressed Win: the window
+                // must get its own transitions back quickly.
+                if (_minimizeTransitions && now - _minimizeTransitionAt > 1.5)
+                    RestoreWindowTransitions();
+                return;
+            }
+
+            if (now < _minimizeCheckAt) return;
+            _minimizeCheckAt = now + 0.04;
+
+            if (foreground == IntPtr.Zero || Native.IsOwnProcessWindow(foreground) ||
+                !Native.IsWindowVisible(foreground) || Native.IsIconic(foreground) ||
+                IsShellWindowClass(Native.GetWindowClass(foreground)))
+                return;
+
+            Native.POINT cursor;
+            if (!Native.GetCursorPos(out cursor)) return;
+
+            bool down = IsKeyDown(Native.VK_LBUTTON);
+            bool win = IsKeyDown(Native.VK_LWIN);
+            bool altSpace = IsKeyDown(Native.VK_MENU) && IsKeyDown(Native.VK_SPACE);
+
+            bool pressedTaskbar = down && !_minimizeDown && TaskbarFinder.Contains(cursor);
+            bool hoverMinimize = InMinimizeZone(foreground, cursor) && now - _minimizeShotAt > 0.35;
+            bool winPressed = win && !_minimizeWinDown;
+            bool winHeld = win && now - _minimizeShotAt > 0.5;
+
+            _minimizeDown = down;
+            _minimizeWinDown = win;
+
+            if (!pressedTaskbar && !hoverMinimize && !winPressed && !winHeld && !altSpace)
+                return;
+
+            TakeMinimizeShot(foreground, now);
+        }
+
+        /// <summary>
+        /// True when the point is over the window's minimize button. Classic
+        /// windows answer WM_NCHITTEST with HTMINBUTTON, which is exact. Windows
+        /// with a custom title bar (Windows 11 Explorer, Chromium, Electron)
+        /// answer HTCLIENT everywhere and paint their own buttons, so for them
+        /// the standard top-right caption geometry is used as a fallback.
+        /// </summary>
+        private static bool InMinimizeZone(IntPtr hwnd, Native.POINT p)
+        {
+            Native.RECT ext;
+            if (!GetVisibleFrame(hwnd, out ext)) return false;
+
+            int dpi = GetWindowDpi(hwnd);
+            int buttonW = (46 * dpi + 48) / 96;
+            int buttonH = (32 * dpi + 48) / 96;
+
+            // Coarse pre-filter: the caption buttons live in the top-right
+            // corner, so the cross-process hit test only runs there.
+            int reach = Math.Min(300, Math.Max(140, buttonW * 3 + 20));
+            int strip = buttonH + 8;
+            if (p.Y < ext.Top || p.Y > ext.Top + strip) return false;
+            if (p.X < ext.Right - reach || p.X > ext.Right) return false;
+
+            UIntPtr hit;
+            IntPtr lParam = Native.MakeLParam(p.X, p.Y);
+            if (Native.SendMessageTimeout(hwnd, Native.WM_NCHITTEST, IntPtr.Zero, lParam,
+                    Native.SMTO_BLOCK | Native.SMTO_ABORTIFHUNG, 30, out hit) != IntPtr.Zero)
+            {
+                ulong value = hit.ToUInt64();
+                if (value == Native.HTMINBUTTON) return true;
+                // A real non-client code means the window draws a classic
+                // caption, where the hit test is authoritative.
+                if (value != 1) return false;
+            }
+
+            long style = Native.GetWindowLongPtr(hwnd, Native.GWL_STYLE);
+            if ((style & Native.WS_MINIMIZEBOX) == 0) return false;
+            int fromRight = (style & Native.WS_MAXIMIZEBOX) != 0 ? 2 : 1;
+            int left = ext.Right - (fromRight + 1) * buttonW - 4;
+            int right = ext.Right - fromRight * buttonW + 4;
+            return p.X >= left && p.X < right;
+        }
+
+        private static int GetWindowDpi(IntPtr hwnd)
+        {
+            try
+            {
+                uint dpi = Native.GetDpiForWindow(hwnd);
+                return dpi >= 48 ? (int)dpi : 96;
+            }
+            catch (EntryPointNotFoundException) { return 96; }
+            catch (DllNotFoundException) { return 96; }
+        }
+
+        private void TakeMinimizeShot(IntPtr hwnd, double now)
+        {
+            Native.RECT ext;
+            if (!GetVisibleFrame(hwnd, out ext)) return;
+            int vx = Native.GetSystemMetrics(Native.SM_XVIRTUALSCREEN);
+            int vy = Native.GetSystemMetrics(Native.SM_YVIRTUALSCREEN);
+            int vw = Native.GetSystemMetrics(Native.SM_CXVIRTUALSCREEN);
+            int vh = Native.GetSystemMetrics(Native.SM_CYVIRTUALSCREEN);
+            if (vw <= 0 || vh <= 0) return;
+
+            if (Native.IsZoomed(hwnd))
+            {
+                // A maximized window reports a frame that hangs off the screen
+                // by its shadow borders; what the user sees is the work area of
+                // its monitor, so that is what gets rolled up.
+                Native.MONITORINFO info = new Native.MONITORINFO();
+                info.cbSize = Marshal.SizeOf(typeof(Native.MONITORINFO));
+                IntPtr monitor = Native.MonitorFromWindow(hwnd, Native.MONITOR_DEFAULTTONEAREST);
+                if (monitor != IntPtr.Zero && Native.GetMonitorInfo(monitor, ref info))
+                    ext = info.rcWork;
+            }
+
+            // Clip to the desktop so a window hanging over the edge (or a
+            // maximized frame's shadow) still yields a picture of the visible
+            // part instead of a black band.
+            Native.RECT visible = new Native.RECT();
+            visible.Left = Math.Max(ext.Left, vx);
+            visible.Top = Math.Max(ext.Top, vy);
+            visible.Right = Math.Min(ext.Right, vx + vw);
+            visible.Bottom = Math.Min(ext.Bottom, vy + vh);
+            ext = visible;
+            if (ext.Width < 60 || ext.Height < 60 || ext.Width > 8192 || ext.Height > 8192) return;
+            if ((long)ext.Width * ext.Height > 40000000L) return;
+
+            Bitmap shot = null;
+            try
+            {
+                shot = new Bitmap(ext.Width, ext.Height,
+                    System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                using (Graphics g = Graphics.FromImage(shot))
+                {
+                    g.CopyFromScreen(ext.Left, ext.Top, 0, 0,
+                        new Size(ext.Width, ext.Height), CopyPixelOperation.SourceCopy);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Minimize snapshot failed: " + ex.GetType().Name + ": " + ex.Message);
+                if (shot != null) shot.Dispose();
+                return;
+            }
+
+            // The system's own minimize animation would slide a second copy of
+            // the window to the taskbar; the tube replaces it. Turn it off
+            // while the picture is armed and back on once it is used.
+            if (_minimizeWatch != IntPtr.Zero && _minimizeWatch != hwnd)
+                RestoreWindowTransitions();
+            if (Native.SetWindowTransitions(hwnd, false))
+            {
+                _minimizeTransitions = true;
+                _minimizeTransitionAt = now;
+            }
+
+            if (_minimizeShot != null) _minimizeShot.Dispose();
+            _minimizeShot = shot;
+            _minimizeFrame = ext;
+            _minimizeShotAt = now;
+            _minimizeWatch = hwnd;
+        }
+
+        private void RestoreWindowTransitions()
+        {
+            if (!_minimizeTransitions) return;
+            _minimizeTransitions = false;
+            IntPtr hwnd = _minimizeWatch;
+            if (hwnd != IntPtr.Zero && Native.IsWindow(hwnd))
+                Native.SetWindowTransitions(hwnd, true);
+        }
+
+        private void ClearMinimizeWatch()
+        {
+            RestoreWindowTransitions();
+            _minimizeWatch = IntPtr.Zero;
+            if (_minimizeShot != null)
+            {
+                _minimizeShot.Dispose();
+                _minimizeShot = null;
             }
         }
 

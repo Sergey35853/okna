@@ -13,10 +13,13 @@ namespace Okna
         public const int WM_APP_SHOW = WM_APP + 1;
 
         public const int HTCAPTION = 2;
+        public const int HTMINBUTTON = 8;
         public const int GWL_STYLE = -16;
         public const int GWL_EXSTYLE = -20;
         public const long WS_CAPTION = 0x00C00000L;
         public const long WS_THICKFRAME = 0x00040000L;
+        public const long WS_MAXIMIZEBOX = 0x00010000L;
+        public const long WS_MINIMIZEBOX = 0x00020000L;
         public const long WS_EX_TOOLWINDOW = 0x00000080L;
         public const long WS_EX_NOACTIVATE = 0x08000000L;
         public const long WS_EX_TRANSPARENT = 0x00000020L;
@@ -56,9 +59,12 @@ namespace Okna
         public const int VK_ESCAPE = 0x1B;
         public const int VK_MENU = 0x12;
         public const int VK_F4 = 0x73;
+        public const int VK_SPACE = 0x20;
+        public const int VK_LWIN = 0x5B;
         public const int SM_CXSCREEN = 0;
 
         public const int DWMWA_CLOAKED = 14;
+        public const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
         public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
         public const int DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19;
         public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
@@ -166,7 +172,27 @@ namespace Okna
         public static extern bool IsIconic(IntPtr hwnd);
 
         [DllImport("user32.dll")]
+        public static extern uint GetDpiForWindow(IntPtr hwnd);
+
+        [DllImport("user32.dll")]
         public static extern bool IsZoomed(IntPtr hwnd);
+
+        public const int MONITOR_DEFAULTTONEAREST = 2;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MONITORINFO
+        {
+            public int cbSize;
+            public RECT rcMonitor;
+            public RECT rcWork;
+            public int dwFlags;
+        }
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr MonitorFromWindow(IntPtr hwnd, int flags);
+
+        [DllImport("user32.dll")]
+        public static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
 
         public const int SM_CYSCREEN = 1;
         public const int SM_XVIRTUALSCREEN = 76;
@@ -204,6 +230,9 @@ namespace Okna
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern IntPtr FindWindow(string className, string windowName);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string windowName);
 
         [DllImport("user32.dll")]
         public static extern bool ShowWindow(IntPtr hwnd, int command);
@@ -391,6 +420,23 @@ namespace Okna
             int hr = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref enabled, 4);
             if (hr != 0)
                 DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref enabled, 4);
+        }
+
+        /// <summary>
+        /// Turns the DWM open/close/minimize/restore animations of a window on
+        /// or off. While the window is rolled up by Okna the system's own
+        /// minimize animation would slide a second copy towards the taskbar,
+        /// so it is switched off for that moment and switched back on after.
+        /// </summary>
+        public static bool SetWindowTransitions(IntPtr hwnd, bool enabled)
+        {
+            try
+            {
+                int value = enabled ? 0 : 1;
+                return DwmSetWindowAttribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, ref value, 4) == 0;
+            }
+            catch (EntryPointNotFoundException) { return false; }
+            catch (DllNotFoundException) { return false; }
         }
 
         public static void EnablePerMonitorDpi()
