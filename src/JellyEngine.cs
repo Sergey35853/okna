@@ -1728,11 +1728,6 @@ namespace Okna
             if (now < _minimizeCheckAt) return;
             _minimizeCheckAt = now + 0.04;
 
-            if (foreground == IntPtr.Zero || Native.IsOwnProcessWindow(foreground) ||
-                !Native.IsWindowVisible(foreground) || Native.IsIconic(foreground) ||
-                IsShellWindowClass(Native.GetWindowClass(foreground)))
-                return;
-
             Native.POINT cursor;
             if (!Native.GetCursorPos(out cursor)) return;
 
@@ -1740,18 +1735,50 @@ namespace Okna
             bool win = IsKeyDown(Native.VK_LWIN);
             bool altSpace = IsKeyDown(Native.VK_MENU) && IsKeyDown(Native.VK_SPACE);
 
-            bool pressedTaskbar = down && !_minimizeDown && TaskbarFinder.Contains(cursor);
-            bool hoverMinimize = InMinimizeZone(foreground, cursor) && now - _minimizeShotAt > 0.35;
-            bool winPressed = win && !_minimizeWinDown;
-            bool winHeld = win && now - _minimizeShotAt > 0.5;
+            // The window whose minimize button is under the cursor. It is not
+            // always the foreground one: clicking the button of a background
+            // window minimizes it too, and the foreground may not have caught
+            // up yet when the pointer arrives.
+            IntPtr hover = MinimizeButtonWindow(cursor);
+            bool hoverMinimize = hover != IntPtr.Zero && now - _minimizeShotAt > 0.35;
+
+            bool normalForeground = foreground != IntPtr.Zero &&
+                !Native.IsOwnProcessWindow(foreground) && Native.IsWindowVisible(foreground) &&
+                !Native.IsIconic(foreground) &&
+                !IsShellWindowClass(Native.GetWindowClass(foreground));
+
+            bool pressedTaskbar = normalForeground && down && !_minimizeDown &&
+                TaskbarFinder.Contains(cursor);
+            bool winPressed = normalForeground && win && !_minimizeWinDown;
+            bool winHeld = normalForeground && win && now - _minimizeShotAt > 0.5;
+            bool menuMinimize = normalForeground && altSpace;
 
             _minimizeDown = down;
             _minimizeWinDown = win;
 
-            if (!pressedTaskbar && !hoverMinimize && !winPressed && !winHeld && !altSpace)
+            if (hoverMinimize)
+            {
+                TakeMinimizeShot(hover, now);
                 return;
+            }
+            if (pressedTaskbar || winPressed || winHeld || menuMinimize)
+                TakeMinimizeShot(foreground, now);
+        }
 
-            TakeMinimizeShot(foreground, now);
+        /// <summary>
+        /// The top-level window under the point, if the point is on that
+        /// window's minimize button.
+        /// </summary>
+        private static IntPtr MinimizeButtonWindow(Native.POINT p)
+        {
+            IntPtr under = Native.WindowFromPoint(p);
+            if (under == IntPtr.Zero) return IntPtr.Zero;
+            under = Native.GetAncestor(under, Native.GA_ROOT);
+            if (under == IntPtr.Zero) return IntPtr.Zero;
+            if (Native.IsOwnProcessWindow(under) || !Native.IsWindowVisible(under) ||
+                Native.IsIconic(under) || IsShellWindowClass(Native.GetWindowClass(under)))
+                return IntPtr.Zero;
+            return InMinimizeZone(under, p) ? under : IntPtr.Zero;
         }
 
         /// <summary>

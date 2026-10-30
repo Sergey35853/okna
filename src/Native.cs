@@ -150,6 +150,8 @@ namespace Okna
         [DllImport("user32.dll")]
         public static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
 
+        public const uint GA_ROOT = 2;
+
         [DllImport("user32.dll")]
         public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
 
