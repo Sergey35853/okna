@@ -47,6 +47,11 @@ namespace Okna
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96f, 96f);
             DoubleBuffered = true;
+            // The design is 804 px tall, which does not fit a 1366x768 screen
+            // or a 1080p display at 150%. Clamp the window to the working area
+            // in OnLoad and scroll the rest; otherwise the bottom buttons are
+            // simply unreachable.
+            AutoScroll = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint |
                      ControlStyles.ResizeRedraw, true);
 
@@ -85,6 +90,25 @@ namespace Okna
         {
             base.OnHandleCreated(e);
             Native.EnableDarkTitleBar(Handle);
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+
+            Rectangle area = Screen.FromControl(this).WorkingArea;
+            int maxHeight = Math.Max(360, area.Height - 48);
+            if (ClientSize.Height > maxHeight)
+                ClientSize = new Size(ClientSize.Width, maxHeight);
+
+            // Scroll only as far as the content actually goes. The width stays
+            // out of it so the vertical scrollbar does not trigger a second,
+            // horizontal one.
+            int contentBottom = 0;
+            foreach (Control c in Controls)
+                if (c.Bottom > contentBottom) contentBottom = c.Bottom;
+            AutoScrollMinSize = new Size(0, contentBottom + 8);
+            AutoScrollPosition = Point.Empty;
         }
 
         protected override void WndProc(ref Message m)

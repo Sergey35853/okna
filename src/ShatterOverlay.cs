@@ -60,16 +60,21 @@ namespace Okna
 
         private static void Run(Bitmap shot, Native.RECT frame, Native.POINT impact)
         {
-            int screenW = Native.GetSystemMetrics(0);
-            int screenH = Native.GetSystemMetrics(1);
+            // The virtual desktop can start at negative coordinates and can
+            // span several monitors; clipping to the primary one would cut the
+            // shards of a window on a second screen.
+            int vx = Native.GetSystemMetrics(Native.SM_XVIRTUALSCREEN);
+            int vy = Native.GetSystemMetrics(Native.SM_YVIRTUALSCREEN);
+            int screenW = Native.GetSystemMetrics(Native.SM_CXVIRTUALSCREEN);
+            int screenH = Native.GetSystemMetrics(Native.SM_CYVIRTUALSCREEN);
             if (screenW <= 0 || screenH <= 0) { shot.Dispose(); return; }
 
             // The pieces need room to fly, but only as much as the screen has.
             const int margin = 400;
-            int left = Math.Max(0, frame.Left - margin);
-            int top = Math.Max(0, frame.Top - margin);
-            int right = Math.Min(screenW, frame.Right + margin);
-            int bottom = Math.Min(screenH, frame.Bottom + margin);
+            int left = Math.Max(vx, frame.Left - margin);
+            int top = Math.Max(vy, frame.Top - margin);
+            int right = Math.Min(vx + screenW, frame.Right + margin);
+            int bottom = Math.Min(vy + screenH, frame.Bottom + margin);
             int w = right - left;
             int h = bottom - top;
             if (w < 40 || h < 40 || w > 8192 || h > 8192) { shot.Dispose(); return; }

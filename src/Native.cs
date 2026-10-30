@@ -337,6 +337,10 @@ namespace Okna
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint colorKey, byte alpha, uint flags);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool GetLayeredWindowAttributes(IntPtr hwnd, out uint colorKey,
+            out byte alpha, out uint flags);
+
         public static long GetWindowLongPtr(IntPtr hwnd, int index)
         {
             if (IntPtr.Size == 8)
@@ -359,6 +363,19 @@ namespace Okna
         public static bool SetWindowAlpha(IntPtr hwnd, byte alpha)
         {
             return SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
+        }
+
+        /// <summary>
+        /// Reads a layered window's alpha. Returns false when the window is not
+        /// layered (or has no alpha), which is what a crash recovery check needs.
+        /// </summary>
+        public static bool TryGetWindowAlpha(IntPtr hwnd, out byte alpha)
+        {
+            uint key;
+            uint flags;
+            alpha = 255;
+            if (!GetLayeredWindowAttributes(hwnd, out key, out alpha, out flags)) return false;
+            return (flags & LWA_ALPHA) != 0;
         }
 
         public static bool IsCloaked(IntPtr hwnd)

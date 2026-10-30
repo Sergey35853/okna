@@ -145,7 +145,13 @@ namespace Okna
 
             int w = cap.Width;
             int h = cap.Height;
-            if (w < 80 || h < 40 || w > 4096 || h > 4096) return false;
+            // 8192 covers an 8K display and two 4K monitors side by side; the
+            // pixel budget stops a pathological window from allocating
+            // gigabytes of DIBs.
+            const int maxSide = 8192;
+            const long maxPixels = 40000000L;
+            if (w < 80 || h < 40 || w > maxSide || h > maxSide ||
+                (long)w * h > maxPixels) return false;
             if (!EnsureWindow()) return false;
             if (!EnsureBuffers(w, h)) return false;
             _capDy = capDy;
@@ -188,8 +194,11 @@ namespace Okna
                     " dark=" + _lastDark.ToString("f2") + " avg=" + _lastAvg.ToString("f0"));
             }
             // A screen grab is a one-off snapshot; PrintWindow can be repeated
-            // while the window is on screen, so only it is live.
-            _wgcCapable = screenFirst && good;
+            // while the window is on screen, so only it is live. Explorer needs
+            // Graphics Capture, which does not exist before Windows 10 1803:
+            // without it the frozen snapshot path is used instead of hiding a
+            // window that would never refresh.
+            _wgcCapable = screenFirst && good && WgcCapture.IsSupported;
             _liveCapable = live && (printGood || _wgcCapable);
 
             // Keep the opaque snapshot: Graphics Capture renders Windows 11's

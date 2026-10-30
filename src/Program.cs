@@ -53,6 +53,13 @@ namespace Okna
             {
                 Updater.Cleanup();
 
+                // A previous run may have died while the jelly effect had a
+                // foreign window hidden (layered, alpha 1). Put it back before
+                // doing anything else, and hook the exit paths that bypass the
+                // engine's own cleanup.
+                HiddenWindowGuard.Install();
+                HiddenWindowGuard.Restore();
+
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);

@@ -244,32 +244,48 @@ namespace Okna
             }
             finally
             {
-                if (_overlayActive)
+                try
                 {
-                    RestoreOverlay((int)Math.Round(_x), (int)Math.Round(_y));
-                }
-                else if (_target != IntPtr.Zero && _mode == Mode.Dragging)
-                {
-                    MoveExact((int)Math.Round(_targetX), (int)Math.Round(_targetY));
-                }
-                else if (_target != IntPtr.Zero && _mode == Mode.Shaking && Native.IsWindow(_target))
-                {
-                    // Never leave a shaken window parked off its original spot.
-                    Native.SetWindowPos(_target, IntPtr.Zero, _shakeRect.Left, _shakeRect.Top, 0, 0, ShakeFlags());
-                }
-                else if (_mode == Mode.Jelly)
-                {
-                    // Never leave the real window transparent or the copy up.
+                    // Safety net: never leave a foreign window transparent or
+                    // layered, whatever state the effect was interrupted in.
                     RestoreTargetVisibility();
                     if (_overlayActive)
                     {
-                        _overlay.Hide();
-                        _overlayActive = false;
+                        RestoreOverlay((int)Math.Round(_x), (int)Math.Round(_y));
                     }
+                    else if (_target != IntPtr.Zero && _mode == Mode.Dragging)
+                    {
+                        MoveExact((int)Math.Round(_targetX), (int)Math.Round(_targetY));
+                    }
+                    else if (_target != IntPtr.Zero && _mode == Mode.Shaking && Native.IsWindow(_target))
+                    {
+                        // Never leave a shaken window parked off its original spot.
+                        Native.SetWindowPos(_target, IntPtr.Zero, _shakeRect.Left, _shakeRect.Top, 0, 0, ShakeFlags());
+                    }
+                    else if (_mode == Mode.Jelly)
+                    {
+                        // Never leave the real window transparent or the copy up.
+                        RestoreTargetVisibility();
+                        if (_overlayActive)
+                        {
+                            _overlay.Hide();
+                            _overlayActive = false;
+                        }
+                    }
+                    if (_overlay != null) _overlay.Dispose();
+                    ClearCloseWatch();
                 }
-                if (_overlay != null) _overlay.Dispose();
-                ClearCloseWatch();
-                Native.timeEndPeriod(1);
+                catch (Exception ex)
+                {
+                    // The persisted record is the last line of defence: restore
+                    // the hidden window even if the in-memory state is unusable.
+                    Log.Error("Engine shutdown cleanup failed: " + ex);
+                    try { HiddenWindowGuard.Restore(); } catch { }
+                }
+                finally
+                {
+                    try { Native.timeEndPeriod(1); } catch { }
+                }
             }
         }
 
@@ -1099,9 +1115,14 @@ namespace Okna
             if ((ex & Native.WS_EX_LAYERED) != 0) return false;
             _targetLayeredAdded = true;
             Native.SetWindowLongPtr(_target, Native.GWL_EXSTYLE, ex | Native.WS_EX_LAYERED);
+            // Persist the handle before the window disappears: if the process
+            // dies between these two calls, the next start still knows what to
+            // put back.
+            HiddenWindowGuard.Mark(_target);
             _targetAlphaSet = Native.SetWindowAlpha(_target, 1);
             if (!_targetAlphaSet)
             {
+                HiddenWindowGuard.Clear();
                 Native.SetWindowLongPtr(_target, Native.GWL_EXSTYLE, ex);
                 _targetLayeredAdded = false;
             }
@@ -1112,7 +1133,11 @@ namespace Okna
         {
             if (!_targetAlphaSet) return;
             _targetAlphaSet = false;
-            if (_target == IntPtr.Zero || !Native.IsWindow(_target)) return;
+            if (_target == IntPtr.Zero || !Native.IsWindow(_target))
+            {
+                HiddenWindowGuard.Clear();
+                return;
+            }
             Native.SetWindowAlpha(_target, 255);
             if (_targetLayeredAdded)
             {
@@ -1120,6 +1145,7 @@ namespace Okna
                 Native.SetWindowLongPtr(_target, Native.GWL_EXSTYLE, ex & ~Native.WS_EX_LAYERED);
                 _targetLayeredAdded = false;
             }
+            HiddenWindowGuard.Clear();
         }
 
         private void CheckNativeFollow(Native.POINT cursor)
@@ -1322,6 +1348,16 @@ namespace Okna
             _target = fg;
             _shakeRect = rect;
             _shakeZoomed = Native.IsZoomed(fg);
+            // The copy is drawn exactly where the window already is. Keep the
+            // engine's notion of the target position in sync: the shutdown path
+            // restores the overlay at (_x, _y), and stale zeroes would teleport
+            // the real window to the top-left corner.
+            _x = rect.Left;
+            _y = rect.Top;
+            _targetX = rect.Left;
+            _targetY = rect.Top;
+            _vx = 0;
+            _vy = 0;
 
             // The copy goes up first, undeformed, so it looks exactly like the
             // window; only then is the real window made invisible. The other
@@ -1585,10 +1621,16 @@ namespace Okna
         {
             Native.RECT ext;
             if (!GetVisibleFrame(hwnd, out ext)) return;
-            int screenW = Native.GetSystemMetrics(Native.SM_CXSCREEN);
-            int screenH = Native.GetSystemMetrics(Native.SM_CYSCREEN);
-            if (ext.Width < 60 || ext.Height < 40 || ext.Width > 4096 || ext.Height > 4096) return;
-            if (ext.Left < 0 || ext.Top < 0 || ext.Right > screenW || ext.Bottom > screenH) return;
+            // Use the whole virtual desktop, not the primary monitor: windows
+            // on a second monitor to the left have negative coordinates.
+            int vx = Native.GetSystemMetrics(Native.SM_XVIRTUALSCREEN);
+            int vy = Native.GetSystemMetrics(Native.SM_YVIRTUALSCREEN);
+            int vw = Native.GetSystemMetrics(Native.SM_CXVIRTUALSCREEN);
+            int vh = Native.GetSystemMetrics(Native.SM_CYVIRTUALSCREEN);
+            if (vw <= 0 || vh <= 0) return;
+            if (ext.Width < 60 || ext.Height < 40 || ext.Width > 8192 || ext.Height > 8192) return;
+            if (ext.Left < vx || ext.Top < vy ||
+                ext.Right > vx + vw || ext.Bottom > vy + vh) return;
 
             Bitmap shot = null;
             try

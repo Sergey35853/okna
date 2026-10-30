@@ -45,6 +45,57 @@ namespace Okna
         private MapDelegate _map;
         private UnmapDelegate _unmap;
 
+        private static int _supported = -1;
+
+        /// <summary>
+        /// True when Windows Graphics Capture exists on this system. The class
+        /// arrived in Windows 10 1803 (build 17134); on Windows 8/8.1 and older
+        /// Windows 10 builds the activation factory is missing, and starting a
+        /// capture would only create a D3D device and fail. The answer is
+        /// probed once and cached.
+        /// </summary>
+        public static bool IsSupported
+        {
+            get
+            {
+                int value = _supported;
+                if (value >= 0) return value == 1;
+                bool ok = ProbeSupport();
+                _supported = ok ? 1 : 0;
+                return ok;
+            }
+        }
+
+        private static bool ProbeSupport()
+        {
+            IntPtr factory = IntPtr.Zero;
+            try
+            {
+                int hr = RoInitialize(RO_INIT_MULTITHREADED);
+                bool initialized = hr == 0 || hr == 1;
+                try
+                {
+                    hr = GetFactory("Windows.Graphics.Capture.GraphicsCaptureItem",
+                        IID_IGraphicsCaptureItemInterop, out factory);
+                    bool ok = hr == 0 && factory != IntPtr.Zero;
+                    if (!ok)
+                        Log.Debug("Graphics Capture unavailable (hr=0x" +
+                            hr.ToString("X8") + "); Explorer will use a frozen copy.");
+                    return ok;
+                }
+                finally
+                {
+                    if (factory != IntPtr.Zero) Marshal.Release(factory);
+                    if (initialized) RoUninitialize();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Graphics Capture probe failed: " + ex.GetType().Name);
+                return false;
+            }
+        }
+
         public string LastError { get; private set; }
         public int FrameWidth { get; private set; }
         public int FrameHeight { get; private set; }
