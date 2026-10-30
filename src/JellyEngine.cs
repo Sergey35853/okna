@@ -138,6 +138,8 @@ namespace Okna
         private bool _minimizeWinDown;
         private bool _minimizeTransitions;
         private double _minimizeTransitionAt;
+        private Native.POINT _minimizeCursor;
+        private double _minimizeHoverAt;
 
         public JellyEngine(AppSettings settings)
         {
@@ -1739,13 +1741,28 @@ namespace Okna
             // always the foreground one: clicking the button of a background
             // window minimizes it too, and the foreground may not have caught
             // up yet when the pointer arrives.
-            IntPtr hover = MinimizeButtonWindow(cursor);
+            //
+            // The hit test walks the window stack, so it is only repeated when
+            // the pointer moves, a button or key is used, or five times a
+            // second — a pointer parked on the desktop costs almost nothing.
+            bool moved = cursor.X != _minimizeCursor.X || cursor.Y != _minimizeCursor.Y;
+            _minimizeCursor = cursor;
+            IntPtr hover = IntPtr.Zero;
+            if (moved || down || win || altSpace || now - _minimizeHoverAt > 0.2)
+            {
+                _minimizeHoverAt = now;
+                hover = MinimizeButtonWindow(cursor);
+            }
             bool hoverMinimize = hover != IntPtr.Zero && now - _minimizeShotAt > 0.35;
 
-            bool normalForeground = foreground != IntPtr.Zero &&
-                !Native.IsOwnProcessWindow(foreground) && Native.IsWindowVisible(foreground) &&
-                !Native.IsIconic(foreground) &&
-                !IsShellWindowClass(Native.GetWindowClass(foreground));
+            bool normalForeground = false;
+            if (down || win || altSpace)
+            {
+                normalForeground = foreground != IntPtr.Zero &&
+                    !Native.IsOwnProcessWindow(foreground) && Native.IsWindowVisible(foreground) &&
+                    !Native.IsCloaked(foreground) && !Native.IsIconic(foreground) &&
+                    !IsShellWindowClass(Native.GetWindowClass(foreground));
+            }
 
             bool pressedTaskbar = normalForeground && down && !_minimizeDown &&
                 TaskbarFinder.Contains(cursor);
@@ -1776,7 +1793,8 @@ namespace Okna
             under = Native.GetAncestor(under, Native.GA_ROOT);
             if (under == IntPtr.Zero) return IntPtr.Zero;
             if (Native.IsOwnProcessWindow(under) || !Native.IsWindowVisible(under) ||
-                Native.IsIconic(under) || IsShellWindowClass(Native.GetWindowClass(under)))
+                Native.IsCloaked(under) || Native.IsIconic(under) ||
+                IsShellWindowClass(Native.GetWindowClass(under)))
                 return IntPtr.Zero;
             return InMinimizeZone(under, p) ? under : IntPtr.Zero;
         }
@@ -1837,8 +1855,9 @@ namespace Okna
 
         private void TakeMinimizeShot(IntPtr hwnd, double now)
         {
-            Native.RECT ext;
-            if (!GetVisibleFrame(hwnd, out ext)) return;
+            Native.RECT frame;
+            if (!GetVisibleFrame(hwnd, out frame)) return;
+            Native.RECT ext = frame;
             int vx = Native.GetSystemMetrics(Native.SM_XVIRTUALSCREEN);
             int vy = Native.GetSystemMetrics(Native.SM_YVIRTUALSCREEN);
             int vw = Native.GetSystemMetrics(Native.SM_CXVIRTUALSCREEN);
@@ -1887,6 +1906,22 @@ namespace Okna
                 return;
             }
 
+            // The click that minimizes the window may be handled while the
+            // picture is being grabbed: the window is already gone and the grab
+            // holds the desktop behind it. Rolling that would roll a picture of
+            // the desktop, so a shot whose window vanished or moved is dropped
+            // and the system's own animation plays instead.
+            Native.RECT after;
+            if (Native.IsIconic(hwnd) || Native.IsCloaked(hwnd) || !Native.IsWindowVisible(hwnd) ||
+                !GetVisibleFrame(hwnd, out after) ||
+                after.Left != frame.Left || after.Top != frame.Top ||
+                after.Right != frame.Right || after.Bottom != frame.Bottom)
+            {
+                Log.Debug("Minimize snapshot dropped: window vanished or moved");
+                shot.Dispose();
+                return;
+            }
+
             // The system's own minimize animation would slide a second copy of
             // the window to the taskbar; the tube replaces it. Turn it off
             // while the picture is armed and back on once it is used.
@@ -1903,6 +1938,8 @@ namespace Okna
             _minimizeFrame = ext;
             _minimizeShotAt = now;
             _minimizeWatch = hwnd;
+            Log.Debug("Minimize armed " + hwnd.ToInt64() + " rect=" + ext.Left + "," + ext.Top +
+                      " " + ext.Width + "x" + ext.Height);
         }
 
         private void RestoreWindowTransitions()
