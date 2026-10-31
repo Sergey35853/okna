@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -61,16 +62,52 @@ namespace Okna
         private bool _visible;
         private double _lastDark;
         private double _lastAvg;
+        private double _lastPrintMs;
         private bool _wantLive = true;
+
+        // A small screen sample used to tell whether a window has finished
+        // drawing itself (see ScreenChange).
+        private const int ProbeW = 160;
+        private const int ProbeH = 96;
+        private IntPtr _probeDc;
+        private IntPtr _probeBmp;
+        private IntPtr _probeOld;
+        private IntPtr _probeBits;
+        private byte[] _probeBuf;
+        private byte[] _probePrev;
+        private bool _probeValid;
 
         public bool IsVisible
         {
             get { return _visible; }
         }
 
+        /// <summary>
+        /// How long the last PrintWindow call took, in milliseconds. Zero when
+        /// the last capture did not use PrintWindow. A window that takes long
+        /// to render is not worth a wobble: the effect would arrive after the
+        /// user has stopped looking.
+        /// </summary>
+        public double LastPrintMs
+        {
+            get { return _lastPrintMs; }
+        }
+
         public bool LiveCapable
         {
             get { return _liveCapable && _liveDc != IntPtr.Zero; }
+        }
+
+        /// <summary>
+        /// Creates the overlay window ahead of a capture. Windows destroys a
+        /// window when the thread that created it ends, so the window must be
+        /// created by the thread that will later show and move it: one-shot
+        /// captures run on a worker, but the overlay is drawn from the engine
+        /// thread.
+        /// </summary>
+        public bool Prepare()
+        {
+            return EnsureWindow();
         }
 
         /// <summary>
@@ -96,11 +133,6 @@ namespace Okna
         public bool Capture(IntPtr target, Native.RECT rect, bool live)
         {
             _wantLive = live;
-            // Explorer's custom title bar/content is not rendered by PrintWindow:
-            // it returns a dark, empty client area. Grab it from the screen while
-            // it is still visible (the same fallback covers a few GPU windows).
-            string cls = Native.GetWindowClass(target);
-            bool screenFirst = cls == "CabinetWClass" || cls == "ExploreWClass";
 
             // GetWindowRect includes the invisible resize border (about seven
             // pixels on every side on Windows 10/11). The DWM extended frame is
@@ -115,9 +147,26 @@ namespace Okna
             int cw = rect.Width;
             int ch = rect.Height;
             Native.RECT ext;
-            if (Native.DwmGetWindowAttribute(target, Native.DWMWA_EXTENDED_FRAME_BOUNDS, out ext,
-                    Marshal.SizeOf(typeof(Native.RECT))) == 0 &&
-                ext.Width > 0 && ext.Height > 0)
+            bool haveExt = Native.DwmGetWindowAttribute(target, Native.DWMWA_EXTENDED_FRAME_BOUNDS,
+                    out ext, Marshal.SizeOf(typeof(Native.RECT))) == 0 &&
+                ext.Width > 0 && ext.Height > 0;
+
+            // Explorer's custom title bar/content is not rendered by PrintWindow:
+            // it returns a dark, empty client area. Grab it from the screen while
+            // it is still visible (the same fallback covers a few GPU windows).
+            //
+            // The one-shot wobble is screen-grabbed as well when nothing is
+            // painted on top of the window: the grab is exact, includes the
+            // acrylic background that PrintWindow renders as flat grey, and
+            // cannot return a stale frame. A covered window is left to
+            // PrintWindow: a screen grab would bake the covering window (an
+            // always-on-top one, say) into the copy.
+            string cls = Native.GetWindowClass(target);
+            bool screenFirst = cls == "CabinetWClass" || cls == "ExploreWClass" ||
+                               (!live && haveExt && OnScreen(ext) &&
+                                !Native.IsCovered(target, ext));
+
+            if (haveExt)
             {
                 capDx = ext.Left - rect.Left;
                 capDy = ext.Top - rect.Top;
@@ -166,16 +215,21 @@ namespace Okna
             bool good = false;
             bool printGood = false;
             _liveCapable = false;
+            _lastPrintMs = 0;
             if (!screenFirst)
             {
                 // PrintWindow renders the window's own content, even if it is
                 // partly covered. A 32bpp DIB filled with WHITENESS keeps alpha
                 // at 255.
                 Native.PatBlt(_srcDc, 0, 0, w, h, Native.WHITENESS);
+                long started = Stopwatch.GetTimestamp();
                 ok = Native.PrintWindow(target, _srcDc, Native.PW_RENDERFULLCONTENT);
+                _lastPrintMs = (Stopwatch.GetTimestamp() - started) * 1000.0 /
+                               Stopwatch.Frequency;
                 good = ok && Analyze(false, false);
                 printGood = good;
                 Log.Debug("Capture PrintWindow ok=" + ok + " good=" + good +
+                    " ms=" + _lastPrintMs.ToString("f0") +
                     " dark=" + _lastDark.ToString("f2") + " avg=" + _lastAvg.ToString("f0"));
             }
             if (!good)
@@ -216,6 +270,114 @@ namespace Okna
             }
             MaskBorders(_srcBits);
             return good;
+        }
+
+        /// <summary>
+        /// Samples what the screen shows where the window is and returns how
+        /// much of the sample changed since the previous call, in per mille.
+        /// A caret or a spinner moves a handful of samples; a window that is
+        /// being animated or repainted at a new size changes a large part of
+        /// the picture. Returns -1 when the window cannot be sampled (it is
+        /// not on screen).
+        /// </summary>
+        public int ScreenChange(IntPtr target, Native.RECT rect)
+        {
+            Native.RECT ext;
+            if (Native.DwmGetWindowAttribute(target, Native.DWMWA_EXTENDED_FRAME_BOUNDS,
+                    out ext, Marshal.SizeOf(typeof(Native.RECT))) != 0 ||
+                ext.Width <= 0 || ext.Height <= 0)
+            {
+                ext = rect;
+            }
+            if (ext.Width < 8 || ext.Height < 8 || !OnScreen(ext)) return -1;
+            if (!EnsureProbe()) return -1;
+
+            IntPtr screen = Native.GetDC(IntPtr.Zero);
+            if (screen == IntPtr.Zero) return -1;
+            bool ok;
+            try
+            {
+                ok = Native.StretchBlt(_probeDc, 0, 0, ProbeW, ProbeH, screen,
+                    ext.Left, ext.Top, ext.Width, ext.Height, Native.SRCCOPY);
+            }
+            finally
+            {
+                Native.ReleaseDC(IntPtr.Zero, screen);
+            }
+            if (!ok) return -1;
+
+            Marshal.Copy(_probeBits, _probeBuf, 0, _probeBuf.Length);
+            if (!_probeValid)
+            {
+                Buffer.BlockCopy(_probeBuf, 0, _probePrev, 0, _probeBuf.Length);
+                _probeValid = true;
+                return 1000;
+            }
+
+            int changed = 0;
+            int samples = _probeBuf.Length / 4;
+            for (int i = 0; i < _probeBuf.Length; i += 4)
+            {
+                int delta = Math.Abs(_probeBuf[i] - _probePrev[i]) +
+                            Math.Abs(_probeBuf[i + 1] - _probePrev[i + 1]) +
+                            Math.Abs(_probeBuf[i + 2] - _probePrev[i + 2]);
+                if (delta > 18) changed++;
+            }
+            Buffer.BlockCopy(_probeBuf, 0, _probePrev, 0, _probeBuf.Length);
+            return changed * 1000 / Math.Max(1, samples);
+        }
+
+        private bool EnsureProbe()
+        {
+            if (_probeDc != IntPtr.Zero) return true;
+            IntPtr screen = Native.GetDC(IntPtr.Zero);
+            if (screen == IntPtr.Zero) return false;
+            try
+            {
+                _probeDc = Native.CreateCompatibleDC(screen);
+                if (_probeDc == IntPtr.Zero) return false;
+                Native.BITMAPINFO info = new Native.BITMAPINFO();
+                info.bmiHeader.biSize = (uint)Marshal.SizeOf(typeof(Native.BITMAPINFOHEADER));
+                info.bmiHeader.biWidth = ProbeW;
+                info.bmiHeader.biHeight = -ProbeH;
+                info.bmiHeader.biPlanes = 1;
+                info.bmiHeader.biBitCount = 32;
+                info.bmiHeader.biCompression = 0;
+                _probeBmp = Native.CreateDIBSection(screen, ref info, 0, out _probeBits,
+                    IntPtr.Zero, 0);
+                if (_probeBmp == IntPtr.Zero)
+                {
+                    // Leave no half-made probe behind: a non-zero _probeDc
+                    // would make the next call think it is ready.
+                    Native.DeleteDC(_probeDc);
+                    _probeDc = IntPtr.Zero;
+                    return false;
+                }
+                _probeOld = Native.SelectObject(_probeDc, _probeBmp);
+                _probeBuf = new byte[ProbeW * ProbeH * 4];
+                _probePrev = new byte[ProbeW * ProbeH * 4];
+                _probeValid = false;
+                return true;
+            }
+            finally
+            {
+                Native.ReleaseDC(IntPtr.Zero, screen);
+            }
+        }
+
+        /// <summary>
+        /// True when the rectangle lies entirely on the virtual desktop, so a
+        /// screen grab of it has no missing parts.
+        /// </summary>
+        private static bool OnScreen(Native.RECT r)
+        {
+            int vx = Native.GetSystemMetrics(Native.SM_XVIRTUALSCREEN);
+            int vy = Native.GetSystemMetrics(Native.SM_YVIRTUALSCREEN);
+            int vw = Native.GetSystemMetrics(Native.SM_CXVIRTUALSCREEN);
+            int vh = Native.GetSystemMetrics(Native.SM_CYVIRTUALSCREEN);
+            return vw > 0 && vh > 0 &&
+                   r.Left >= vx && r.Top >= vy &&
+                   r.Right <= vx + vw && r.Bottom <= vy + vh;
         }
 
         /// <summary>
@@ -802,6 +964,17 @@ namespace Okna
             _memBits = IntPtr.Zero;
             _liveBits = IntPtr.Zero;
             _baseFrame = null;
+            if (_probeDc != IntPtr.Zero && _probeOld != IntPtr.Zero)
+                Native.SelectObject(_probeDc, _probeOld);
+            if (_probeBmp != IntPtr.Zero) Native.DeleteObject(_probeBmp);
+            if (_probeDc != IntPtr.Zero) Native.DeleteDC(_probeDc);
+            _probeDc = IntPtr.Zero;
+            _probeBmp = IntPtr.Zero;
+            _probeOld = IntPtr.Zero;
+            _probeBits = IntPtr.Zero;
+            _probeBuf = null;
+            _probePrev = null;
+            _probeValid = false;
             if (_bandBuf != IntPtr.Zero)
             {
                 Marshal.FreeHGlobal(_bandBuf);

@@ -224,6 +224,11 @@ namespace Okna
         [DllImport("user32.dll")]
         public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
 
+        public const int GW_HWNDPREV = 3;
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetWindow(IntPtr hwnd, int command);
+
         [DllImport("user32.dll")]
         public static extern IntPtr GetForegroundWindow();
 
@@ -511,6 +516,42 @@ namespace Okna
             uint pid;
             GetWindowThreadProcessId(hwnd, out pid);
             return pid == GetCurrentProcessId();
+        }
+
+        /// <summary>
+        /// True when another window is painted on top of <paramref name="rect"/>,
+        /// i.e. a screen grab of that rectangle would show that window instead
+        /// of the target. Always-on-top windows (some Electron shells) do this
+        /// even while the target is the foreground window.
+        /// </summary>
+        public static bool IsCovered(IntPtr target, RECT rect)
+        {
+            // A maximized window's frame overlaps the taskbar by a pixel or
+            // two, which is not a window painted over it.
+            const int Inset = 3;
+            int left = rect.Left + Inset;
+            int top = rect.Top + Inset;
+            int right = rect.Right - Inset;
+            int bottom = rect.Bottom - Inset;
+            if (right <= left || bottom <= top) return false;
+
+            for (IntPtr h = GetWindow(target, GW_HWNDPREV); h != IntPtr.Zero;
+                 h = GetWindow(h, GW_HWNDPREV))
+            {
+                if (h == target) continue;
+                if (!IsWindowVisible(h) || IsIconic(h)) continue;
+                if (IsCloaked(h)) continue;
+                if (IsOwnProcessWindow(h)) continue;
+
+                RECT r;
+                if (!GetWindowRect(h, out r)) continue;
+                if (r.Right <= r.Left || r.Bottom <= r.Top) continue;
+                if (r.Left >= right || r.Right <= left ||
+                    r.Top >= bottom || r.Bottom <= top) continue;
+
+                return true;
+            }
+            return false;
         }
 
         public static string GetWindowTitle(IntPtr hwnd)

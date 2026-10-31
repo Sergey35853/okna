@@ -117,6 +117,15 @@ namespace Okna
         private double _shakeExpiresAt;
         private Native.RECT _shakePendingRect;
         private double _stateCheckAt;
+        // Window classes whose PrintWindow call is too slow for a one-shot
+        // wobble (see StartJelly), and the overlay used for those one-shots.
+        // The wobble capture runs on a worker so a slow window cannot stall
+        // the engine.
+        private readonly System.Collections.Generic.HashSet<string> _slowCapture =
+            new System.Collections.Generic.HashSet<string>();
+        private readonly object _slowLock = new object();
+        private readonly BendOverlay _shot = new BendOverlay();
+        private volatile bool _shotBusy;
 
         // Close watcher: the picture of a window is taken when its close
         // button is under the cursor (or Alt+F4 is held); if the window is gone
@@ -268,7 +277,14 @@ namespace Okna
                     // Safety net: never leave a foreign window transparent or
                     // layered, whatever state the effect was interrupted in.
                     RestoreTargetVisibility();
-                    if (_overlayActive)
+                    if (_mode == Mode.Jelly)
+                    {
+                        // The wobble is drawn from the one-shot overlay; never
+                        // leave that copy on screen.
+                        _shot.Hide();
+                        _overlayActive = false;
+                    }
+                    else if (_overlayActive)
                     {
                         RestoreOverlay((int)Math.Round(_x), (int)Math.Round(_y));
                     }
@@ -281,17 +297,11 @@ namespace Okna
                         // Never leave a shaken window parked off its original spot.
                         Native.SetWindowPos(_target, IntPtr.Zero, _shakeRect.Left, _shakeRect.Top, 0, 0, ShakeFlags());
                     }
-                    else if (_mode == Mode.Jelly)
-                    {
-                        // Never leave the real window transparent or the copy up.
-                        RestoreTargetVisibility();
-                        if (_overlayActive)
-                        {
-                            _overlay.Hide();
-                            _overlayActive = false;
-                        }
-                    }
                     if (_overlay != null) _overlay.Dispose();
+                    // A capture that is still rendering owns the one-shot
+                    // overlay's buffers; let it finish and let the process
+                    // reclaim them.
+                    if (!_shotBusy) _shot.Dispose();
                     ClearCloseWatch();
                     ClearMinimizeWatch();
                 }
@@ -1358,6 +1368,100 @@ namespace Okna
         }
 
         /// <summary>
+        /// Takes the single frame the wobble needs, on a worker thread: the
+        /// PrintWindow call for some windows (the Windows 11 Notepad among
+        /// them) takes seconds, and waiting for it would freeze the engine.
+        /// When no frame arrives within 150 ms the wobble is skipped; a
+        /// capture that still takes over 250 ms marks its class as slow, so
+        /// later transitions of that window are not even attempted.
+        /// </summary>
+        private bool CaptureOnce(IntPtr hwnd, Native.RECT rect, string cls, out bool failed)
+        {
+            const int CaptureWait = 150;
+
+            failed = false;
+            if (_shotBusy) return false;
+            // The window has to belong to the engine thread (see Prepare).
+            if (!_shot.Prepare()) return false;
+            _shotBusy = true;
+            bool ok = false;
+            Thread worker = new Thread(delegate()
+            {
+                try
+                {
+                    ok = _shot.Capture(hwnd, rect, false);
+                    if (ok && _shot.LastPrintMs > 250 && cls.Length > 0)
+                    {
+                        lock (_slowLock) _slowCapture.Add(cls);
+                        Log.Debug("Jelly: '" + cls + "' capture took " +
+                            _shot.LastPrintMs.ToString("f0") + " ms; skipping it");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Jelly capture failed: " + ex.Message);
+                }
+                finally
+                {
+                    _shotBusy = false;
+                }
+            });
+            worker.IsBackground = true;
+            worker.Name = "OknaJellyCapture";
+            try
+            {
+                worker.Start();
+            }
+            catch (Exception ex)
+            {
+                _shotBusy = false;
+                Log.Error("Jelly capture thread failed: " + ex.Message);
+                failed = true;
+                return false;
+            }
+            if (!worker.Join(CaptureWait))
+            {
+                Log.Debug("Jelly skipped: capture still running after " +
+                    CaptureWait + " ms");
+                return false;
+            }
+            failed = !ok;
+            return ok;
+        }
+
+        /// <summary>
+        /// True when the screen shows the window without changing any more:
+        /// the shell has finished animating it and the app has repainted it at
+        /// the new size. Two quiet samples in a row are required (a single
+        /// stalled frame is not "settled"), and a window that keeps changing
+        /// for 700 ms gets no wobble at all.
+        /// </summary>
+        private bool WaitUntilSettled(IntPtr hwnd, Native.RECT rect)
+        {
+            const int SettleMin = 60;   // ms; never wobble sooner than this
+            const int SettleLimit = 700;
+            const int Quiet = 20;       // per mille of the sample that may change
+            const int QuietSamples = 2; // two quiet samples in a row
+
+            int quiet = 0;
+            Stopwatch watch = Stopwatch.StartNew();
+            while (true)
+            {
+                int change = _overlay.ScreenChange(hwnd, rect);
+                if (change < 0) return true;   // cannot sample: grab it now
+                if (change <= Quiet) quiet++;
+                else quiet = 0;
+
+                long elapsed = watch.ElapsedMilliseconds;
+                if (quiet >= QuietSamples && elapsed >= SettleMin) return true;
+                if (elapsed >= SettleLimit) return false;
+                if (!Native.IsWindow(hwnd) || Native.GetForegroundWindow() != hwnd)
+                    return false;
+                Thread.Sleep(20);
+            }
+        }
+
+        /// <summary>
         /// The maximized/restored window is replaced for a moment by a warped
         /// copy of itself: the copy sways like a slab of jelly instead of the
         /// whole window being shoved around rigidly. The real window is hidden
@@ -1383,12 +1487,48 @@ namespace Okna
             if (!Native.GetWindowRect(fg, out rect)) return;
             if (rect.Width < 80 || rect.Height < 40) return;
 
-            // One frozen frame is enough for a one-shot wobble: the window is
-            // not going to change while it jiggles.
-            if (!_overlay.Capture(fg, rect, false))
+            // Some windows (the Windows 11 Notepad among them) take over a
+            // second to render themselves into a bitmap. Their wobble would
+            // arrive after the window has already settled, which reads as a
+            // glitch rather than a reaction; once such a class is known, the
+            // wobble is skipped for it and the window keeps its own animation.
+            string cls = Native.GetWindowClass(fg);
+            bool slow;
+            lock (_slowLock) slow = cls.Length > 0 && _slowCapture.Contains(cls);
+            if (slow)
             {
-                Log.Debug("Jelly capture failed; using the physical shake");
-                StartShake(explicitTarget);
+                Log.Debug("Jelly skipped: '" + cls + "' captures slowly");
+                return;
+            }
+
+            // The window rectangle changes before the window has arrived: the
+            // shell animates it into place and the app repaints at its new
+            // size. Wait until the picture stops changing, so the copy shows
+            // the finished window instead of a half-way or previous frame.
+            if (!WaitUntilSettled(fg, rect))
+            {
+                Log.Debug("Jelly skipped: window still changing");
+                return;
+            }
+            if (!Native.IsWindow(fg) || !Native.GetWindowRect(fg, out rect)) return;
+            if (rect.Width < 80 || rect.Height < 40) return;
+
+            // One frozen frame is enough for a one-shot wobble: the window is
+            // not going to change while it jiggles. A window that cannot be
+            // captured in time is skipped: a wobble that arrives late looks
+            // like a glitch of its own.
+            bool failed;
+            if (!CaptureOnce(fg, rect, cls, out failed))
+            {
+                if (failed)
+                {
+                    Log.Debug("Jelly capture failed; using the physical shake");
+                    StartShake(explicitTarget);
+                }
+                else
+                {
+                    Log.Debug("Jelly skipped: no frame in time");
+                }
                 return;
             }
 
@@ -1408,12 +1548,13 @@ namespace Okna
 
             // The copy goes up first, undeformed, so it looks exactly like the
             // window; only then is the real window made invisible. The other
-            // order would flash the desktop for a frame.
-            _overlay.Show();
-            _overlay.RenderJelly(rect.Left, rect.Top, 0, 0, false);
+            // order would flash the desktop for a frame. The frame was taken
+            // into the one-shot overlay, so the jelly is drawn from there.
+            _shot.Show();
+            _shot.RenderJelly(rect.Left, rect.Top, 0, 0, false);
             if (!ClearTarget())
             {
-                _overlay.Hide();
+                _shot.Hide();
                 _target = IntPtr.Zero;
                 Log.Debug("Jelly takeover failed; using the physical shake");
                 StartShake(explicitTarget);
@@ -1473,7 +1614,7 @@ namespace Okna
             double ox = 0.0025 * w * env * Math.Cos(phase * 1.90 + 1.4);
             double oy = 0.0025 * h * env * Math.Cos(phase * 2.20 + 0.5);
 
-            _overlay.RenderJelly(
+            _shot.RenderJelly(
                 _shakeRect.Left + (int)Math.Round(ox),
                 _shakeRect.Top + (int)Math.Round(oy),
                 ax, ay, false);
@@ -1489,12 +1630,12 @@ namespace Okna
             // Draw the copy undeformed before revealing the real window, so the
             // hand-over is invisible.
             if (_overlayActive && _target != IntPtr.Zero && Native.IsWindow(_target))
-                _overlay.RenderJelly(_shakeRect.Left, _shakeRect.Top, 0, 0, false);
+                _shot.RenderJelly(_shakeRect.Left, _shakeRect.Top, 0, 0, false);
 
             RestoreTargetVisibility();
             if (_overlayActive)
             {
-                _overlay.Hide();
+                _shot.Hide();
                 _overlayActive = false;
             }
             ResetEngine(_settings.Enabled ? "Готово" : "Пауза");
@@ -2039,7 +2180,7 @@ namespace Okna
                     // The jelly copy must never drag the real window back to a
                     // stale rectangle (the user may have restored it meanwhile).
                     RestoreTargetVisibility();
-                    _overlay.Hide();
+                    _shot.Hide();
                     _overlayActive = false;
                 }
                 else
