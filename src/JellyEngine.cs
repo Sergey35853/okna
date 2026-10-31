@@ -107,12 +107,15 @@ namespace Okna
 
         // Window-state detection. The foreground window is watched for
         // maximize/restore transitions and for a return from the taskbar; a
-        // short shake is scheduled once the system animation has finished.
+        // short shake is scheduled as soon as the window has landed.
         private IntPtr _zoomWatch;
         private bool _zoomWatchState;
+        private Native.RECT _zoomWatchRect;
         private IntPtr _minimizedWatch;
         private IntPtr _shakePending;
         private double _shakePendingAt;
+        private double _shakeExpiresAt;
+        private Native.RECT _shakePendingRect;
         private double _stateCheckAt;
 
         // Close watcher: the picture of a window is taken when its close
@@ -351,15 +354,37 @@ namespace Okna
                     _shakePending = IntPtr.Zero;
                 }
 
-                if (_shakePending != IntPtr.Zero && now >= _shakePendingAt)
+                if (_shakePending != IntPtr.Zero)
                 {
                     IntPtr pending = _shakePending;
-                    _shakePending = IntPtr.Zero;
-                    if (!IsKeyDown(Native.VK_LBUTTON) &&
-                        Native.IsWindow(pending) && Native.IsWindowVisible(pending) &&
-                        !Native.IsIconic(pending) && Native.GetForegroundWindow() == pending)
+                    // The shell's zoom transition moves the window about a
+                    // tenth of a second after the state flips. Shake as soon as
+                    // the frame has moved (the user sees the window arrive and
+                    // wobble in one go) and fall back to the deadline for the
+                    // cases where it does not move at all.
+                    Native.RECT rect;
+                    bool landed = Native.GetWindowRect(pending, out rect) &&
+                                  !SameRect(rect, _shakePendingRect);
+                    if (now > _shakeExpiresAt)
                     {
-                        StartJelly(pending);
+                        // Nothing arrived in time: a wobble now would look like
+                        // it happened on its own.
+                        _shakePending = IntPtr.Zero;
+                    }
+                    else if (now >= _shakePendingAt || landed)
+                    {
+                        // A drag-to-the-top snap maximizes while the button is
+                        // still held: wait for the release instead of dropping
+                        // the wobble.
+                        if (!IsKeyDown(Native.VK_LBUTTON))
+                        {
+                            _shakePending = IntPtr.Zero;
+                            if (Native.IsWindow(pending) && Native.IsWindowVisible(pending) &&
+                                !Native.IsIconic(pending) && Native.GetForegroundWindow() == pending)
+                            {
+                                StartJelly(pending);
+                            }
+                        }
                     }
                 }
             }
@@ -1503,7 +1528,9 @@ namespace Okna
                 return;
             }
 
-            bool zoomed = Native.IsZoomed(foreground);
+            Native.RECT frame;
+            bool hasFrame = Native.GetWindowRect(foreground, out frame);
+            bool zoomed = IsMaximizedLike(foreground, hasFrame ? frame : new Native.RECT());
 
             // Back from the taskbar: the window was hidden, so it could not
             // shake while minimized — it shakes now that it is visible again.
@@ -1512,7 +1539,8 @@ namespace Okna
                 _minimizedWatch = IntPtr.Zero;
                 _zoomWatch = foreground;
                 _zoomWatchState = zoomed;
-                ScheduleShake(foreground, now);
+                _zoomWatchRect = frame;
+                ScheduleShake(foreground, now, frame);
                 return;
             }
 
@@ -1528,6 +1556,7 @@ namespace Okna
 
                 _zoomWatch = foreground;
                 _zoomWatchState = zoomed;
+                _zoomWatchRect = frame;
                 _shakePending = IntPtr.Zero;
                 return;
             }
@@ -1535,19 +1564,58 @@ namespace Okna
             if (zoomed != _zoomWatchState)
             {
                 _zoomWatchState = zoomed;
-                // Let the system's maximize/restore animation finish first.
-                ScheduleShake(foreground, now);
+                Log.Debug("Zoom " + (zoomed ? "max" : "restore") + " " + foreground.ToInt64() +
+                    " '" + Native.GetWindowTitle(foreground) + "' rect=" + frame.Left + "," +
+                    frame.Top + "," + frame.Width + "x" + frame.Height);
+                // The frame from the previous look tells whether the window has
+                // already moved: apps that resize themselves (Electron) have,
+                // the shell's zoom transition has not yet.
+                ScheduleShake(foreground, now, _zoomWatchRect);
             }
+            _zoomWatchRect = frame;
         }
 
         /// <summary>
-        /// Queues a shake for after the current system animation. The delay is
-        /// what keeps the wobble from fighting the maximize/restore transition.
+        /// True when the window looks maximized. Most windows say so through
+        /// <see cref="Native.IsZoomed"/>, but Electron/Chromium apps "maximize"
+        /// by resizing themselves to the work area: their IsZoomed stays false,
+        /// so the frame is compared with the monitor's work area as well.
         /// </summary>
-        private void ScheduleShake(IntPtr hwnd, double now)
+        private static bool IsMaximizedLike(IntPtr hwnd, Native.RECT rect)
         {
+            if (Native.IsZoomed(hwnd)) return true;
+
+            Native.RECT work;
+            if (!Native.GetWorkArea(hwnd, out work)) return false;
+
+            // A maximized window keeps its invisible resize border outside the
+            // work area (about eight pixels a side at 100 % scaling).
+            double scale = Math.Max(1.0, Native.GetDpiForWindow(hwnd) / 96.0);
+            int tol = (int)Math.Ceiling(12 * scale);
+            return Math.Abs(rect.Left - work.Left) <= tol &&
+                   Math.Abs(rect.Top - work.Top) <= tol &&
+                   Math.Abs(rect.Right - work.Right) <= tol &&
+                   Math.Abs(rect.Bottom - work.Bottom) <= tol;
+        }
+
+        private static bool SameRect(Native.RECT a, Native.RECT b)
+        {
+            return a.Left == b.Left && a.Top == b.Top &&
+                   a.Right == b.Right && a.Bottom == b.Bottom;
+        }
+
+        /// <summary>
+        /// Queues a shake. It fires as soon as the window frame has changed
+        /// since <paramref name="before"/>, and no later than the deadline —
+        /// which is short enough that the wobble reads as a reaction to the
+        /// click, not as something that happens afterwards.
+        /// </summary>
+        private void ScheduleShake(IntPtr hwnd, double now, Native.RECT before)
+        {
+            _shakePendingRect = before;
             _shakePending = hwnd;
-            _shakePendingAt = now + 0.36;
+            _shakePendingAt = now + 0.30;
+            _shakeExpiresAt = now + 1.5;
         }
 
         /// <summary>

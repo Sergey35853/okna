@@ -196,6 +196,22 @@ namespace Okna
         [DllImport("user32.dll")]
         public static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
 
+        /// <summary>
+        /// The part of the monitor the window lives on that is not covered by
+        /// the taskbar: exactly the rectangle a maximized window ends up on.
+        /// </summary>
+        public static bool GetWorkArea(IntPtr hwnd, out RECT work)
+        {
+            work = new RECT();
+            IntPtr monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            if (monitor == IntPtr.Zero) return false;
+            var info = new MONITORINFO();
+            info.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+            if (!GetMonitorInfo(monitor, ref info)) return false;
+            work = info.rcWork;
+            return true;
+        }
+
         public const int SM_CYSCREEN = 1;
         public const int SM_XVIRTUALSCREEN = 76;
         public const int SM_YVIRTUALSCREEN = 77;
