@@ -94,6 +94,82 @@ namespace Okna
     }
 
     /// <summary>
+    /// Finds the notification area (the tray) of the taskbar nearest to a
+    /// window. A window that is closed into the tray instead of being
+    /// destroyed is rolled into a tube and sent there.
+    /// </summary>
+    internal static class TrayFinder
+    {
+        private static readonly object Sync = new object();
+        private static Native.RECT[] _rects = new Native.RECT[0];
+        private static DateTime _stamp = DateTime.MinValue;
+
+        public static Native.RECT[] Rects()
+        {
+            lock (Sync)
+            {
+                if (_rects.Length > 0 && (DateTime.UtcNow - _stamp).TotalMilliseconds < 1000)
+                    return _rects;
+
+                List<Native.RECT> list = new List<Native.RECT>();
+                AddTray(Native.FindWindow("Shell_TrayWnd", null), list);
+                IntPtr after = IntPtr.Zero;
+                for (int i = 0; i < 8; i++)
+                {
+                    IntPtr h = Native.FindWindowEx(IntPtr.Zero, after, "Shell_SecondaryTrayWnd", null);
+                    if (h == IntPtr.Zero) break;
+                    AddTray(h, list);
+                    after = h;
+                }
+
+                _rects = list.ToArray();
+                _stamp = DateTime.UtcNow;
+                return _rects;
+            }
+        }
+
+        private static void AddTray(IntPtr bar, List<Native.RECT> list)
+        {
+            if (bar == IntPtr.Zero || !Native.IsWindowVisible(bar)) return;
+            // TrayNotifyWnd holds the icons and the clock. Older shells may not
+            // expose it, in which case the bar itself is close enough.
+            IntPtr tray = Native.FindWindowEx(bar, IntPtr.Zero, "TrayNotifyWnd", null);
+            if (tray == IntPtr.Zero) tray = bar;
+            Native.RECT r;
+            if (!Native.GetWindowRect(tray, out r)) return;
+            if (r.Width < 8 || r.Height < 8) return;
+            list.Add(r);
+        }
+
+        /// <summary>Picks the tray closest to the given window.</summary>
+        public static bool TryGet(Native.RECT near, out Native.RECT best)
+        {
+            best = new Native.RECT();
+            Native.RECT[] rects = Rects();
+            if (rects.Length == 0) return false;
+
+            double cx = (near.Left + near.Right) * 0.5;
+            double cy = (near.Top + near.Bottom) * 0.5;
+            double bestDistance = double.MaxValue;
+            bool found = false;
+            for (int i = 0; i < rects.Length; i++)
+            {
+                Native.RECT r = rects[i];
+                double dx = Math.Max(0, Math.Max(r.Left - cx, cx - r.Right));
+                double dy = Math.Max(0, Math.Max(r.Top - cy, cy - r.Bottom));
+                double d = dx * dx + dy * dy;
+                if (d < bestDistance)
+                {
+                    bestDistance = d;
+                    best = r;
+                    found = true;
+                }
+            }
+            return found;
+        }
+    }
+
+    /// <summary>
     /// Rolls a window that has just been minimized into a paper tube and lets
     /// the tube dive into the taskbar. The real window is already minimized by
     /// the system; this is a topmost layered window that draws a copy of its
@@ -111,6 +187,20 @@ namespace Okna
         /// </summary>
         public static void Play(Bitmap shot, Native.RECT frame, IntPtr hwnd)
         {
+            PlayCore(shot, frame, hwnd, false);
+        }
+
+        /// <summary>
+        /// Rolls the copy into the notification area: used when closing a
+        /// window only hides it because its program keeps running in the tray.
+        /// </summary>
+        public static void PlayToTray(Bitmap shot, Native.RECT frame)
+        {
+            PlayCore(shot, frame, IntPtr.Zero, true);
+        }
+
+        private static void PlayCore(Bitmap shot, Native.RECT frame, IntPtr hwnd, bool toTray)
+        {
             if (shot == null) return;
             if (shot.Width < 60 || shot.Height < 60) { shot.Dispose(); return; }
 
@@ -118,7 +208,7 @@ namespace Okna
             {
                 try
                 {
-                    Run(shot, frame, hwnd);
+                    Run(shot, frame, hwnd, toTray);
                 }
                 catch (Exception ex)
                 {
@@ -132,7 +222,7 @@ namespace Okna
             thread.Start();
         }
 
-        private static void Run(Bitmap shot, Native.RECT frame, IntPtr hwnd)
+        private static void Run(Bitmap shot, Native.RECT frame, IntPtr hwnd, bool toTray)
         {
             int vx = Native.GetSystemMetrics(Native.SM_XVIRTUALSCREEN);
             int vy = Native.GetSystemMetrics(Native.SM_YVIRTUALSCREEN);
@@ -142,14 +232,16 @@ namespace Okna
 
             Native.RECT bar;
             bool hasBar = TaskbarFinder.TryGet(frame, out bar);
+            Native.RECT tray = new Native.RECT();
+            bool hasTray = toTray && TrayFinder.TryGet(frame, out tray);
 
             // The canvas has to hold the window, the bar and the little arc the
             // tube takes on its way down.
             const int margin = 90;
-            int barLeft = hasBar ? bar.Left : frame.Left;
-            int barTop = hasBar ? bar.Top : frame.Bottom;
-            int barRight = hasBar ? bar.Right : frame.Right;
-            int barBottom = hasBar ? bar.Bottom : frame.Bottom;
+            int barLeft = hasBar ? bar.Left : (hasTray ? tray.Left : frame.Left);
+            int barTop = hasBar ? bar.Top : (hasTray ? tray.Top : frame.Bottom);
+            int barRight = hasBar ? bar.Right : (hasTray ? tray.Right : frame.Right);
+            int barBottom = hasBar ? bar.Bottom : (hasTray ? tray.Bottom : frame.Bottom);
             int left = Math.Max(vx, Math.Min(frame.Left, barLeft) - margin);
             int top = Math.Max(vy, Math.Min(frame.Top, barTop) - margin);
             int right = Math.Min(vx + screenW, Math.Max(frame.Right, barRight) + margin);
@@ -164,7 +256,10 @@ namespace Okna
 
             float targetX;
             float targetY;
-            TargetPoint(frame, hasBar, bar, out targetX, out targetY);
+            if (hasTray)
+                TrayPoint(tray, out targetX, out targetY);
+            else
+                TargetPoint(frame, hasBar, bar, out targetX, out targetY);
 
             IntPtr screen = Native.GetDC(IntPtr.Zero);
             if (screen == IntPtr.Zero) { shot.Dispose(); return; }
@@ -238,7 +333,7 @@ namespace Okna
                             DrawRoll(g, shot, frame, left, top, t / RollTime);
                         else
                             DrawSlide(g, shot, frame, left, top, targetX, targetY,
-                                (t - RollTime) / SlideTime, ref blend);
+                                (t - RollTime) / SlideTime, toTray, ref blend);
                     }
 
                     BitmapData data = canvas.LockBits(new Rectangle(0, 0, w, h),
@@ -321,6 +416,25 @@ namespace Okna
         }
 
         /// <summary>
+        /// Where the tube should end up inside the notification area. The
+        /// icons sit at the start of the tray and the clock takes its end, so
+        /// a third of the way in is on the icons, whatever the bar's edge.
+        /// </summary>
+        private static void TrayPoint(Native.RECT tray, out float x, out float y)
+        {
+            if (tray.Width >= tray.Height)
+            {
+                x = tray.Left + Math.Max(18f, tray.Width * 0.30f);
+                y = tray.Top + tray.Height * 0.5f;
+            }
+            else
+            {
+                y = tray.Top + Math.Max(18f, tray.Height * 0.30f);
+                x = tray.Left + tray.Width * 0.5f;
+            }
+        }
+
+        /// <summary>
         /// Phase one: the picture is rolled from the top down. The flat part
         /// keeps its scale (the material disappears into the tube), the tube
         /// grows as more of the window is gathered.
@@ -365,7 +479,7 @@ namespace Okna
         /// </summary>
         private static void DrawSlide(Graphics g, Bitmap shot, Native.RECT frame,
             int originX, int originY, float targetX, float targetY, double q,
-            ref Native.BLENDFUNCTION blend)
+            bool toTray, ref Native.BLENDFUNCTION blend)
         {
             if (q < 0) q = 0;
             if (q > 1) q = 1;
@@ -377,8 +491,10 @@ namespace Okna
             float startX = frame.Left + startW * 0.5f;
             float startY = frame.Bottom - maxRadius;
 
-            const float endW = 44f;
-            const float endH = 20f;
+            // A tray icon is smaller than a taskbar button: the tube shrinks
+            // to its size before it disappears into the notification area.
+            float endW = toTray ? 28f : 44f;
+            float endH = toTray ? 14f : 20f;
 
             // A quadratic Bezier with the control point lifted a little makes
             // the tube leave the window with a soft hop instead of sliding in

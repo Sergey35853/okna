@@ -273,7 +273,7 @@ namespace Okna
 
             Label shatterTitle = MakeLabel("Разбивать окно при закрытии", 20, 166, Theme.FontCardTitle, Theme.Text);
             optionsCard.Controls.Add(shatterTitle);
-            Label shatterSub = MakeLabel("Осколки стекла разлетаются от кнопки закрытия", 20, 188, Theme.FontSmall, Theme.Muted);
+            Label shatterSub = MakeLabel("Осколки стекла; если программа остаётся в трее — окно скатывается в трей", 20, 188, Theme.FontSmall, Theme.Muted);
             optionsCard.Controls.Add(shatterSub);
 
             _shatterSwitch = new JellySwitch();
@@ -338,7 +338,7 @@ namespace Okna
             tip.SetToolTip(_wobbleSwitch, "Добавляет боковое покачивание в конце движения");
             tip.SetToolTip(_bendSwitch, "Настоящая гнутость: окно на время перетаскивания замирает и изгибается");
             tip.SetToolTip(_maxShakeSwitch, "Окно качается, когда разворачивается на весь экран, восстанавливается или возвращается из панели задач");
-            tip.SetToolTip(_shatterSwitch, "Окно рассыпается осколками, когда закрывается кнопкой или по Alt+F4");
+            tip.SetToolTip(_shatterSwitch, "Окно рассыпается осколками, когда закрывается кнопкой или по Alt+F4; если программа остаётся в трее, окно скатывается в трубочку и уезжает в трей");
             tip.SetToolTip(_rollSwitch, "При сворачивании окно скатывается в трубочку и уезжает в панель задач");
         }
 

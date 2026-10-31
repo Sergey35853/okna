@@ -129,13 +129,16 @@ namespace Okna
 
         // Close watcher: the picture of a window is taken when its close
         // button is under the cursor (or Alt+F4 is held); if the window is gone
-        // a moment later, the picture is shattered.
+        // a moment later, the picture is shattered. A window that only hides
+        // because its program keeps running in the tray is rolled there
+        // instead: nothing was actually closed.
         private IntPtr _closeWatch;
         private Bitmap _closeShot;
         private Native.RECT _closeFrame;
         private Native.POINT _closePoint;
         private double _closeShotAt;
         private double _closeCheckAt;
+        private double _closeHiddenAt;
 
         // Minimize watcher: the picture is taken while the window is still on
         // screen — when the pointer is on its minimize button, on a taskbar
@@ -1773,6 +1776,7 @@ namespace Okna
                 {
                     IntPtr gone = _closeWatch;
                     _closeWatch = IntPtr.Zero;
+                    _closeHiddenAt = 0;
                     Bitmap shot = _closeShot;
                     _closeShot = null;
                     if (shot != null)
@@ -1782,6 +1786,31 @@ namespace Okna
                     }
                     return;
                 }
+
+                // Programs that keep running in the tray (Telegram, Steam,
+                // Discord) do not destroy their window when it is closed: they
+                // hide it. Nothing was closed, so the copy is rolled into a
+                // tube and sent to the notification area instead of being
+                // shattered. The short wait keeps a program that hides its
+                // window and then really exits on the shatter path.
+                if (!Native.IsWindowVisible(_closeWatch))
+                {
+                    if (_closeHiddenAt == 0) _closeHiddenAt = now;
+                    if (now - _closeHiddenAt < 0.18) return;
+                    IntPtr hidden = _closeWatch;
+                    _closeWatch = IntPtr.Zero;
+                    _closeHiddenAt = 0;
+                    Bitmap hiddenShot = _closeShot;
+                    _closeShot = null;
+                    if (hiddenShot != null)
+                    {
+                        Log.Debug("Roll to tray " + hidden.ToInt64() + " '" +
+                            Native.GetWindowTitle(hidden) + "'");
+                        RollOverlay.PlayToTray(hiddenShot, _closeFrame);
+                    }
+                    return;
+                }
+                _closeHiddenAt = 0;
 
                 // Keep the picture fresh while the pointer stays on the button.
                 if (now - _closeShotAt > 8.0)
@@ -1891,6 +1920,7 @@ namespace Okna
         private void ClearCloseWatch()
         {
             _closeWatch = IntPtr.Zero;
+            _closeHiddenAt = 0;
             if (_closeShot != null)
             {
                 _closeShot.Dispose();
