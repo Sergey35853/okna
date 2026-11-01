@@ -20,6 +20,10 @@ namespace Okna
         private bool _exiting;
         private Timer _startTimer;
 
+        private ToolStripMenuItem _pauseItem;
+        private Timer _pauseTimer;
+        private DateTime _pauseUntil;
+
         private ToolStripMenuItem _updateItem;
         private ToolStripMenuItem _checkItem;
         private ToolStripMenuItem _autoUpdateItem;
@@ -55,14 +59,12 @@ namespace Okna
             _menu.Items.Add(new ToolStripSeparator());
 
             _toggleItem = NewItem("");
-            _toggleItem.Click += delegate
-            {
-                _settings.Enabled = !_settings.Enabled;
-                _settings.Save();
-                UpdateMenu();
-                if (_form != null && !_form.IsDisposed) _form.SyncFromSettings();
-            };
+            _toggleItem.Click += delegate { TogglePause(false); };
             _menu.Items.Add(_toggleItem);
+
+            _pauseItem = NewItem("Пауза на 30 минут");
+            _pauseItem.Click += delegate { ToggleTimedPause(); };
+            _menu.Items.Add(_pauseItem);
 
             ToolStripMenuItem settingsItem = NewItem("Настройки…");
             settingsItem.Click += delegate { ShowSettings(); };
@@ -185,8 +187,33 @@ namespace Okna
             _settings.StartWithWindows = AppSettings.IsAutoStartEnabled();
             _toggleItem.Text = _settings.Enabled ? "Эффект включён" : "Эффект выключен";
             _toggleItem.ForeColor = _settings.Enabled ? Theme.Accent : Theme.Muted;
+            _toggleItem.ShortcutKeyDisplayString = "Ctrl+Alt+J";
+
+            if (_pauseItem != null)
+            {
+                if (_pauseTimer != null)
+                {
+                    int minutes = (int)Math.Ceiling((_pauseUntil - DateTime.UtcNow).TotalMinutes);
+                    if (minutes < 1) minutes = 1;
+                    _pauseItem.Text = "Возобновить (ещё " + minutes + " мин)";
+                    _pauseItem.ForeColor = Theme.Accent;
+                }
+                else
+                {
+                    _pauseItem.Text = "Пауза на 30 минут";
+                    _pauseItem.ForeColor = Theme.Text;
+                }
+            }
+
             _startupItem.Text = _settings.StartWithWindows ? "Автозапуск включён" : "Автозапуск выключен";
-            _notify.Text = _settings.Enabled ? "Окна — включено" : "Окна — пауза";
+
+            string reason = _engine.PauseReason;
+            if (reason == null)
+                _notify.Text = "Окна — включено";
+            else if (reason == "Пауза" || reason == "Пауза на время")
+                _notify.Text = "Окна — пауза";
+            else
+                _notify.Text = "Окна — " + reason;
 
             if (_autoUpdateItem != null)
                 _autoUpdateItem.Text = _settings.AutoUpdate ? "Автообновление включено" : "Автообновление выключено";
@@ -196,6 +223,94 @@ namespace Okna
                 _updateItem.Visible = _ready != null;
                 if (_ready != null) _updateItem.Text = "Обновить до v" + Updater.Format(_ready.Version);
             }
+        }
+
+        /// <summary>
+        /// Refreshes the tray tooltip straight from the engine state, so an
+        /// automatic pause or a manual toggle is visible even with the menu
+        /// closed.
+        /// </summary>
+        public void RefreshStatus()
+        {
+            Post(delegate
+            {
+                string reason = _engine.PauseReason;
+                if (reason == null)
+                    _notify.Text = "Окна — включено";
+                else if (reason == "Пауза" || reason == "Пауза на время")
+                    _notify.Text = "Окна — пауза";
+                else
+                    _notify.Text = "Окна — " + reason;
+            });
+        }
+
+        /// <summary>
+        /// Turns the effects on or off for good. Bound to the tray item and to
+        /// Ctrl+Alt+J; a temporary pause is cleared when switching off.
+        /// </summary>
+        public void TogglePause()
+        {
+            TogglePause(true);
+        }
+
+        private void TogglePause(bool notify)
+        {
+            _settings.Enabled = !_settings.Enabled;
+            _settings.Save();
+            Log.Debug("Effects " + (_settings.Enabled ? "on" : "off"));
+            if (!_settings.Enabled) ClearTimedPause();
+            UpdateMenu();
+            if (_form != null && !_form.IsDisposed) _form.SyncFromSettings();
+            if (notify)
+                Balloon(_settings.Enabled ? "Окна включены" : "Окна на паузе",
+                        _settings.Enabled
+                            ? "Эффекты снова работают."
+                            : "Нажмите Ctrl+Alt+J или выберите «Эффект выключен» в трее, чтобы вернуть.");
+        }
+
+        /// <summary>
+        /// A pause that ends by itself: the master switch stays on, but the
+        /// effects sleep for half an hour. Pressing it again resumes early.
+        /// </summary>
+        private void ToggleTimedPause()
+        {
+            if (_pauseTimer != null)
+            {
+                ClearTimedPause();
+                UpdateMenu();
+                if (_form != null && !_form.IsDisposed) _form.SyncFromSettings();
+                Balloon("Окна включены", "Пауза снята.");
+                return;
+            }
+
+            _engine.ManuallyPaused = true;
+            _pauseUntil = DateTime.UtcNow.AddMinutes(30);
+            Log.Debug("Manual pause for 30 minutes");
+            _pauseTimer = new Timer();
+            _pauseTimer.Interval = 30 * 60 * 1000;
+            _pauseTimer.Tick += delegate
+            {
+                ClearTimedPause();
+                UpdateMenu();
+                if (_form != null && !_form.IsDisposed) _form.SyncFromSettings();
+                Balloon("Окна включены", "Пауза на 30 минут закончилась.");
+            };
+            _pauseTimer.Start();
+            UpdateMenu();
+            if (_form != null && !_form.IsDisposed) _form.SyncFromSettings();
+            Balloon("Окна на паузе", "Эффекты вернутся через 30 минут.");
+        }
+
+        private void ClearTimedPause()
+        {
+            if (_pauseTimer != null)
+            {
+                _pauseTimer.Stop();
+                _pauseTimer.Dispose();
+                _pauseTimer = null;
+                Log.Debug("Manual pause cleared");
+            }
+            _engine.ManuallyPaused = false;
         }
 
         private void StartUpdater()
@@ -358,6 +473,7 @@ namespace Okna
             if (_firstCheck != null) { _firstCheck.Stop(); _firstCheck.Dispose(); _firstCheck = null; }
             if (_updateTimer != null) { _updateTimer.Stop(); _updateTimer.Dispose(); _updateTimer = null; }
             if (_applyTimer != null) { _applyTimer.Stop(); _applyTimer.Dispose(); _applyTimer = null; }
+            ClearTimedPause();
 
             if (_notify != null)
             {
@@ -405,6 +521,8 @@ namespace Okna
 
     internal sealed class DispatcherForm : Form
     {
+        private const int HotkeyId = 0x4F4B;
+
         public TrayApp Tray { get; set; }
 
         public DispatcherForm()
@@ -429,11 +547,32 @@ namespace Okna
             }
         }
 
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            // Ctrl+Alt+J: the global switch, so the effects can be silenced
+            // without hunting for the tray icon.
+            bool ok = Native.RegisterHotKey(Handle, HotkeyId,
+                Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, Native.VK_J);
+            if (!ok) Log.Debug("Hotkey Ctrl+Alt+J is already taken");
+        }
+
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            try { Native.UnregisterHotKey(Handle, HotkeyId); } catch { }
+            base.OnHandleDestroyed(e);
+        }
+
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == Native.WM_APP_SHOW)
             {
                 if (Tray != null) Tray.ShowSettings();
+                return;
+            }
+            if (m.Msg == Native.WM_HOTKEY && m.WParam.ToInt32() == HotkeyId)
+            {
+                if (Tray != null) Tray.TogglePause();
                 return;
             }
             base.WndProc(ref m);

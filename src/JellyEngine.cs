@@ -19,13 +19,20 @@ namespace Okna
         }
 
         private readonly AppSettings _settings;
+        private readonly AutoPause _autoPause = new AutoPause();
         private Thread _thread;
         private volatile bool _stopping;
         private volatile bool _shakeRequested;
+        private volatile bool _manualPause;
         private IntPtr _explicitShakeTarget;
         private IntPtr _lastExternal;
         private volatile string _status = "Готово";
         private bool _ownElevated;
+
+        private bool _excluded;
+        private string _excludedName;
+        private IntPtr _excludeCheckHwnd;
+        private double _excludeCheckAt;
 
         private Mode _mode = Mode.Idle;
         private IntPtr _target;
@@ -176,6 +183,68 @@ namespace Okna
         public bool IsRunning
         {
             get { return _thread != null && _thread.IsAlive; }
+        }
+
+        /// <summary>
+        /// True while the user asked for a temporary pause (the 30 minute
+        /// item in the tray menu). The master switch is not touched.
+        /// </summary>
+        public bool ManuallyPaused
+        {
+            get { return _manualPause; }
+            set { _manualPause = value; }
+        }
+
+        /// <summary>
+        /// Why the effects are standing aside right now, or null when they
+        /// are working. The settings pill and the tray menu show this.
+        /// </summary>
+        public string PauseReason
+        {
+            get
+            {
+                if (!_settings.Enabled) return "Пауза";
+                if (_manualPause) return "Пауза на время";
+                if (_autoPause.Paused) return _autoPause.Reason;
+                if (_excluded) return "Исключение: " + _excludedName;
+                return null;
+            }
+        }
+
+        private bool Active
+        {
+            get
+            {
+                return _settings.Enabled && !_manualPause && !_autoPause.Paused && !_excluded;
+            }
+        }
+
+        /// <summary>
+        /// Refreshes the automatic pause and the per-program exclusion for
+        /// the window in front. Runs from the engine thread, so the settings
+        /// arrays are read as immutable snapshots.
+        /// </summary>
+        private void UpdateGates(IntPtr foreground, double now)
+        {
+            _autoPause.Update(foreground, now);
+
+            if (foreground != _excludeCheckHwnd || now >= _excludeCheckAt)
+            {
+                _excludeCheckHwnd = foreground;
+                _excludeCheckAt = now + 1.0;
+                string exe = Native.GetWindowProcessName(foreground);
+                bool excluded = exe != null && _settings.IsExcluded(exe);
+                if (excluded != _excluded)
+                {
+                    _excluded = excluded;
+                    _excludedName = excluded ? exe : null;
+                    Log.Debug(excluded ? "Excluded: " + exe : "Excluded: none");
+                }
+                else if (excluded)
+                {
+                    _excludedName = exe;
+                }
+            }
         }
 
         public void Start()
@@ -340,17 +409,19 @@ namespace Okna
                     Native.IsWindowVisible(foreground) && !Native.IsIconic(foreground))
                     _lastExternal = foreground;
 
-                if (_settings.Enabled && (_settings.Shatter || _settings.Burn))
+                UpdateGates(foreground, now);
+
+                if (Active && (_settings.Shatter || _settings.Burn))
                     WatchClose(foreground, now);
                 else
                     ClearCloseWatch();
 
-                if (_settings.Enabled && _settings.Roll)
+                if (Active && _settings.Roll)
                     WatchMinimize(foreground, now);
                 else
                     ClearMinimizeWatch();
 
-                if (_settings.Enabled && _settings.MaxShake)
+                if (Active && _settings.MaxShake)
                 {
                     // The idle loop runs every few milliseconds, but window
                     // state changes are far slower: a look every 30 ms is
@@ -428,7 +499,7 @@ namespace Okna
                 if (!_latched)
                 {
                     _latched = true;
-                    if (_settings.Enabled && !shift && !escape)
+                    if (Active && !shift && !escape)
                         TryBeginCandidate();
                 }
                 return;
@@ -436,7 +507,7 @@ namespace Okna
 
             if (_mode == Mode.Candidate)
             {
-                if (!down || shift || !_settings.Enabled)
+                if (!down || shift || !Active)
                 {
                     ResetEngine(_settings.Enabled ? "Готово" : "Пауза");
                     return;
@@ -487,7 +558,7 @@ namespace Okna
 
             if (_mode == Mode.Dragging)
             {
-                if (!_settings.Enabled)
+                if (!Active)
                 {
                     BeginSettle(now, false);
                     return;
@@ -769,7 +840,7 @@ namespace Okna
             _frame = 0;
             _followTicks = 0;
             _overlayActive = false;
-            _overlayPending = _settings.Bend && _settings.Enabled;
+            _overlayPending = _settings.Bend && Active;
             _captureTried = false;
             _captureOk = false;
             _following = false;
@@ -2257,8 +2328,13 @@ namespace Okna
         private void SetStatus(string status)
         {
             if (!string.Equals(_status, status, StringComparison.Ordinal))
+            {
                 _status = status;
+                if (StatusChanged != null) StatusChanged(status);
+            }
         }
+
+        public event Action<string> StatusChanged;
 
         private static bool IsKeyDown(int key)
         {

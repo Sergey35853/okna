@@ -79,6 +79,7 @@ namespace Okna
                 DispatcherForm dispatcher = new DispatcherForm();
                 dispatcher.Tray = tray;
                 tray.Dispatcher = dispatcher;
+                engine.StatusChanged += delegate { tray.RefreshStatus(); };
                 dispatcher.Show();
 
                 try

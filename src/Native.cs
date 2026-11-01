@@ -568,6 +568,107 @@ namespace Okna
             return sb.ToString();
         }
 
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool QueryFullProcessImageName(IntPtr process, uint flags,
+            StringBuilder name, ref int size);
+
+        /// <summary>
+        /// The file name of the program that owns the window ("chrome.exe"),
+        /// or null when it cannot be read (elevated programs).
+        /// </summary>
+        public static string GetWindowProcessName(IntPtr hwnd)
+        {
+            uint pid;
+            GetWindowThreadProcessId(hwnd, out pid);
+            if (pid == 0) return null;
+            IntPtr process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+            if (process == IntPtr.Zero) return null;
+            try
+            {
+                StringBuilder sb = new StringBuilder(1024);
+                int size = sb.Capacity;
+                if (!QueryFullProcessImageName(process, 0, sb, ref size)) return null;
+                string path = sb.ToString(0, size);
+                try { return System.IO.Path.GetFileName(path); }
+                catch { return null; }
+            }
+            finally
+            {
+                CloseHandle(process);
+            }
+        }
+
+        public const int SM_REMOTESESSION = 0x1000;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SYSTEM_POWER_STATUS
+        {
+            public byte ACLineStatus;
+            public byte BatteryFlag;
+            public byte BatteryLifePercent;
+            public byte SystemStatusFlag;
+            public uint BatteryLifeTime;
+            public uint BatteryFullLifeTime;
+        }
+
+        [DllImport("kernel32.dll")]
+        public static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS status);
+
+        public static bool IsRemoteSession()
+        {
+            return GetSystemMetrics(SM_REMOTESESSION) != 0;
+        }
+
+        public static bool IsBatterySaverOn()
+        {
+            SYSTEM_POWER_STATUS status;
+            if (!GetSystemPowerStatus(out status)) return false;
+            return status.SystemStatusFlag == 1;
+        }
+
+        public const int WM_HOTKEY = 0x0312;
+        public const uint MOD_ALT = 0x0001;
+        public const uint MOD_CONTROL = 0x0002;
+        public const uint MOD_NOREPEAT = 0x4000;
+        public const int VK_J = 0x4A;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
+
+        /// <summary>
+        /// True when the window covers its whole monitor, which is how games
+        /// and full-screen video look. A merely maximized window leaves the
+        /// taskbar visible and is not counted.
+        /// </summary>
+        public static bool IsFullscreenWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return false;
+            if (!IsWindowVisible(hwnd) || IsIconic(hwnd)) return false;
+            if (IsOwnProcessWindow(hwnd)) return false;
+
+            string cls = GetWindowClass(hwnd);
+            if (cls == "Progman" || cls == "WorkerW" || cls == "Shell_TrayWnd" ||
+                cls == "Shell_SecondaryTrayWnd")
+                return false;
+
+            RECT rect;
+            if (!GetWindowRect(hwnd, out rect)) return false;
+            IntPtr monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            if (monitor == IntPtr.Zero) return false;
+            var info = new MONITORINFO();
+            info.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+            if (!GetMonitorInfo(monitor, ref info)) return false;
+
+            const int slack = 2;
+            return rect.Left <= info.rcMonitor.Left + slack &&
+                   rect.Top <= info.rcMonitor.Top + slack &&
+                   rect.Right >= info.rcMonitor.Right - slack &&
+                   rect.Bottom >= info.rcMonitor.Bottom - slack;
+        }
+
         public static IntPtr MakeLParam(int x, int y)
         {
             return (IntPtr)((y << 16) | (x & 0xFFFF));

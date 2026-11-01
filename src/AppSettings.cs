@@ -20,6 +20,7 @@ namespace Okna
         private volatile bool _burn = false;
         private volatile bool _roll = true;
         private volatile bool _autoUpdate = true;
+        private volatile string[] _exclude = new string[0];
 
         public bool Enabled
         {
@@ -84,6 +85,65 @@ namespace Okna
             set { _autoUpdate = value; }
         }
 
+        /// <summary>
+        /// Executable names the user does not want the effects in. The array
+        /// is replaced as a whole, so the engine thread can read it without a
+        /// lock while the settings form edits it.
+        /// </summary>
+        public string[] Exclude
+        {
+            get { return _exclude; }
+        }
+
+        public bool IsExcluded(string executableName)
+        {
+            if (string.IsNullOrEmpty(executableName)) return false;
+            string[] list = _exclude;
+            for (int i = 0; i < list.Length; i++)
+                if (string.Equals(list[i], executableName, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
+        public void AddExclude(string executableName)
+        {
+            string name = CleanExecutableName(executableName);
+            if (name == null || IsExcluded(name)) return;
+            string[] list = _exclude;
+            string[] next = new string[list.Length + 1];
+            Array.Copy(list, next, list.Length);
+            next[list.Length] = name;
+            _exclude = next;
+        }
+
+        public void RemoveExclude(string executableName)
+        {
+            string[] list = _exclude;
+            int index = -1;
+            for (int i = 0; i < list.Length; i++)
+                if (string.Equals(list[i], executableName, StringComparison.OrdinalIgnoreCase))
+                {
+                    index = i;
+                    break;
+                }
+            if (index < 0) return;
+            string[] next = new string[list.Length - 1];
+            Array.Copy(list, 0, next, 0, index);
+            Array.Copy(list, index + 1, next, index, list.Length - index - 1);
+            _exclude = next;
+        }
+
+        private static string CleanExecutableName(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return null;
+            string name = value.Trim();
+            if (name.Length == 0) return null;
+            try { name = System.IO.Path.GetFileName(name); }
+            catch { }
+            if (string.IsNullOrEmpty(name)) return null;
+            return name;
+        }
+
         public bool FirstRun { get; set; }
         public bool StartWithWindows { get; set; }
 
@@ -136,6 +196,13 @@ namespace Okna
                         if (v != null) s.Roll = Convert.ToInt32(v) != 0;
                         v = key.GetValue("AutoUpdate");
                         if (v != null) s.AutoUpdate = Convert.ToInt32(v) != 0;
+                        v = key.GetValue("Exclude");
+                        if (v is string[])
+                        {
+                            string[] names = (string[])v;
+                            for (int i = 0; i < names.Length; i++)
+                                s.AddExclude(names[i]);
+                        }
                         v = key.GetValue("FirstRun");
                         s.FirstRun = v == null || Convert.ToInt32(v) != 0;
                     }
@@ -222,6 +289,7 @@ namespace Okna
                     key.SetValue("Burn", _burn ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("Roll", _roll ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("AutoUpdate", _autoUpdate ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue("Exclude", _exclude, RegistryValueKind.MultiString);
                     key.SetValue("FirstRun", 0, RegistryValueKind.DWord);
                 }
             }
