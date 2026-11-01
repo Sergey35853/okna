@@ -19,6 +19,7 @@ namespace Okna
         private volatile bool _shatter = true;
         private volatile bool _burn = false;
         private volatile bool _roll = true;
+        private volatile bool _rollHorizontal = false;
         private volatile bool _autoUpdate = true;
         private volatile string[] _exclude = new string[0];
 
@@ -77,6 +78,16 @@ namespace Okna
         {
             get { return _roll; }
             set { _roll = value; }
+        }
+
+        /// <summary>
+        /// Roll minimized or closed-into-tray windows sideways into the
+        /// taskbar instead of upwards.
+        /// </summary>
+        public bool RollHorizontal
+        {
+            get { return _rollHorizontal; }
+            set { _rollHorizontal = value; }
         }
 
         public bool AutoUpdate
@@ -194,6 +205,8 @@ namespace Okna
                         if (v != null) s.Burn = Convert.ToInt32(v) != 0;
                         v = key.GetValue("Roll");
                         if (v != null) s.Roll = Convert.ToInt32(v) != 0;
+                        v = key.GetValue("RollHorizontal");
+                        if (v != null) s.RollHorizontal = Convert.ToInt32(v) != 0;
                         v = key.GetValue("AutoUpdate");
                         if (v != null) s.AutoUpdate = Convert.ToInt32(v) != 0;
                         v = key.GetValue("Exclude");
@@ -288,6 +301,7 @@ namespace Okna
                     key.SetValue("Shatter", _shatter ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("Burn", _burn ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("Roll", _roll ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue("RollHorizontal", _rollHorizontal ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("AutoUpdate", _autoUpdate ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("Exclude", _exclude, RegistryValueKind.MultiString);
                     key.SetValue("FirstRun", 0, RegistryValueKind.DWord);

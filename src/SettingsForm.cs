@@ -20,6 +20,7 @@ namespace Okna
         private JellyButton _closeShatter;
         private JellyButton _closeBurn;
         private JellySwitch _rollSwitch;
+        private JellySwitch _rollHorizontalSwitch;
         private JellySwitch _startupSwitch;
         private ListBox _excludeList;
         private JellySlider _slider;
@@ -84,6 +85,7 @@ namespace Okna
             _maxShakeSwitch.Checked = _settings.MaxShake;
             UpdateCloseStyles();
             _rollSwitch.Checked = _settings.Roll;
+            _rollHorizontalSwitch.Checked = _settings.RollHorizontal;
             _startupSwitch.Checked = _settings.StartWithWindows;
             RefreshExcludeList();
             _slider.Value = _settings.Jelly;
@@ -343,19 +345,34 @@ namespace Okna
             _rollSwitch.Location = new Point(432, 300);
             optionsCard.Controls.Add(_rollSwitch);
 
+            Label rollDirTitle = MakeLabel("Скатывать сбоку", 20, 332, Theme.FontCardTitle, Theme.Text);
+            optionsCard.Controls.Add(rollDirTitle);
+            Label rollDirSub = MakeLabel("Справа налево, а не сверху вниз", 20, 354, Theme.FontSmall, Theme.Muted);
+            optionsCard.Controls.Add(rollDirSub);
+
+            _rollHorizontalSwitch = new JellySwitch();
+            _rollHorizontalSwitch.Location = new Point(432, 336);
+            _rollHorizontalSwitch.Checked = _settings.RollHorizontal;
+            _rollHorizontalSwitch.CheckedChanged += delegate
+            {
+                _settings.RollHorizontal = _rollHorizontalSwitch.Checked;
+                SaveSoon();
+            };
+            optionsCard.Controls.Add(_rollHorizontalSwitch);
+
             Panel divider6 = new Panel();
-            divider6.Location = new Point(20, 336);
+            divider6.Location = new Point(20, 378);
             divider6.Size = new Size(472, 1);
             divider6.BackColor = Theme.BorderSoft;
             optionsCard.Controls.Add(divider6);
 
-            Label startupTitle = MakeLabel("Запускать с Windows", 20, 344, Theme.FontCardTitle, Theme.Text);
+            Label startupTitle = MakeLabel("Запускать с Windows", 20, 386, Theme.FontCardTitle, Theme.Text);
             optionsCard.Controls.Add(startupTitle);
-            Label startupSub = MakeLabel("Тихо стартовать вместе с системой", 20, 366, Theme.FontSmall, Theme.Muted);
+            Label startupSub = MakeLabel("Тихо стартовать вместе с системой", 20, 408, Theme.FontSmall, Theme.Muted);
             optionsCard.Controls.Add(startupSub);
 
             _startupSwitch = new JellySwitch();
-            _startupSwitch.Location = new Point(432, 348);
+            _startupSwitch.Location = new Point(432, 388);
             optionsCard.Controls.Add(_startupSwitch);
 
             CardPanel excludeCard = new CardPanel();
@@ -515,6 +532,7 @@ namespace Okna
             _maxShakeSwitch.Checked = _settings.MaxShake;
             UpdateCloseStyles();
             _rollSwitch.Checked = _settings.Roll;
+            _rollHorizontalSwitch.Checked = _settings.RollHorizontal;
             _startupSwitch.Checked = _settings.StartWithWindows;
             RefreshExcludeList();
             _slider.Value = _settings.Jelly;

@@ -187,7 +187,16 @@ namespace Okna
         /// </summary>
         public static void Play(Bitmap shot, Native.RECT frame, IntPtr hwnd)
         {
-            PlayCore(shot, frame, hwnd, false);
+            PlayCore(shot, frame, hwnd, false, false);
+        }
+
+        /// <summary>
+        /// Plays the roll with a chosen direction. <paramref name="horizontal"/>
+        /// rolls the window sideways into the taskbar instead of upwards.
+        /// </summary>
+        public static void Play(Bitmap shot, Native.RECT frame, IntPtr hwnd, bool horizontal)
+        {
+            PlayCore(shot, frame, hwnd, false, horizontal);
         }
 
         /// <summary>
@@ -196,10 +205,18 @@ namespace Okna
         /// </summary>
         public static void PlayToTray(Bitmap shot, Native.RECT frame)
         {
-            PlayCore(shot, frame, IntPtr.Zero, true);
+            PlayCore(shot, frame, IntPtr.Zero, true, false);
         }
 
-        private static void PlayCore(Bitmap shot, Native.RECT frame, IntPtr hwnd, bool toTray)
+        /// <summary>
+        /// Rolls the copy into the notification area sideways.
+        /// </summary>
+        public static void PlayToTray(Bitmap shot, Native.RECT frame, bool horizontal)
+        {
+            PlayCore(shot, frame, IntPtr.Zero, true, horizontal);
+        }
+
+        private static void PlayCore(Bitmap shot, Native.RECT frame, IntPtr hwnd, bool toTray, bool horizontal)
         {
             if (shot == null) return;
             if (shot.Width < 60 || shot.Height < 60) { shot.Dispose(); return; }
@@ -208,7 +225,7 @@ namespace Okna
             {
                 try
                 {
-                    Run(shot, frame, hwnd, toTray);
+                    Run(shot, frame, hwnd, toTray, horizontal);
                 }
                 catch (Exception ex)
                 {
@@ -222,7 +239,7 @@ namespace Okna
             thread.Start();
         }
 
-        private static void Run(Bitmap shot, Native.RECT frame, IntPtr hwnd, bool toTray)
+        private static void Run(Bitmap shot, Native.RECT frame, IntPtr hwnd, bool toTray, bool horizontal)
         {
             int vx = Native.GetSystemMetrics(Native.SM_XVIRTUALSCREEN);
             int vy = Native.GetSystemMetrics(Native.SM_YVIRTUALSCREEN);
@@ -330,10 +347,10 @@ namespace Okna
                         g.PixelOffsetMode = PixelOffsetMode.HighSpeed;
 
                         if (t < RollTime)
-                            DrawRoll(g, shot, frame, left, top, t / RollTime);
+                            DrawRoll(g, shot, frame, left, top, t / RollTime, horizontal);
                         else
                             DrawSlide(g, shot, frame, left, top, targetX, targetY,
-                                (t - RollTime) / SlideTime, toTray, ref blend);
+                                (t - RollTime) / SlideTime, toTray, horizontal, ref blend);
                     }
 
                     BitmapData data = canvas.LockBits(new Rectangle(0, 0, w, h),
@@ -437,64 +454,99 @@ namespace Okna
         /// <summary>
         /// Phase one: the picture is rolled from the top down. The flat part
         /// keeps its scale (the material disappears into the tube), the tube
-        /// grows as more of the window is gathered.
+        /// grows as more of the window is gathered. A sideways roll gathers
+        /// from the right edge towards the left instead.
         /// </summary>
         private static void DrawRoll(Graphics g, Bitmap shot, Native.RECT frame,
-            int originX, int originY, double p)
+            int originX, int originY, double p, bool horizontal)
         {
             if (p < 0) p = 0;
             if (p > 1) p = 1;
             double s = p * p * (3 - 2 * p);
 
-            float maxRadius = Math.Min(frame.Height * 0.5f, Math.Max(10f, frame.Height * 0.03f));
-            float radius = 3f + (maxRadius - 3f) * (float)Math.Pow(s, 0.85);
-            float centerY = frame.Top + radius + (frame.Height - 2 * radius) * (float)s;
-            float flatTop = centerY + radius;
-
-            g.InterpolationMode = InterpolationMode.NearestNeighbor;
-            float flatHeight = frame.Bottom - flatTop;
-            if (flatHeight > 1)
+            if (!horizontal)
             {
-                g.DrawImage(shot,
-                    new RectangleF(frame.Left - originX, flatTop - originY, frame.Width, flatHeight),
-                    new RectangleF(0, flatTop - frame.Top, shot.Width, flatHeight),
-                    GraphicsUnit.Pixel);
-            }
+                float maxRadius = Math.Min(frame.Height * 0.5f, Math.Max(10f, frame.Height * 0.03f));
+                float radius = 3f + (maxRadius - 3f) * (float)Math.Pow(s, 0.85);
+                float centerY = frame.Top + radius + (frame.Height - 2 * radius) * (float)s;
+                float flatTop = centerY + radius;
 
-            g.InterpolationMode = InterpolationMode.Bilinear;
-            // The tube shows only the outermost layer of the roll: a thin strip
-            // of the picture stretched into a band, so it reads as rolled paper
-            // instead of a squashed screenshot.
-            float stripY = Math.Max(0f, centerY - radius - frame.Top - 4f);
-            float stripH = Math.Min(8f, shot.Height - stripY);
-            DrawTube(g, shot,
-                new RectangleF(frame.Left - originX, centerY - radius - originY,
-                    frame.Width, radius * 2),
-                new RectangleF(0, stripY, shot.Width, Math.Max(1f, stripH)));
+                g.InterpolationMode = InterpolationMode.NearestNeighbor;
+                float flatHeight = frame.Bottom - flatTop;
+                if (flatHeight > 1)
+                {
+                    g.DrawImage(shot,
+                        new RectangleF(frame.Left - originX, flatTop - originY, frame.Width, flatHeight),
+                        new RectangleF(0, flatTop - frame.Top, shot.Width, flatHeight),
+                        GraphicsUnit.Pixel);
+                }
+
+                g.InterpolationMode = InterpolationMode.Bilinear;
+                // The tube shows only the outermost layer of the roll: a thin strip
+                // of the picture stretched into a band, so it reads as rolled paper
+                // instead of a squashed screenshot.
+                float stripY = Math.Max(0f, centerY - radius - frame.Top - 4f);
+                float stripH = Math.Min(8f, shot.Height - stripY);
+                DrawTube(g, shot,
+                    new RectangleF(frame.Left - originX, centerY - radius - originY,
+                        frame.Width, radius * 2),
+                    new RectangleF(0, stripY, shot.Width, Math.Max(1f, stripH)), false);
+            }
+            else
+            {
+                float maxRadius = Math.Min(frame.Width * 0.5f, Math.Max(10f, frame.Width * 0.03f));
+                float radius = 3f + (maxRadius - 3f) * (float)Math.Pow(s, 0.85);
+                float centre = frame.Right - radius - (frame.Width - 2 * radius) * (float)s;
+                float flatRight = centre - radius;
+
+                g.InterpolationMode = InterpolationMode.NearestNeighbor;
+                float flatWidth = (float)(flatRight - frame.Left);
+                if (flatWidth > 1)
+                {
+                    // The flat part keeps its scale: the right side disappears
+                    // into the tube instead of the whole picture being squashed.
+                    g.DrawImage(shot,
+                        new RectangleF(frame.Left - originX, frame.Top - originY,
+                            flatWidth, frame.Height),
+                        new RectangleF(0, 0, Math.Max(1f, flatWidth), shot.Height),
+                        GraphicsUnit.Pixel);
+                }
+
+                g.InterpolationMode = InterpolationMode.Bilinear;
+                float stripPos = Math.Max(0f, (centre - radius) - frame.Left - 4f);
+                DrawTube(g, shot,
+                    new RectangleF((centre - radius) - originX, frame.Top - originY,
+                        2 * radius, frame.Height),
+                    new RectangleF(stripPos, 0, Math.Max(1f, shot.Width - stripPos), shot.Height), true);
+            }
         }
 
         /// <summary>
         /// Phase two: the tube travels to the taskbar in a shallow arc,
-        /// shrinking to the size of a taskbar button and fading into it.
+        /// shrinking to the size of a taskbar button and fading into it. For
+        /// a sideways roll the travel runs along the window's width.
         /// </summary>
         private static void DrawSlide(Graphics g, Bitmap shot, Native.RECT frame,
             int originX, int originY, float targetX, float targetY, double q,
-            bool toTray, ref Native.BLENDFUNCTION blend)
+            bool toTray, bool horizontal, ref Native.BLENDFUNCTION blend)
         {
             if (q < 0) q = 0;
             if (q > 1) q = 1;
             double e = q * q * (3 - 2 * q);
 
-            float maxRadius = Math.Min(frame.Height * 0.5f, Math.Max(10f, frame.Height * 0.03f));
-            float startW = frame.Width;
-            float startH = maxRadius * 2;
-            float startX = frame.Left + startW * 0.5f;
-            float startY = frame.Bottom - maxRadius;
+            float maxRadius = Math.Min((horizontal ? frame.Width : frame.Height) * 0.5f,
+                Math.Max(10f, (horizontal ? frame.Width : frame.Height) * 0.03f));
+            float startLen = horizontal ? frame.Height : frame.Width;
+            float startDia = maxRadius * 2;
+            float startX = horizontal ? frame.Right + maxRadius
+                : frame.Left + startLen * 0.5f;
+            float startY = horizontal ? frame.Top + frame.Height * 0.5f
+                : frame.Bottom - maxRadius;
 
             // A tray icon is smaller than a taskbar button: the tube shrinks
             // to its size before it disappears into the notification area.
-            float endW = toTray ? 28f : 44f;
-            float endH = toTray ? 14f : 20f;
+            float endLen = toTray ? (horizontal ? 14f : 28f) : (horizontal ? 20f : 44f);
+            float endDia = toTray ? (horizontal ? 7f : 14f) : (horizontal ? 10f : 20f);
 
             // A quadratic Bezier with the control point lifted a little makes
             // the tube leave the window with a soft hop instead of sliding in
@@ -506,8 +558,8 @@ namespace Okna
             float cx = u * u * startX + 2 * u * (float)e * controlX + (float)e * (float)e * targetX;
             float cy = u * u * startY + 2 * u * (float)e * controlY + (float)e * (float)e * targetY;
 
-            float width = startW + (endW - startW) * (float)e;
-            float height = startH + (endH - startH) * (float)e;
+            float width = startLen + (endLen - startLen) * (float)e;
+            float height = startDia + (endDia - startDia) * (float)e;
 
             // Fade away while the tube is already inside the bar.
             double fade = 1.0;
@@ -522,27 +574,46 @@ namespace Okna
             g.TranslateTransform(-cx, -cy);
 
             g.InterpolationMode = InterpolationMode.Bilinear;
-            float stripY = Math.Max(0f, shot.Height - 8f);
-            DrawTube(g, shot,
-                new RectangleF(cx - width * 0.5f - originX, cy - height * 0.5f - originY,
-                    width, height),
-                new RectangleF(0, stripY, shot.Width, shot.Height - stripY));
+            if (horizontal)
+            {
+                // Sideways: the tube is long along Y and thick along X. Its
+                // texture is the rightmost strip of the picture, the outer
+                // layer of a sideways roll.
+                float tubeX = cx - height * 0.5f - originX;
+                float tubeY = cy - width * 0.5f - originY;
+                float stripW = Math.Min(8f, shot.Width);
+                DrawTube(g, shot, new RectangleF(tubeX, tubeY, height, width),
+                    new RectangleF(Math.Max(0f, shot.Width - stripW), 0, Math.Max(1f, stripW), shot.Height), true);
+            }
+            else
+            {
+                float stripY = Math.Max(0f, shot.Height - 8f);
+                DrawTube(g, shot,
+                    new RectangleF(cx - width * 0.5f - originX, cy - height * 0.5f - originY,
+                        width, height),
+                    new RectangleF(0, stripY, shot.Width, shot.Height - stripY), false);
+            }
 
             g.Restore(state);
         }
 
         /// <summary>
         /// Draws a rolled tube: the picture squashed into a rounded bar, lit
-        /// from above like a cylinder, with a soft shadow underneath.
+        /// from above like a cylinder, with a soft shadow underneath. For a
+        /// sideways roll the tube is long along the vertical axis and lit
+        /// from the left instead of from above.
         /// </summary>
-        private static void DrawTube(Graphics g, Bitmap shot, RectangleF tube, RectangleF source)
+        private static void DrawTube(Graphics g, Bitmap shot, RectangleF tube, RectangleF source, bool horizontal)
         {
             float radius = Math.Min(tube.Height * 0.5f, tube.Width * 0.5f);
             if (radius < 1f) radius = 1f;
             if (tube.Width < 2 || tube.Height < 2) return;
 
+            float off = Math.Max(2f, radius * 0.35f);
             using (GraphicsPath shadowPath = RoundedRect(
-                new RectangleF(tube.X, tube.Y + Math.Max(2f, radius * 0.35f), tube.Width, tube.Height),
+                new RectangleF(horizontal ? tube.X + off : tube.X,
+                               horizontal ? tube.Y : tube.Y + off,
+                               tube.Width, tube.Height),
                 radius))
             {
                 using (SolidBrush shadow = new SolidBrush(Color.FromArgb(36, 0, 0, 0)))
@@ -557,10 +628,11 @@ namespace Okna
                 if (source.Width >= 1f && source.Height >= 1f)
                     g.DrawImage(shot, tube, source, GraphicsUnit.Pixel);
 
-                RectangleF shadeRect = new RectangleF(tube.X, tube.Y - 1f,
-                    Math.Max(1f, tube.Width), tube.Height + 2f);
+                RectangleF shadeRect = horizontal
+                    ? new RectangleF(tube.X - 1f, tube.Y, Math.Max(1f, tube.Width), Math.Max(1f, tube.Height))
+                    : new RectangleF(tube.X, tube.Y - 1f, Math.Max(1f, tube.Width), Math.Max(1f, tube.Height));
                 using (LinearGradientBrush shade = new LinearGradientBrush(shadeRect,
-                    Color.Transparent, Color.Transparent, LinearGradientMode.Vertical))
+                    Color.Transparent, Color.Transparent, horizontal ? LinearGradientMode.Horizontal : LinearGradientMode.Vertical))
                 {
                     ColorBlend blend = new ColorBlend(5);
                     blend.Colors = new Color[]

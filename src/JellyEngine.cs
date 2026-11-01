@@ -1885,7 +1885,7 @@ namespace Okna
                     {
                         Log.Debug("Roll to tray " + hidden.ToInt64() + " '" +
                             Native.GetWindowTitle(hidden) + "'");
-                        RollOverlay.PlayToTray(hiddenShot, _closeFrame);
+                        RollOverlay.PlayToTray(hiddenShot, _closeFrame, _settings.RollHorizontal);
                     }
                     return;
                 }
@@ -2034,7 +2034,7 @@ namespace Okna
                     _minimizeShot = null;
                     ClearCloseWatch();
                     Log.Debug("Roll " + target.ToInt64());
-                    RollOverlay.Play(shot, frame, target);
+                    RollOverlay.Play(shot, frame, target, _settings.RollHorizontal);
                     return;
                 }
 
