@@ -16,7 +16,9 @@ namespace Okna
         private JellySwitch _wobbleSwitch;
         private JellySwitch _bendSwitch;
         private JellySwitch _maxShakeSwitch;
-        private JellySwitch _shatterSwitch;
+        private JellyButton _closeNone;
+        private JellyButton _closeShatter;
+        private JellyButton _closeBurn;
         private JellySwitch _rollSwitch;
         private JellySwitch _startupSwitch;
         private JellySlider _slider;
@@ -36,7 +38,7 @@ namespace Okna
 
             Text = "Окна";
             Icon = icon;
-            ClientSize = new Size(560, 852);
+            ClientSize = new Size(560, 896);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -79,7 +81,7 @@ namespace Okna
             _wobbleSwitch.Checked = _settings.ReleaseWobble;
             _bendSwitch.Checked = _settings.Bend;
             _maxShakeSwitch.Checked = _settings.MaxShake;
-            _shatterSwitch.Checked = _settings.Shatter;
+            UpdateCloseStyles();
             _rollSwitch.Checked = _settings.Roll;
             _startupSwitch.Checked = _settings.StartWithWindows;
             _slider.Value = _settings.Jelly;
@@ -223,7 +225,7 @@ namespace Okna
 
             CardPanel optionsCard = new CardPanel();
             optionsCard.Location = new Point(24, 470);
-            optionsCard.Size = new Size(512, 308);
+            optionsCard.Size = new Size(512, 352);
             Controls.Add(optionsCard);
 
             Label wobbleTitle = MakeLabel("Покачивание при отпускании", 20, 14, Theme.FontCardTitle, Theme.Text);
@@ -271,54 +273,71 @@ namespace Okna
             divider4.BackColor = Theme.BorderSoft;
             optionsCard.Controls.Add(divider4);
 
-            Label shatterTitle = MakeLabel("Разбивать окно при закрытии", 20, 166, Theme.FontCardTitle, Theme.Text);
-            optionsCard.Controls.Add(shatterTitle);
-            Label shatterSub = MakeLabel("Осколки стекла; если программа остаётся в трее — окно скатывается в трей", 20, 188, Theme.FontSmall, Theme.Muted);
-            optionsCard.Controls.Add(shatterSub);
+            Label closeTitle = MakeLabel("Эффект при закрытии", 20, 166, Theme.FontCardTitle, Theme.Text);
+            optionsCard.Controls.Add(closeTitle);
+            Label closeSub = MakeLabel("Если программа остаётся в трее — окно скатывается туда", 20, 188, Theme.FontSmall, Theme.Muted);
+            optionsCard.Controls.Add(closeSub);
 
-            _shatterSwitch = new JellySwitch();
-            _shatterSwitch.Location = new Point(432, 170);
-            optionsCard.Controls.Add(_shatterSwitch);
+            _closeNone = new JellyButton();
+            _closeNone.Text = "Без эффекта";
+            _closeNone.Location = new Point(20, 210);
+            _closeNone.Size = new Size(152, 28);
+            _closeNone.Font = Theme.FontSmall;
+            optionsCard.Controls.Add(_closeNone);
+
+            _closeShatter = new JellyButton();
+            _closeShatter.Text = "Осколки";
+            _closeShatter.Location = new Point(180, 210);
+            _closeShatter.Size = new Size(152, 28);
+            _closeShatter.Font = Theme.FontSmall;
+            optionsCard.Controls.Add(_closeShatter);
+
+            _closeBurn = new JellyButton();
+            _closeBurn.Text = "Сгорание";
+            _closeBurn.Location = new Point(340, 210);
+            _closeBurn.Size = new Size(152, 28);
+            _closeBurn.Font = Theme.FontSmall;
+            optionsCard.Controls.Add(_closeBurn);
 
             Panel divider5 = new Panel();
-            divider5.Location = new Point(20, 206);
+            divider5.Location = new Point(20, 250);
             divider5.Size = new Size(472, 1);
             divider5.BackColor = Theme.BorderSoft;
             optionsCard.Controls.Add(divider5);
 
-            Label rollTitle = MakeLabel("Сворачивать в трубочку", 20, 214, Theme.FontCardTitle, Theme.Text);
+            Label rollTitle = MakeLabel("Сворачивать в трубочку", 20, 258, Theme.FontCardTitle, Theme.Text);
             optionsCard.Controls.Add(rollTitle);
-            Label rollSub = MakeLabel("Окно скатывается и уезжает в панель задач", 20, 236, Theme.FontSmall, Theme.Muted);
+            Label rollSub = MakeLabel("Окно скатывается и уезжает в панель задач", 20, 280, Theme.FontSmall, Theme.Muted);
             optionsCard.Controls.Add(rollSub);
 
             _rollSwitch = new JellySwitch();
-            _rollSwitch.Location = new Point(432, 218);
+            _rollSwitch.Location = new Point(432, 262);
             optionsCard.Controls.Add(_rollSwitch);
 
             Panel divider6 = new Panel();
-            divider6.Location = new Point(20, 254);
+            divider6.Location = new Point(20, 298);
             divider6.Size = new Size(472, 1);
             divider6.BackColor = Theme.BorderSoft;
             optionsCard.Controls.Add(divider6);
 
-            Label startupTitle = MakeLabel("Запускать с Windows", 20, 262, Theme.FontCardTitle, Theme.Text);
+            Label startupTitle = MakeLabel("Запускать с Windows", 20, 306, Theme.FontCardTitle, Theme.Text);
             optionsCard.Controls.Add(startupTitle);
-            Label startupSub = MakeLabel("Тихо стартовать вместе с системой", 20, 284, Theme.FontSmall, Theme.Muted);
+            Label startupSub = MakeLabel("Тихо стартовать вместе с системой", 20, 328, Theme.FontSmall, Theme.Muted);
             optionsCard.Controls.Add(startupSub);
 
             _startupSwitch = new JellySwitch();
-            _startupSwitch.Location = new Point(432, 266);
+            _startupSwitch.Location = new Point(432, 310);
             optionsCard.Controls.Add(_startupSwitch);
 
-            Label hint = MakeLabel("Shift при перетаскивании — обычное поведение Windows", 24, 790, Theme.FontSmall, Theme.Faint);
+            Label hint = MakeLabel("Shift при перетаскивании — обычное поведение Windows", 24, 834, Theme.FontSmall, Theme.Faint);
             Controls.Add(hint);
 
-            Label version = MakeLabel(Updater.CurrentLabel + "  ·  живёт в трее", 24, 818, Theme.FontTiny, Theme.Faint);
+            Label version = MakeLabel(Updater.CurrentLabel + "  ·  живёт в трее", 24, 862, Theme.FontTiny, Theme.Faint);
             Controls.Add(version);
 
             JellyButton shake = new JellyButton();
             shake.Text = "Потрясти окно";
-            shake.Location = new Point(280, 802);
+            shake.Location = new Point(280, 846);
             shake.Size = new Size(150, 38);
             shake.Click += delegate { _engine.ShakeWindow(Handle); };
             Controls.Add(shake);
@@ -326,7 +345,7 @@ namespace Okna
             JellyButton done = new JellyButton();
             done.Text = "Готово";
             done.Accent = true;
-            done.Location = new Point(440, 802);
+            done.Location = new Point(440, 846);
             done.Size = new Size(96, 38);
             done.Click += delegate { Hide(); };
             Controls.Add(done);
@@ -338,7 +357,9 @@ namespace Okna
             tip.SetToolTip(_wobbleSwitch, "Добавляет боковое покачивание в конце движения");
             tip.SetToolTip(_bendSwitch, "Настоящая гнутость: окно на время перетаскивания замирает и изгибается");
             tip.SetToolTip(_maxShakeSwitch, "Окно качается, когда разворачивается на весь экран, восстанавливается или возвращается из панели задач");
-            tip.SetToolTip(_shatterSwitch, "Окно рассыпается осколками, когда закрывается кнопкой или по Alt+F4; если программа остаётся в трее, окно скатывается в трубочку и уезжает в трей");
+            tip.SetToolTip(_closeNone, "Закрывать окна без эффекта");
+            tip.SetToolTip(_closeShatter, "Окно рассыпается осколками, когда закрывается кнопкой или по Alt+F4; если программа остаётся в трее, окно скатывается в трубочку и уезжает в трей");
+            tip.SetToolTip(_closeBurn, "Окно прогорает снизу вверх: огонь, обугленный край, угли и дым; если программа остаётся в трее, окно скатывается в трубочку и уезжает в трей");
             tip.SetToolTip(_rollSwitch, "При сворачивании окно скатывается в трубочку и уезжает в панель задач");
         }
 
@@ -381,11 +402,9 @@ namespace Okna
                 SaveSoon();
             };
 
-            _shatterSwitch.CheckedChanged += delegate
-            {
-                _settings.Shatter = _shatterSwitch.Checked;
-                SaveSoon();
-            };
+            _closeNone.Click += delegate { SetCloseEffect(0); };
+            _closeShatter.Click += delegate { SetCloseEffect(1); };
+            _closeBurn.Click += delegate { SetCloseEffect(2); };
 
             _rollSwitch.CheckedChanged += delegate
             {
@@ -426,7 +445,7 @@ namespace Okna
             _wobbleSwitch.Checked = _settings.ReleaseWobble;
             _bendSwitch.Checked = _settings.Bend;
             _maxShakeSwitch.Checked = _settings.MaxShake;
-            _shatterSwitch.Checked = _settings.Shatter;
+            UpdateCloseStyles();
             _rollSwitch.Checked = _settings.Roll;
             _startupSwitch.Checked = _settings.StartWithWindows;
             _slider.Value = _settings.Jelly;
@@ -438,6 +457,33 @@ namespace Okna
         private void UpdateJellyLabel()
         {
             _valueLabel.Text = _settings.JellyLabel;
+        }
+
+        /// <summary>
+        /// 0 = no effect, 1 = shards, 2 = fire. The two effects are
+        /// alternatives, never both on.
+        /// </summary>
+        private void SetCloseEffect(int effect)
+        {
+            _settings.Shatter = effect == 1;
+            _settings.Burn = effect == 2;
+            UpdateCloseStyles();
+            SaveSoon();
+        }
+
+        private void UpdateCloseStyles()
+        {
+            int selected = _settings.Burn ? 2 : (_settings.Shatter ? 1 : 0);
+            JellyButton[] buttons = new JellyButton[] { _closeNone, _closeShatter, _closeBurn };
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                bool accent = i == selected;
+                if (buttons[i].Accent != accent)
+                {
+                    buttons[i].Accent = accent;
+                    buttons[i].Invalidate();
+                }
+            }
         }
 
         private void UpdatePresetStyles()

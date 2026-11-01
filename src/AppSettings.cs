@@ -17,6 +17,7 @@ namespace Okna
         private volatile bool _bend = true;
         private volatile bool _maxShake = true;
         private volatile bool _shatter = true;
+        private volatile bool _burn = false;
         private volatile bool _roll = true;
         private volatile bool _autoUpdate = true;
 
@@ -59,6 +60,16 @@ namespace Okna
         {
             get { return _shatter; }
             set { _shatter = value; }
+        }
+
+        /// <summary>
+        /// Burn the window instead of shattering it. The two effects are
+        /// alternatives; the settings form never turns both on.
+        /// </summary>
+        public bool Burn
+        {
+            get { return _burn; }
+            set { _burn = value; }
         }
 
         public bool Roll
@@ -119,6 +130,8 @@ namespace Okna
                         if (v != null) s.MaxShake = Convert.ToInt32(v) != 0;
                         v = key.GetValue("Shatter");
                         if (v != null) s.Shatter = Convert.ToInt32(v) != 0;
+                        v = key.GetValue("Burn");
+                        if (v != null) s.Burn = Convert.ToInt32(v) != 0;
                         v = key.GetValue("Roll");
                         if (v != null) s.Roll = Convert.ToInt32(v) != 0;
                         v = key.GetValue("AutoUpdate");
@@ -131,6 +144,7 @@ namespace Okna
                 // The program used to be called "Желе-окна" and kept its
                 // settings under another key. Carry them over once.
                 if (!loaded) MigrateLegacy(s);
+                if (s.Burn) s.Shatter = false;
 
                 s.StartWithWindows = IsAutoStartEnabled();
             }
@@ -205,6 +219,7 @@ namespace Okna
                     key.SetValue("Bend", _bend ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("MaxShake", _maxShake ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("Shatter", _shatter ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue("Burn", _burn ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("Roll", _roll ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("AutoUpdate", _autoUpdate ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("FirstRun", 0, RegistryValueKind.DWord);

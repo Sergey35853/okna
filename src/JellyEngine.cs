@@ -340,7 +340,7 @@ namespace Okna
                     Native.IsWindowVisible(foreground) && !Native.IsIconic(foreground))
                     _lastExternal = foreground;
 
-                if (_settings.Enabled && _settings.Shatter)
+                if (_settings.Enabled && (_settings.Shatter || _settings.Burn))
                     WatchClose(foreground, now);
                 else
                     ClearCloseWatch();
@@ -1781,8 +1781,16 @@ namespace Okna
                     _closeShot = null;
                     if (shot != null)
                     {
-                        Log.Debug("Shatter " + gone.ToInt64() + " '" + Native.GetWindowTitle(gone) + "'");
-                        ShatterOverlay.Play(shot, _closeFrame, _closePoint);
+                        if (_settings.Burn)
+                        {
+                            Log.Debug("Burn " + gone.ToInt64() + " '" + Native.GetWindowTitle(gone) + "'");
+                            BurnOverlay.Play(shot, _closeFrame);
+                        }
+                        else
+                        {
+                            Log.Debug("Shatter " + gone.ToInt64() + " '" + Native.GetWindowTitle(gone) + "'");
+                            ShatterOverlay.Play(shot, _closeFrame, _closePoint);
+                        }
                     }
                     return;
                 }
