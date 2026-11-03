@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
+using System.IO;
 using System.Threading;
 using System.Windows.Forms;
 using Timer = System.Windows.Forms.Timer;
@@ -13,8 +15,14 @@ namespace Okna
         private readonly Icon _icon;
         private readonly NotifyIcon _notify;
         private readonly ContextMenuStrip _menu;
+        private readonly ToolStripMenuItem _statusItem;
         private readonly ToolStripMenuItem _toggleItem;
         private readonly ToolStripMenuItem _startupItem;
+        private readonly ToolStripMenuItem _jellyItem;
+        private readonly ToolStripMenuItem _rollItem;
+        private readonly ToolStripMenuItem _closeNoneItem;
+        private readonly ToolStripMenuItem _closeShatterItem;
+        private readonly ToolStripMenuItem _closeBurnItem;
         private readonly bool _showOnStart;
         private SettingsForm _form;
         private bool _exiting;
@@ -33,8 +41,14 @@ namespace Okna
         private UpdateInfo _ready;
         private bool _checking;
         private int _applyAttempts;
+        private string _hotkeyStatus = "не проверена";
 
         public DispatcherForm Dispatcher { get; set; }
+
+        public string HotkeyStatus
+        {
+            get { return _hotkeyStatus; }
+        }
 
         public TrayApp(AppSettings settings, JellyEngine engine, Icon icon, bool showOnStart)
         {
@@ -58,6 +72,11 @@ namespace Okna
             _menu.Items.Add(header);
             _menu.Items.Add(new ToolStripSeparator());
 
+            _statusItem = NewItem("");
+            _statusItem.Enabled = false;
+            _statusItem.Font = new Font(Theme.FontSmall, FontStyle.Bold);
+            _menu.Items.Add(_statusItem);
+
             _toggleItem = NewItem("");
             _toggleItem.Click += delegate { TogglePause(false); };
             _menu.Items.Add(_toggleItem);
@@ -65,6 +84,42 @@ namespace Okna
             _pauseItem = NewItem("Пауза на 30 минут");
             _pauseItem.Click += delegate { ToggleTimedPause(); };
             _menu.Items.Add(_pauseItem);
+
+            _menu.Items.Add(new ToolStripSeparator());
+
+            _jellyItem = NewItem("Желеобразные окна");
+            _jellyItem.Click += delegate
+            {
+                _settings.Bend = !_settings.Bend;
+                _settings.Save();
+                UpdateMenu();
+                SyncForm();
+            };
+            _menu.Items.Add(_jellyItem);
+
+            _rollItem = NewItem("Скатывать в трубочку");
+            _rollItem.Click += delegate
+            {
+                _settings.Roll = !_settings.Roll;
+                _settings.Save();
+                UpdateMenu();
+                SyncForm();
+            };
+            _menu.Items.Add(_rollItem);
+
+            ToolStripMenuItem closeMenu = NewItem("Эффект при закрытии");
+            _closeNoneItem = NewItem("Без эффекта");
+            _closeShatterItem = NewItem("Осколки");
+            _closeBurnItem = NewItem("Сгорание");
+            _closeNoneItem.Click += delegate { SetCloseEffect(0); };
+            _closeShatterItem.Click += delegate { SetCloseEffect(1); };
+            _closeBurnItem.Click += delegate { SetCloseEffect(2); };
+            closeMenu.DropDownItems.Add(_closeNoneItem);
+            closeMenu.DropDownItems.Add(_closeShatterItem);
+            closeMenu.DropDownItems.Add(_closeBurnItem);
+            _menu.Items.Add(closeMenu);
+
+            _menu.Items.Add(new ToolStripSeparator());
 
             ToolStripMenuItem settingsItem = NewItem("Настройки…");
             settingsItem.Click += delegate { ShowSettings(); };
@@ -84,7 +139,7 @@ namespace Okna
                 _settings.StartWithWindows = enable;
                 _settings.Save();
                 UpdateMenu();
-                if (_form != null && !_form.IsDisposed) _form.SyncFromSettings();
+                SyncForm();
             };
             _menu.Items.Add(_startupItem);
 
@@ -112,6 +167,19 @@ namespace Okna
 
             _menu.Items.Add(new ToolStripSeparator());
 
+            ToolStripMenuItem logItem = NewItem("Открыть журнал");
+            logItem.Click += delegate { OpenLog(); };
+            _menu.Items.Add(logItem);
+
+            ToolStripMenuItem diagnosticsItem = NewItem("Диагностика…");
+            diagnosticsItem.Click += delegate
+            {
+                Diagnostics.Show(_form, _settings, _engine, _hotkeyStatus);
+            };
+            _menu.Items.Add(diagnosticsItem);
+
+            _menu.Items.Add(new ToolStripSeparator());
+
             ToolStripMenuItem exitItem = NewItem("Выход");
             exitItem.Click += delegate { ExitApp(); };
             _menu.Items.Add(exitItem);
@@ -119,7 +187,7 @@ namespace Okna
             _menu.Opening += delegate { UpdateMenu(); };
 
             _notify = new NotifyIcon();
-            _notify.Icon = icon;
+            _notify.Icon = TrayIcons.For(_icon, _settings.Enabled, _engine.PauseReason);
             _notify.Text = "Окна";
             _notify.ContextMenuStrip = _menu;
             _notify.Visible = true;
@@ -172,7 +240,7 @@ namespace Okna
             if (_exiting) return;
             if (_form == null || _form.IsDisposed)
             {
-                _form = new SettingsForm(_settings, _engine, _icon);
+                _form = new SettingsForm(_settings, _engine, _icon, this);
                 _form.FormClosed += delegate
                 {
                     if (_form != null && _form.ReallyExit)
@@ -182,12 +250,55 @@ namespace Okna
             _form.ShowSettings();
         }
 
+        private void SyncForm()
+        {
+            if (_form != null && !_form.IsDisposed) _form.SyncFromSettings();
+        }
+
+        private void SetCloseEffect(int effect)
+        {
+            _settings.Shatter = effect == 1;
+            _settings.Burn = effect == 2;
+            _settings.Save();
+            UpdateMenu();
+            SyncForm();
+        }
+
+        private void OpenLog()
+        {
+            try
+            {
+                string path = Log.LogPath;
+                if (File.Exists(path))
+                    Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+                else
+                    Process.Start(new ProcessStartInfo(Path.GetDirectoryName(path)) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                Balloon("Не удалось открыть журнал", ex.Message);
+            }
+        }
+
         private void UpdateMenu()
         {
             _settings.StartWithWindows = AppSettings.IsAutoStartEnabled();
+
+            string reason = _engine.PauseReason;
+            string status;
+            if (!_settings.Enabled)
+                status = "Окна — выключены";
+            else if (reason == null)
+                status = "Окна — работают";
+            else
+                status = "Окна — " + reason;
+
+            _statusItem.Text = status;
+            _statusItem.ForeColor = reason == null && _settings.Enabled ? Theme.Accent : Theme.Muted;
+
             _toggleItem.Text = _settings.Enabled ? "Эффект включён" : "Эффект выключен";
             _toggleItem.ForeColor = _settings.Enabled ? Theme.Accent : Theme.Muted;
-            _toggleItem.ShortcutKeyDisplayString = "Ctrl+Alt+J";
+            _toggleItem.ShortcutKeyDisplayString = _settings.HasHotkey ? _settings.HotkeyLabel : "";
 
             if (_pauseItem != null)
             {
@@ -207,13 +318,27 @@ namespace Okna
 
             _startupItem.Text = _settings.StartWithWindows ? "Автозапуск включён" : "Автозапуск выключен";
 
-            string reason = _engine.PauseReason;
-            if (reason == null)
-                _notify.Text = "Окна — включено";
-            else if (reason == "Пауза" || reason == "Пауза на время")
-                _notify.Text = "Окна — пауза";
-            else
-                _notify.Text = "Окна — " + reason;
+            if (_jellyItem != null)
+            {
+                _jellyItem.Text = _settings.Bend ? "Желеобразные окна: вкл" : "Желеобразные окна: выкл";
+                _jellyItem.Checked = _settings.Bend;
+            }
+            if (_rollItem != null)
+            {
+                _rollItem.Text = _settings.Roll ? "Скатывать в трубочку: вкл" : "Скатывать в трубочку: выкл";
+                _rollItem.Checked = _settings.Roll;
+            }
+            if (_closeNoneItem != null)
+            {
+                _closeNoneItem.Checked = !_settings.Shatter && !_settings.Burn;
+                _closeShatterItem.Checked = _settings.Shatter;
+                _closeBurnItem.Checked = _settings.Burn;
+            }
+
+            _notify.Text = status.Length <= 63 ? status : status.Substring(0, 63);
+            Icon stateIcon = TrayIcons.For(_icon, _settings.Enabled, reason);
+            if (stateIcon != null && !ReferenceEquals(_notify.Icon, stateIcon))
+                _notify.Icon = stateIcon;
 
             if (_autoUpdateItem != null)
                 _autoUpdateItem.Text = _settings.AutoUpdate ? "Автообновление включено" : "Автообновление выключено";
@@ -226,27 +351,51 @@ namespace Okna
         }
 
         /// <summary>
-        /// Refreshes the tray tooltip straight from the engine state, so an
-        /// automatic pause or a manual toggle is visible even with the menu
+        /// Refreshes the tray tooltip and icon straight from the engine state,
+        /// so an automatic pause or an exclusion is visible even with the menu
         /// closed.
         /// </summary>
         public void RefreshStatus()
         {
-            Post(delegate
+            Post(delegate { UpdateMenu(); });
+        }
+
+        /// <summary>
+        /// (Re)registers the global hotkey and reports a conflict instead of
+        /// hiding it in the debug log.
+        /// </summary>
+        public bool ApplyHotkey(bool notify)
+        {
+            string error = null;
+            bool ok = false;
+            if (Dispatcher != null)
+                ok = Dispatcher.ApplyHotkey(_settings, out error);
+            if (Dispatcher == null)
             {
-                string reason = _engine.PauseReason;
-                if (reason == null)
-                    _notify.Text = "Окна — включено";
-                else if (reason == "Пауза" || reason == "Пауза на время")
-                    _notify.Text = "Окна — пауза";
-                else
-                    _notify.Text = "Окна — " + reason;
-            });
+                _hotkeyStatus = "диспетчер ещё не создан";
+                return false;
+            }
+
+            if (ok)
+            {
+                _hotkeyStatus = _settings.HasHotkey ? _settings.HotkeyLabel + " — работает" : "выключена";
+                Log.Info("Hotkey: " + _hotkeyStatus);
+            }
+            else
+            {
+                _hotkeyStatus = error;
+                Log.Error("Hotkey: " + error);
+                if (notify || _showOnStart)
+                    Balloon("Горячая клавиша занята", error +
+                        ". Выберите другую в настройках или закройте программу, которая её использует.");
+            }
+            UpdateMenu();
+            return ok;
         }
 
         /// <summary>
         /// Turns the effects on or off for good. Bound to the tray item and to
-        /// Ctrl+Alt+J; a temporary pause is cleared when switching off.
+        /// the global hotkey; a temporary pause is cleared when switching off.
         /// </summary>
         public void TogglePause()
         {
@@ -260,12 +409,12 @@ namespace Okna
             Log.Debug("Effects " + (_settings.Enabled ? "on" : "off"));
             if (!_settings.Enabled) ClearTimedPause();
             UpdateMenu();
-            if (_form != null && !_form.IsDisposed) _form.SyncFromSettings();
+            SyncForm();
             if (notify)
                 Balloon(_settings.Enabled ? "Окна включены" : "Окна на паузе",
                         _settings.Enabled
                             ? "Эффекты снова работают."
-                            : "Нажмите Ctrl+Alt+J или выберите «Эффект выключен» в трее, чтобы вернуть.");
+                            : "Нажмите " + _settings.HotkeyLabel + " или выберите «Эффект выключен» в трее, чтобы вернуть.");
         }
 
         /// <summary>
@@ -278,7 +427,7 @@ namespace Okna
             {
                 ClearTimedPause();
                 UpdateMenu();
-                if (_form != null && !_form.IsDisposed) _form.SyncFromSettings();
+                SyncForm();
                 Balloon("Окна включены", "Пауза снята.");
                 return;
             }
@@ -292,12 +441,12 @@ namespace Okna
             {
                 ClearTimedPause();
                 UpdateMenu();
-                if (_form != null && !_form.IsDisposed) _form.SyncFromSettings();
+                SyncForm();
                 Balloon("Окна включены", "Пауза на 30 минут закончилась.");
             };
             _pauseTimer.Start();
             UpdateMenu();
-            if (_form != null && !_form.IsDisposed) _form.SyncFromSettings();
+            SyncForm();
             Balloon("Окна на паузе", "Эффекты вернутся через 30 минут.");
         }
 
@@ -522,6 +671,7 @@ namespace Okna
     internal sealed class DispatcherForm : Form
     {
         private const int HotkeyId = 0x4F4B;
+        private bool _registered;
 
         public TrayApp Tray { get; set; }
 
@@ -547,19 +697,46 @@ namespace Okna
             }
         }
 
-        protected override void OnHandleCreated(EventArgs e)
+        /// <summary>
+        /// Registers the hotkey from the settings. A conflict is returned to
+        /// the caller, which tells the user instead of silently doing nothing.
+        /// </summary>
+        public bool ApplyHotkey(AppSettings settings, out string error)
         {
-            base.OnHandleCreated(e);
-            // Ctrl+Alt+J: the global switch, so the effects can be silenced
-            // without hunting for the tray icon.
-            bool ok = Native.RegisterHotKey(Handle, HotkeyId,
-                Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, Native.VK_J);
-            if (!ok) Log.Debug("Hotkey Ctrl+Alt+J is already taken");
+            error = null;
+            if (!IsHandleCreated)
+            {
+                error = "окно диспетчера ещё не создано";
+                return false;
+            }
+
+            if (_registered)
+            {
+                try { Native.UnregisterHotKey(Handle, HotkeyId); } catch { }
+                _registered = false;
+            }
+
+            if (!settings.HasHotkey) return true;
+
+            uint modifiers = (uint)settings.HotkeyModifiers | Native.MOD_NOREPEAT;
+            bool ok = Native.RegisterHotKey(Handle, HotkeyId, modifiers, (uint)settings.HotkeyKey);
+            if (!ok)
+            {
+                error = "Клавиша " + settings.HotkeyLabel + " уже занята другой программой";
+                return false;
+            }
+            _registered = true;
+            return true;
         }
 
         protected override void OnHandleDestroyed(EventArgs e)
         {
-            try { Native.UnregisterHotKey(Handle, HotkeyId); } catch { }
+            try
+            {
+                if (_registered) Native.UnregisterHotKey(Handle, HotkeyId);
+            }
+            catch { }
+            _registered = false;
             base.OnHandleDestroyed(e);
         }
 

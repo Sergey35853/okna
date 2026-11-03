@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.IO;
 using System.Windows.Forms;
 
 namespace Okna
@@ -10,6 +11,7 @@ namespace Okna
         private readonly AppSettings _settings;
         private readonly JellyEngine _engine;
         private readonly Icon _icon;
+        private readonly TrayApp _tray;
 
         private JellyPreview _preview;
         private JellySwitch _effectSwitch;
@@ -20,11 +22,21 @@ namespace Okna
         private JellyButton _closeShatter;
         private JellyButton _closeBurn;
         private JellySwitch _rollSwitch;
-        private JellySwitch _rollHorizontalSwitch;
+        private JellyButton[] _directionButtons;
         private JellySwitch _startupSwitch;
+        private JellySwitch _callSwitch;
+        private JellySwitch _batterySwitch;
+        private JellySwitch _motionSwitch;
+        private JellySwitch _portableSwitch;
+        private Label _portableLabel;
+        private JellyButton _hotkeyButton;
+        private Label _hotkeyStatus;
         private ListBox _excludeList;
+        private TextBox _excludeMask;
+        private ListBox _overrideList;
         private JellySlider _slider;
         private Label _valueLabel;
+        private Label _hintLabel;
         private StatusPill _statusPill;
         private JellyButton[] _presets;
         private Timer _statusTimer;
@@ -32,15 +44,16 @@ namespace Okna
 
         public bool ReallyExit { get; set; }
 
-        public SettingsForm(AppSettings settings, JellyEngine engine, Icon icon)
+        public SettingsForm(AppSettings settings, JellyEngine engine, Icon icon, TrayApp tray)
         {
             _settings = settings;
             _engine = engine;
             _icon = icon;
+            _tray = tray;
 
             Text = "Окна";
             Icon = icon;
-            ClientSize = new Size(560, 1100);
+            ClientSize = new Size(560, 2040);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -52,10 +65,9 @@ namespace Okna
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96f, 96f);
             DoubleBuffered = true;
-            // The design is 804 px tall, which does not fit a 1366x768 screen
-            // or a 1080p display at 150%. Clamp the window to the working area
-            // in OnLoad and scroll the rest; otherwise the bottom buttons are
-            // simply unreachable.
+            // The design is taller than a 1366x768 screen or a 1080p display at
+            // 150%. Clamp the window to the working area in OnLoad and scroll
+            // the rest; otherwise the bottom buttons are simply unreachable.
             AutoScroll = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint |
                      ControlStyles.ResizeRedraw, true);
@@ -79,19 +91,7 @@ namespace Okna
                 _settings.Save();
             };
 
-            _effectSwitch.Checked = _settings.Enabled;
-            _wobbleSwitch.Checked = _settings.ReleaseWobble;
-            _bendSwitch.Checked = _settings.Bend;
-            _maxShakeSwitch.Checked = _settings.MaxShake;
-            UpdateCloseStyles();
-            _rollSwitch.Checked = _settings.Roll;
-            _rollHorizontalSwitch.Checked = _settings.RollHorizontal;
-            _startupSwitch.Checked = _settings.StartWithWindows;
-            RefreshExcludeList();
-            _slider.Value = _settings.Jelly;
-            UpdateJellyLabel();
-            UpdatePresetStyles();
-            _statusPill.SetStatus(_engine.PauseReason ?? _engine.Status);
+            SyncFromSettings();
         }
 
         protected override void OnHandleCreated(EventArgs e)
@@ -213,14 +213,14 @@ namespace Okna
             _slider.Size = new Size(472, 26);
             moveCard.Controls.Add(_slider);
 
-            _presets = new JellyButton[3];
-            string[] names = new string[] { "Спокойно", "Баланс", "Желе" };
-            for (int i = 0; i < 3; i++)
+            _presets = new JellyButton[4];
+            string[] names = new string[] { "Спокойно", "Баланс", "Желе", "Экономно" };
+            for (int i = 0; i < 4; i++)
             {
                 JellyButton b = new JellyButton();
                 b.Text = names[i];
-                b.Location = new Point(20 + i * 161, 160);
-                b.Size = new Size(150, 28);
+                b.Location = new Point(20 + i * 120, 160);
+                b.Size = new Size(112, 28);
                 b.Font = Theme.FontSmall;
                 b.Tag = i;
                 _presets[i] = b;
@@ -229,7 +229,7 @@ namespace Okna
 
             CardPanel optionsCard = new CardPanel();
             optionsCard.Location = new Point(24, 470);
-            optionsCard.Size = new Size(512, 390);
+            optionsCard.Size = new Size(512, 510);
             Controls.Add(optionsCard);
 
             Label wobbleTitle = MakeLabel("Покачивание при отпускании", 20, 14, Theme.FontCardTitle, Theme.Text);
@@ -303,9 +303,6 @@ namespace Okna
             _closeBurn.Font = Theme.FontSmall;
             optionsCard.Controls.Add(_closeBurn);
 
-            // Preview buttons: each plays its effect over the mock window at
-            // the top of the form, so the choice can be seen without closing
-            // a real program.
             JellyButton previewShatter = new JellyButton();
             previewShatter.Text = "Показать осколки";
             previewShatter.Location = new Point(20, 246);
@@ -345,49 +342,109 @@ namespace Okna
             _rollSwitch.Location = new Point(432, 300);
             optionsCard.Controls.Add(_rollSwitch);
 
-            Label rollDirTitle = MakeLabel("Скатывать сбоку", 20, 332, Theme.FontCardTitle, Theme.Text);
-            optionsCard.Controls.Add(rollDirTitle);
-            Label rollDirSub = MakeLabel("Справа налево, а не сверху вниз", 20, 354, Theme.FontSmall, Theme.Muted);
-            optionsCard.Controls.Add(rollDirSub);
+            Label directionTitle = MakeLabel("Куда скатывать", 20, 334, Theme.FontLabel, Theme.Text);
+            optionsCard.Controls.Add(directionTitle);
+            Label directionSub = MakeLabel("Авто — в сторону панели задач, остальное — принудительно", 20, 356, Theme.FontSmall, Theme.Muted);
+            optionsCard.Controls.Add(directionSub);
 
-            _rollHorizontalSwitch = new JellySwitch();
-            _rollHorizontalSwitch.Location = new Point(432, 336);
-            _rollHorizontalSwitch.Checked = _settings.RollHorizontal;
-            _rollHorizontalSwitch.CheckedChanged += delegate
+            _directionButtons = new JellyButton[5];
+            string[] directionNames = new string[] { "Авто", "Вниз", "Вверх", "Влево", "Вправо" };
+            for (int i = 0; i < 5; i++)
             {
-                _settings.RollHorizontal = _rollHorizontalSwitch.Checked;
-                SaveSoon();
-            };
-            optionsCard.Controls.Add(_rollHorizontalSwitch);
+                JellyButton b = new JellyButton();
+                b.Text = directionNames[i];
+                b.Location = new Point(20 + i * 94, 380);
+                b.Size = new Size(88, 28);
+                b.Font = Theme.FontSmall;
+                b.Tag = (RollDirection)i;
+                _directionButtons[i] = b;
+                optionsCard.Controls.Add(b);
+            }
 
             Panel divider6 = new Panel();
-            divider6.Location = new Point(20, 378);
+            divider6.Location = new Point(20, 422);
             divider6.Size = new Size(472, 1);
             divider6.BackColor = Theme.BorderSoft;
             optionsCard.Controls.Add(divider6);
 
-            Label startupTitle = MakeLabel("Запускать с Windows", 20, 386, Theme.FontCardTitle, Theme.Text);
+            Label startupTitle = MakeLabel("Запускать с Windows", 20, 430, Theme.FontCardTitle, Theme.Text);
             optionsCard.Controls.Add(startupTitle);
-            Label startupSub = MakeLabel("Тихо стартовать вместе с системой", 20, 408, Theme.FontSmall, Theme.Muted);
+            Label startupSub = MakeLabel("Тихо стартовать вместе с системой", 20, 452, Theme.FontSmall, Theme.Muted);
             optionsCard.Controls.Add(startupSub);
 
             _startupSwitch = new JellySwitch();
-            _startupSwitch.Location = new Point(432, 388);
+            _startupSwitch.Location = new Point(432, 432);
             optionsCard.Controls.Add(_startupSwitch);
 
+            CardPanel pauseCard = new CardPanel();
+            pauseCard.Location = new Point(24, 994);
+            pauseCard.Size = new Size(512, 206);
+            Controls.Add(pauseCard);
+
+            Label pauseTitle = MakeLabel("Пауза сама по себе", 20, 14, Theme.FontCardTitle, Theme.Text);
+            pauseCard.Controls.Add(pauseTitle);
+            Label pauseSub = MakeLabel("Эффекты уступают место, когда вы заняты другим", 20, 36, Theme.FontSmall, Theme.Muted);
+            pauseCard.Controls.Add(pauseSub);
+
+            Label callTitle = MakeLabel("Звонки и показ экрана", 20, 66, Theme.FontCardTitle, Theme.Text);
+            pauseCard.Controls.Add(callTitle);
+            Label callSub = MakeLabel("Teams, Zoom, Discord, Slack и похожие впереди", 20, 88, Theme.FontSmall, Theme.Muted);
+            pauseCard.Controls.Add(callSub);
+            _callSwitch = new JellySwitch();
+            _callSwitch.Location = new Point(432, 70);
+            pauseCard.Controls.Add(_callSwitch);
+
+            Label batteryTitle = MakeLabel("Питание от батареи", 20, 112, Theme.FontCardTitle, Theme.Text);
+            pauseCard.Controls.Add(batteryTitle);
+            Label batterySub = MakeLabel("Не тратить заряд на эффекты", 20, 134, Theme.FontSmall, Theme.Muted);
+            pauseCard.Controls.Add(batterySub);
+            _batterySwitch = new JellySwitch();
+            _batterySwitch.Location = new Point(432, 116);
+            pauseCard.Controls.Add(_batterySwitch);
+
+            Label motionTitle = MakeLabel("Уважать уменьшение движения", 20, 158, Theme.FontCardTitle, Theme.Text);
+            pauseCard.Controls.Add(motionTitle);
+            Label motionSub = MakeLabel("Если анимации выключены в Windows — не мешать", 20, 180, Theme.FontSmall, Theme.Muted);
+            pauseCard.Controls.Add(motionSub);
+            _motionSwitch = new JellySwitch();
+            _motionSwitch.Location = new Point(432, 162);
+            pauseCard.Controls.Add(_motionSwitch);
+
+            CardPanel hotkeyCard = new CardPanel();
+            hotkeyCard.Location = new Point(24, 1214);
+            hotkeyCard.Size = new Size(512, 126);
+            Controls.Add(hotkeyCard);
+
+            Label hotkeyTitle = MakeLabel("Горячая клавиша", 20, 14, Theme.FontCardTitle, Theme.Text);
+            hotkeyCard.Controls.Add(hotkeyTitle);
+            Label hotkeySub = MakeLabel("Нажмите на поле и введите сочетание; Backspace — выключить", 20, 36, Theme.FontSmall, Theme.Muted);
+            hotkeyCard.Controls.Add(hotkeySub);
+
+            _hotkeyButton = new JellyButton();
+            _hotkeyButton.Text = "Ctrl+Alt+J";
+            _hotkeyButton.Location = new Point(20, 66);
+            _hotkeyButton.Size = new Size(200, 34);
+            _hotkeyButton.Font = Theme.FontBody;
+            _hotkeyButton.Click += delegate { _hotkeyButton.Focus(); };
+            hotkeyCard.Controls.Add(_hotkeyButton);
+
+            _hotkeyStatus = MakeLabel("", 236, 72, Theme.FontSmall, Theme.Muted);
+            _hotkeyStatus.Size = new Size(256, 22);
+            hotkeyCard.Controls.Add(_hotkeyStatus);
+
             CardPanel excludeCard = new CardPanel();
-            excludeCard.Location = new Point(24, 874);
-            excludeCard.Size = new Size(512, 150);
+            excludeCard.Location = new Point(24, 1354);
+            excludeCard.Size = new Size(512, 256);
             Controls.Add(excludeCard);
 
             Label excludeTitle = MakeLabel("Исключения", 20, 14, Theme.FontCardTitle, Theme.Text);
             excludeCard.Controls.Add(excludeTitle);
-            Label excludeSub = MakeLabel("В этих программах окна остаются обычными", 20, 36, Theme.FontSmall, Theme.Muted);
+            Label excludeSub = MakeLabel("Здесь окна остаются обычными: программы, маски и классы окон", 20, 36, Theme.FontSmall, Theme.Muted);
             excludeCard.Controls.Add(excludeSub);
 
             _excludeList = new ListBox();
             _excludeList.Location = new Point(20, 62);
-            _excludeList.Size = new Size(300, 72);
+            _excludeList.Size = new Size(300, 110);
             _excludeList.DrawMode = DrawMode.OwnerDrawFixed;
             _excludeList.ItemHeight = 22;
             _excludeList.BorderStyle = BorderStyle.None;
@@ -399,30 +456,152 @@ namespace Okna
             excludeCard.Controls.Add(_excludeList);
 
             JellyButton excludeAdd = new JellyButton();
-            excludeAdd.Text = "Добавить…";
+            excludeAdd.Text = "Добавить файл…";
             excludeAdd.Location = new Point(340, 62);
             excludeAdd.Size = new Size(152, 30);
             excludeAdd.Font = Theme.FontSmall;
+            excludeAdd.Click += delegate { AddExclusions(); };
             excludeCard.Controls.Add(excludeAdd);
+
+            JellyButton excludeRunning = new JellyButton();
+            excludeRunning.Text = "Из запущенных…";
+            excludeRunning.Location = new Point(340, 100);
+            excludeRunning.Size = new Size(152, 30);
+            excludeRunning.Font = Theme.FontSmall;
+            excludeRunning.Click += delegate { PickRunning(); };
+            excludeCard.Controls.Add(excludeRunning);
 
             JellyButton excludeRemove = new JellyButton();
             excludeRemove.Text = "Убрать";
-            excludeRemove.Location = new Point(340, 102);
+            excludeRemove.Location = new Point(340, 138);
             excludeRemove.Size = new Size(152, 30);
             excludeRemove.Font = Theme.FontSmall;
-            excludeAdd.Click += delegate { AddExclusions(); };
             excludeRemove.Click += delegate { RemoveSelectedExclusion(); };
             excludeCard.Controls.Add(excludeRemove);
 
-            Label hint = MakeLabel("Shift — обычное перетаскивание  ·  Ctrl+Alt+J — пауза", 24, 1038, Theme.FontSmall, Theme.Faint);
-            Controls.Add(hint);
+            Label maskLabel = MakeLabel("Маска: steam* или class:Progman", 20, 180, Theme.FontSmall, Theme.Muted);
+            excludeCard.Controls.Add(maskLabel);
 
-            Label version = MakeLabel(Updater.CurrentLabel + "  ·  живёт в трее", 24, 1066, Theme.FontTiny, Theme.Faint);
+            _excludeMask = new TextBox();
+            _excludeMask.Location = new Point(20, 202);
+            _excludeMask.Size = new Size(300, 28);
+            _excludeMask.BorderStyle = BorderStyle.FixedSingle;
+            _excludeMask.BackColor = Theme.CardAlt;
+            _excludeMask.ForeColor = Theme.Text;
+            _excludeMask.Font = Theme.FontSmall;
+            excludeCard.Controls.Add(_excludeMask);
+
+            JellyButton addMask = new JellyButton();
+            addMask.Text = "Добавить маску";
+            addMask.Location = new Point(340, 200);
+            addMask.Size = new Size(152, 30);
+            addMask.Font = Theme.FontSmall;
+            addMask.Click += delegate { AddMask(); };
+            excludeCard.Controls.Add(addMask);
+
+            CardPanel overrideCard = new CardPanel();
+            overrideCard.Location = new Point(24, 1624);
+            overrideCard.Size = new Size(512, 146);
+            Controls.Add(overrideCard);
+
+            Label overrideTitle = MakeLabel("Эффект для отдельной программы", 20, 14, Theme.FontCardTitle, Theme.Text);
+            overrideCard.Controls.Add(overrideTitle);
+            Label overrideSub = MakeLabel("Перекрывает общий выбор при закрытии", 20, 36, Theme.FontSmall, Theme.Muted);
+            overrideCard.Controls.Add(overrideSub);
+
+            _overrideList = new ListBox();
+            _overrideList.Location = new Point(20, 62);
+            _overrideList.Size = new Size(300, 60);
+            _overrideList.DrawMode = DrawMode.OwnerDrawFixed;
+            _overrideList.ItemHeight = 22;
+            _overrideList.BorderStyle = BorderStyle.None;
+            _overrideList.BackColor = Theme.CardAlt;
+            _overrideList.ForeColor = Theme.Text;
+            _overrideList.Font = Theme.FontSmall;
+            _overrideList.IntegralHeight = false;
+            _overrideList.DrawItem += DrawOverrideItem;
+            overrideCard.Controls.Add(_overrideList);
+
+            JellyButton overrideAdd = new JellyButton();
+            overrideAdd.Text = "Для программы…";
+            overrideAdd.Location = new Point(340, 62);
+            overrideAdd.Size = new Size(152, 30);
+            overrideAdd.Font = Theme.FontSmall;
+            overrideAdd.Click += delegate { AddOverride(); };
+            overrideCard.Controls.Add(overrideAdd);
+
+            JellyButton overrideRemove = new JellyButton();
+            overrideRemove.Text = "Убрать";
+            overrideRemove.Location = new Point(340, 100);
+            overrideRemove.Size = new Size(152, 30);
+            overrideRemove.Font = Theme.FontSmall;
+            overrideRemove.Click += delegate { RemoveOverride(); };
+            overrideCard.Controls.Add(overrideRemove);
+
+            CardPanel miscCard = new CardPanel();
+            miscCard.Location = new Point(24, 1784);
+            miscCard.Size = new Size(512, 136);
+            Controls.Add(miscCard);
+
+            Label portableTitle = MakeLabel("Настройки рядом с программой", 20, 14, Theme.FontCardTitle, Theme.Text);
+            miscCard.Controls.Add(portableTitle);
+            Label portableSub = MakeLabel("Файл okna.ini вместо реестра — для флешки", 20, 36, Theme.FontSmall, Theme.Muted);
+            miscCard.Controls.Add(portableSub);
+
+            _portableSwitch = new JellySwitch();
+            _portableSwitch.Location = new Point(432, 18);
+            miscCard.Controls.Add(_portableSwitch);
+
+            _portableLabel = MakeLabel("", 20, 58, Theme.FontTiny, Theme.Faint);
+            _portableLabel.AutoSize = false;
+            _portableLabel.Size = new Size(472, 18);
+            miscCard.Controls.Add(_portableLabel);
+
+            JellyButton export = new JellyButton();
+            export.Text = "Экспорт…";
+            export.Location = new Point(20, 84);
+            export.Size = new Size(112, 30);
+            export.Font = Theme.FontSmall;
+            export.Click += delegate { ExportSettings(); };
+            miscCard.Controls.Add(export);
+
+            JellyButton import = new JellyButton();
+            import.Text = "Импорт…";
+            import.Location = new Point(140, 84);
+            import.Size = new Size(112, 30);
+            import.Font = Theme.FontSmall;
+            import.Click += delegate { ImportSettings(); };
+            miscCard.Controls.Add(import);
+
+            JellyButton reset = new JellyButton();
+            reset.Text = "Сбросить";
+            reset.Location = new Point(260, 84);
+            reset.Size = new Size(112, 30);
+            reset.Font = Theme.FontSmall;
+            reset.Click += delegate { ResetSettings(); };
+            miscCard.Controls.Add(reset);
+
+            JellyButton diagnostics = new JellyButton();
+            diagnostics.Text = "Диагностика…";
+            diagnostics.Location = new Point(380, 84);
+            diagnostics.Size = new Size(112, 30);
+            diagnostics.Font = Theme.FontSmall;
+            diagnostics.Click += delegate
+            {
+                Diagnostics.Show(this, _settings, _engine,
+                    _tray != null ? _tray.HotkeyStatus : "неизвестно");
+            };
+            miscCard.Controls.Add(diagnostics);
+
+            _hintLabel = MakeLabel("", 24, 1984, Theme.FontSmall, Theme.Faint);
+            Controls.Add(_hintLabel);
+
+            Label version = MakeLabel(Updater.CurrentLabel + "  ·  живёт в трее", 24, 2012, Theme.FontTiny, Theme.Faint);
             Controls.Add(version);
 
             JellyButton shake = new JellyButton();
             shake.Text = "Потрясти окно";
-            shake.Location = new Point(280, 1050);
+            shake.Location = new Point(280, 1936);
             shake.Size = new Size(150, 38);
             shake.Click += delegate { _engine.ShakeWindow(Handle); };
             Controls.Add(shake);
@@ -430,7 +609,7 @@ namespace Okna
             JellyButton done = new JellyButton();
             done.Text = "Готово";
             done.Accent = true;
-            done.Location = new Point(440, 1050);
+            done.Location = new Point(440, 1936);
             done.Size = new Size(96, 38);
             done.Click += delegate { Hide(); };
             Controls.Add(done);
@@ -446,6 +625,9 @@ namespace Okna
             tip.SetToolTip(_closeShatter, "Окно рассыпается осколками, когда закрывается кнопкой или по Alt+F4; если программа остаётся в трее, окно скатывается в трубочку и уезжает в трей");
             tip.SetToolTip(_closeBurn, "Окно прогорает снизу вверх: огонь, обугленный край, угли и дым; если программа остаётся в трее, окно скатывается в трубочку и уезжает в трей");
             tip.SetToolTip(_rollSwitch, "При сворачивании окно скатывается в трубочку и уезжает в панель задач");
+            tip.SetToolTip(_hotkeyButton, "Нажмите и введите сочетание, например Ctrl+Alt+K");
+            tip.SetToolTip(_portableSwitch, "Хранить настройки в okna.ini рядом с Okna.exe");
+            tip.SetToolTip(excludeRunning, "Выбрать из окон, которые открыты прямо сейчас");
         }
 
         private static Label MakeLabel(string text, int x, int y, Font font, Color color)
@@ -478,12 +660,16 @@ namespace Okna
             _bendSwitch.CheckedChanged += delegate
             {
                 _settings.Bend = _bendSwitch.Checked;
+                if (_settings.Economy) _settings.Economy = false;
+                UpdatePresetStyles();
                 SaveSoon();
             };
 
             _maxShakeSwitch.CheckedChanged += delegate
             {
                 _settings.MaxShake = _maxShakeSwitch.Checked;
+                if (_settings.Economy) _settings.Economy = false;
+                UpdatePresetStyles();
                 SaveSoon();
             };
 
@@ -497,11 +683,86 @@ namespace Okna
                 SaveSoon();
             };
 
+            for (int i = 0; i < _directionButtons.Length; i++)
+            {
+                int index = i;
+                _directionButtons[i].Click += delegate
+                {
+                    _settings.RollDirection = (RollDirection)index;
+                    UpdateDirectionStyles();
+                    SaveSoon();
+                };
+            }
+
             _startupSwitch.CheckedChanged += delegate
             {
                 _settings.StartWithWindows = _startupSwitch.Checked;
                 AppSettings.SetAutoStart(_startupSwitch.Checked, Application.ExecutablePath);
                 SaveSoon();
+            };
+
+            _callSwitch.CheckedChanged += delegate
+            {
+                _settings.PauseOnCall = _callSwitch.Checked;
+                SaveSoon();
+            };
+
+            _batterySwitch.CheckedChanged += delegate
+            {
+                _settings.PauseOnBattery = _batterySwitch.Checked;
+                SaveSoon();
+            };
+
+            _motionSwitch.CheckedChanged += delegate
+            {
+                _settings.RespectReduceMotion = _motionSwitch.Checked;
+                SaveSoon();
+            };
+
+            _portableSwitch.CheckedChanged += delegate
+            {
+                bool wanted = _portableSwitch.Checked;
+                if (!_settings.SetPortable(wanted))
+                {
+                    MessageBox.Show(this,
+                        "Не удалось записать okna.ini рядом с программой. " +
+                        "Скопируйте Okna.exe в папку, где можно писать, или оставьте настройки в реестре.",
+                        "Окна", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    _portableSwitch.Checked = _settings.IsPortable;
+                }
+                UpdatePortableLabel();
+                SaveSoon();
+            };
+
+            _hotkeyButton.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                e.SuppressKeyPress = true;
+                e.Handled = true;
+
+                if (e.KeyCode == Keys.Back || e.KeyCode == Keys.Delete)
+                {
+                    _settings.HotkeyKey = 0;
+                    _settings.HotkeyModifiers = 0;
+                    ApplyHotkey();
+                    return;
+                }
+
+                if (e.KeyCode == Keys.ControlKey || e.KeyCode == Keys.ShiftKey ||
+                    e.KeyCode == Keys.Menu || e.KeyCode == Keys.LWin || e.KeyCode == Keys.RWin)
+                    return;
+
+                Keys modifiers = Control.ModifierKeys;
+                int mods = 0;
+                if ((modifiers & Keys.Control) != 0) mods |= (int)Native.MOD_CONTROL;
+                if ((modifiers & Keys.Alt) != 0) mods |= (int)Native.MOD_ALT;
+                if ((modifiers & Keys.Shift) != 0) mods |= (int)Native.MOD_SHIFT;
+                // A global hotkey without a modifier would swallow ordinary
+                // typing, so require at least one.
+                if (mods == 0) return;
+
+                _settings.HotkeyModifiers = mods;
+                _settings.HotkeyKey = (int)e.KeyCode;
+                ApplyHotkey();
             };
 
             _slider.ValueChanged += delegate
@@ -518,10 +779,30 @@ namespace Okna
                 int index = i;
                 _presets[i].Click += delegate
                 {
+                    if (index == 3)
+                    {
+                        _settings.ApplyEconomyPreset();
+                        _settings.Save();
+                        SyncFromSettings();
+                        return;
+                    }
+
+                    _settings.Economy = false;
                     int value = index == 0 ? 18 : (index == 1 ? 70 : 92);
                     _slider.Value = value;
+                    UpdatePresetStyles();
                 };
             }
+        }
+
+        private void ApplyHotkey()
+        {
+            _settings.Save();
+            bool ok = _tray == null || _tray.ApplyHotkey(true);
+            _hotkeyButton.Text = _settings.HotkeyLabel;
+            _hotkeyStatus.Text = _tray != null ? _tray.HotkeyStatus : (ok ? "работает" : "занята");
+            _hotkeyStatus.ForeColor = ok ? Theme.Muted : Color.FromArgb(232, 163, 61);
+            UpdateHint();
         }
 
         public void SyncFromSettings()
@@ -532,13 +813,38 @@ namespace Okna
             _maxShakeSwitch.Checked = _settings.MaxShake;
             UpdateCloseStyles();
             _rollSwitch.Checked = _settings.Roll;
-            _rollHorizontalSwitch.Checked = _settings.RollHorizontal;
+            UpdateDirectionStyles();
             _startupSwitch.Checked = _settings.StartWithWindows;
+            _callSwitch.Checked = _settings.PauseOnCall;
+            _batterySwitch.Checked = _settings.PauseOnBattery;
+            _motionSwitch.Checked = _settings.RespectReduceMotion;
+            _portableSwitch.Checked = _settings.IsPortable;
+            UpdatePortableLabel();
+            _hotkeyButton.Text = _settings.HotkeyLabel;
+            _hotkeyStatus.Text = _tray != null ? _tray.HotkeyStatus : "";
+            _hotkeyStatus.ForeColor = Theme.Muted;
             RefreshExcludeList();
+            RefreshOverrideList();
             _slider.Value = _settings.Jelly;
             UpdateJellyLabel();
             UpdatePresetStyles();
+            UpdateHint();
             _statusPill.SetStatus(_engine.PauseReason ?? _engine.Status);
+        }
+
+        private void UpdateHint()
+        {
+            if (_hintLabel == null) return;
+            _hintLabel.Text = "Shift — обычное перетаскивание  ·  " +
+                _settings.HotkeyLabel + " — пауза";
+        }
+
+        private void UpdatePortableLabel()
+        {
+            if (_portableLabel == null) return;
+            _portableLabel.Text = _settings.IsPortable && !string.IsNullOrEmpty(_settings.PortablePath)
+                ? "Файл: " + _settings.PortablePath
+                : "Сейчас настройки хранятся в реестре (HKCU\\Software\\Okna)";
         }
 
         private void UpdateJellyLabel()
@@ -573,10 +879,25 @@ namespace Okna
             }
         }
 
+        private void UpdateDirectionStyles()
+        {
+            if (_directionButtons == null) return;
+            RollDirection selected = _settings.RollDirection;
+            for (int i = 0; i < _directionButtons.Length; i++)
+            {
+                bool accent = (RollDirection)i == selected;
+                if (_directionButtons[i].Accent != accent)
+                {
+                    _directionButtons[i].Accent = accent;
+                    _directionButtons[i].Invalidate();
+                }
+            }
+        }
+
         private void UpdatePresetStyles()
         {
-            int value = _slider.Value;
-            int selected = value < 42 ? 0 : (value < 82 ? 1 : 2);
+            int value = _slider == null ? _settings.Jelly : _slider.Value;
+            int selected = _settings.Economy ? 3 : (value < 42 ? 0 : (value < 82 ? 1 : 2));
             for (int i = 0; i < _presets.Length; i++)
             {
                 bool accent = i == selected;
@@ -590,6 +911,7 @@ namespace Okna
 
         private void SaveSoon()
         {
+            if (_saveTimer == null) return;
             _saveTimer.Stop();
             _saveTimer.Start();
         }
@@ -606,6 +928,18 @@ namespace Okna
                 Theme.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }
 
+        private void DrawOverrideItem(object sender, DrawItemEventArgs e)
+        {
+            if (e.Index < 0) return;
+            bool selected = (e.State & DrawItemState.Selected) != 0;
+            using (SolidBrush back = new SolidBrush(selected ? Theme.BorderSoft : Theme.CardAlt))
+                e.Graphics.FillRectangle(back, e.Bounds);
+            string text = Convert.ToString(_overrideList.Items[e.Index]);
+            TextRenderer.DrawText(e.Graphics, text, _overrideList.Font,
+                new Rectangle(e.Bounds.X + 8, e.Bounds.Y, e.Bounds.Width - 12, e.Bounds.Height),
+                Theme.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        }
+
         private void RefreshExcludeList()
         {
             if (_excludeList == null) return;
@@ -615,6 +949,25 @@ namespace Okna
             for (int i = 0; i < names.Length; i++)
                 _excludeList.Items.Add(names[i]);
             _excludeList.EndUpdate();
+        }
+
+        private void RefreshOverrideList()
+        {
+            if (_overrideList == null) return;
+            _overrideList.BeginUpdate();
+            _overrideList.Items.Clear();
+            string[] list = _settings.CloseOverrides;
+            for (int i = 0; i < list.Length; i++)
+            {
+                int eq = list[i].LastIndexOf('=');
+                if (eq <= 0) continue;
+                string name = list[i].Substring(0, eq);
+                int effect;
+                int.TryParse(list[i].Substring(eq + 1), out effect);
+                string label = effect == 2 ? "сгорание" : (effect == 1 ? "осколки" : "без эффекта");
+                _overrideList.Items.Add(name + "  —  " + label);
+            }
+            _overrideList.EndUpdate();
         }
 
         private void AddExclusions()
@@ -627,10 +980,27 @@ namespace Okna
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 string[] files = dialog.FileNames;
                 for (int i = 0; i < files.Length; i++)
-                    _settings.AddExclude(System.IO.Path.GetFileName(files[i]));
+                    _settings.AddExclude(Path.GetFileName(files[i]));
                 RefreshExcludeList();
                 SaveSoon();
             }
+        }
+
+        private void PickRunning()
+        {
+            WindowPicker.ShowPicker(this, _settings);
+            RefreshExcludeList();
+            SaveSoon();
+        }
+
+        private void AddMask()
+        {
+            string mask = _excludeMask.Text.Trim();
+            if (mask.Length == 0) return;
+            _settings.AddExclude(mask);
+            _excludeMask.Text = "";
+            RefreshExcludeList();
+            SaveSoon();
         }
 
         private void RemoveSelectedExclusion()
@@ -640,6 +1010,75 @@ namespace Okna
             _settings.RemoveExclude(name);
             RefreshExcludeList();
             SaveSoon();
+        }
+
+        private void AddOverride()
+        {
+            string program;
+            int effect;
+            if (!CloseOverrideDialog.ShowFor(this, _settings, "", out program, out effect)) return;
+            _settings.SetCloseOverride(program, effect);
+            RefreshOverrideList();
+            SaveSoon();
+        }
+
+        private void RemoveOverride()
+        {
+            int index = _overrideList.SelectedIndex;
+            if (index < 0) return;
+            string[] list = _settings.CloseOverrides;
+            if (index >= list.Length) return;
+            int eq = list[index].LastIndexOf('=');
+            if (eq <= 0) return;
+            _settings.RemoveCloseOverride(list[index].Substring(0, eq));
+            RefreshOverrideList();
+            SaveSoon();
+        }
+
+        private void ExportSettings()
+        {
+            using (SaveFileDialog dialog = new SaveFileDialog())
+            {
+                dialog.Title = "Экспорт настроек";
+                dialog.Filter = "Настройки Окон (*.ini)|*.ini|Все файлы (*.*)|*.*";
+                dialog.FileName = "okna.ini";
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                _settings.Export(dialog.FileName);
+                MessageBox.Show(this, "Настройки сохранены в " + dialog.FileName,
+                    "Окна", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+
+        private void ImportSettings()
+        {
+            using (OpenFileDialog dialog = new OpenFileDialog())
+            {
+                dialog.Title = "Импорт настроек";
+                dialog.Filter = "Настройки Окон (*.ini)|*.ini|Все файлы (*.*)|*.*";
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                if (!_settings.Import(dialog.FileName))
+                {
+                    MessageBox.Show(this, "В файле нет настроек Окон.",
+                        "Окна", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                _settings.Save();
+                SyncFromSettings();
+                if (_tray != null) _tray.ApplyHotkey(true);
+                MessageBox.Show(this, "Настройки загружены.", "Окна",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+
+        private void ResetSettings()
+        {
+            if (MessageBox.Show(this, "Вернуть все настройки к заводским?",
+                    "Окна", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                return;
+            _settings.ResetAll();
+            _settings.Save();
+            SyncFromSettings();
+            if (_tray != null) _tray.ApplyHotkey(true);
         }
 
         public void ShowSettings()
@@ -682,4 +1121,3 @@ namespace Okna
         }
     }
 }
-

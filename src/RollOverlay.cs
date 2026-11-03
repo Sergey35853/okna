@@ -4,8 +4,11 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
+using System.Windows.Automation;
 
 namespace Okna
 {
@@ -170,6 +173,196 @@ namespace Okna
     }
 
     /// <summary>
+    /// Locates the taskbar button of a window through UI Automation. On
+    /// Windows 11 the taskbar is XAML, not a toolbar of child windows, so the
+    /// old geometry guess (the bar under the window centre) often landed in
+    /// empty space. Every taskbar button exposes an AutomationId of the form
+    /// "Appid: &lt;AppUserModelID&gt;"; when the process has no AppUserModelID
+    /// (most unpackaged programs) the executable name is matched against that
+    /// id, then against the button's accessible name. When automation is
+    /// unavailable (Windows 8.1, a locked shell) the caller falls back to the
+    /// geometry guess.
+    /// </summary>
+    internal static class TaskbarButtonFinder
+    {
+        private static readonly object Sync = new object();
+        private static IntPtr _cachedHwnd;
+        private static string _cachedTitle;
+        private static Native.RECT _cachedRect;
+        private static DateTime _cachedAt = DateTime.MinValue;
+
+        public static bool TryGet(IntPtr hwnd, out Native.RECT rect)
+        {
+            rect = new Native.RECT();
+            if (hwnd == IntPtr.Zero) return false;
+            string title = Native.GetWindowTitle(hwnd);
+            string exe = Native.GetWindowProcessName(hwnd);
+            if (string.IsNullOrEmpty(title) && string.IsNullOrEmpty(exe)) return false;
+
+            lock (Sync)
+            {
+                if (_cachedHwnd == hwnd && string.Equals(_cachedTitle, title, StringComparison.Ordinal) &&
+                    (DateTime.UtcNow - _cachedAt).TotalSeconds < 2.0)
+                {
+                    rect = _cachedRect;
+                    return rect.Width > 2 && rect.Height > 2;
+                }
+            }
+
+            Native.RECT found;
+            if (!Find(title, exe, hwnd, out found)) return false;
+
+            lock (Sync)
+            {
+                _cachedHwnd = hwnd;
+                _cachedTitle = title;
+                _cachedRect = found;
+                _cachedAt = DateTime.UtcNow;
+            }
+            rect = found;
+            return true;
+        }
+
+        private static bool Find(string title, string exe, IntPtr hwnd, out Native.RECT rect)
+        {
+            rect = new Native.RECT();
+            try
+            {
+                AutomationElement root = AutomationElement.RootElement;
+                if (root == null) return false;
+
+                List<AutomationElement> bars = new List<AutomationElement>();
+                AddBars(root, new PropertyCondition(
+                    AutomationElement.ClassNameProperty, "Shell_TrayWnd"), bars);
+                AddBars(root, new PropertyCondition(
+                    AutomationElement.ClassNameProperty, "Shell_SecondaryTrayWnd"), bars);
+                if (bars.Count == 0) return false;
+
+                string appId = Native.GetWindowAppId(hwnd);
+                string exeFile = string.IsNullOrEmpty(exe) ? null : exe;
+                string exeBase = BaseName(exe);
+
+                double cx = 0, cy = 0;
+                Native.RECT frame;
+                if (Native.GetWindowRect(hwnd, out frame))
+                {
+                    cx = (frame.Left + frame.Right) * 0.5;
+                    cy = (frame.Top + frame.Bottom) * 0.5;
+                }
+
+                Condition buttons = new PropertyCondition(
+                    AutomationElement.ControlTypeProperty, ControlType.Button);
+                int bestScore = 0;
+                double bestDistance = double.MaxValue;
+                Native.RECT best = new Native.RECT();
+
+                for (int b = 0; b < bars.Count; b++)
+                {
+                    AutomationElementCollection all = bars[b].FindAll(
+                        TreeScope.Descendants, buttons);
+                    foreach (AutomationElement candidate in all)
+                    {
+                        AutomationElement.AutomationElementInformation info = candidate.Current;
+                        int score = Score(title, exeBase, exeFile, appId, info.Name, info.AutomationId);
+                        if (score <= 0) continue;
+
+                        System.Windows.Rect r = info.BoundingRectangle;
+                        if (r.IsEmpty || r.Width < 4 || r.Height < 4) continue;
+
+                        double dx = Math.Max(0, Math.Max(r.Left - cx, cx - r.Right));
+                        double dy = Math.Max(0, Math.Max(r.Top - cy, cy - r.Bottom));
+                        double distance = dx * dx + dy * dy;
+                        if (score < bestScore || (score == bestScore && distance >= bestDistance))
+                            continue;
+
+                        bestScore = score;
+                        bestDistance = distance;
+                        best.Left = (int)Math.Round(r.Left);
+                        best.Top = (int)Math.Round(r.Top);
+                        best.Right = (int)Math.Round(r.Right);
+                        best.Bottom = (int)Math.Round(r.Bottom);
+                    }
+                }
+
+                if (bestScore <= 0) return false;
+                rect = best;
+                Log.Debug("Taskbar button matched score=" + bestScore +
+                    " appid=" + (appId ?? "-") + " exe=" + (exeFile ?? "-"));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Taskbar button lookup failed: " + ex.GetType().Name);
+                return false;
+            }
+        }
+
+        private static void AddBars(AutomationElement root, Condition condition,
+            List<AutomationElement> bars)
+        {
+            AutomationElementCollection found = root.FindAll(TreeScope.Children, condition);
+            foreach (AutomationElement element in found) bars.Add(element);
+        }
+
+        /// <summary>
+        /// Higher is better. An exact title beats a prefix, an exact
+        /// AppUserModelID beats a partial one, and the executable name is the
+        /// last resort for grouped buttons whose accessible name is just
+        /// "App — 2 running windows".
+        /// </summary>
+        private static int Score(string title, string exeBase, string exeFile, string appId,
+            string name, string id)
+        {
+            if (!string.IsNullOrEmpty(title) && !string.IsNullOrEmpty(name))
+            {
+                if (string.Equals(name, title, StringComparison.OrdinalIgnoreCase)) return 1000;
+                if (title.Length >= 4 &&
+                    (name.StartsWith(title, StringComparison.OrdinalIgnoreCase) ||
+                     title.StartsWith(name, StringComparison.OrdinalIgnoreCase)))
+                    return 900;
+            }
+
+            if (!string.IsNullOrEmpty(appId) && !string.IsNullOrEmpty(id))
+            {
+                if (string.Equals(id, "Appid: " + appId, StringComparison.OrdinalIgnoreCase))
+                    return 850;
+                if (id.IndexOf(appId, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return 800;
+            }
+
+            if (!string.IsNullOrEmpty(exeBase) && exeBase.Length >= 3 && !string.IsNullOrEmpty(id))
+            {
+                string value = id.StartsWith("Appid: ", StringComparison.OrdinalIgnoreCase)
+                    ? id.Substring(7).Trim()
+                    : id.Trim();
+                if (string.Equals(value, exeBase, StringComparison.OrdinalIgnoreCase)) return 750;
+                if (value.EndsWith("\\" + exeFile, StringComparison.OrdinalIgnoreCase) ||
+                    value.EndsWith("\\" + exeBase, StringComparison.OrdinalIgnoreCase)) return 700;
+            }
+
+            if (!string.IsNullOrEmpty(exeBase) && exeBase.Length >= 3 && !string.IsNullOrEmpty(name))
+            {
+                if (name.IndexOf(exeBase, StringComparison.OrdinalIgnoreCase) >= 0) return 600;
+            }
+            return 0;
+        }
+
+        private static string BaseName(string exe)
+        {
+            if (string.IsNullOrEmpty(exe)) return null;
+            try
+            {
+                string name = Path.GetFileNameWithoutExtension(exe);
+                return string.IsNullOrEmpty(name) ? null : name;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
+    /// <summary>
     /// Rolls a window that has just been minimized into a paper tube and lets
     /// the tube dive into the taskbar. The real window is already minimized by
     /// the system; this is a topmost layered window that draws a copy of its
@@ -180,6 +373,7 @@ namespace Okna
         private const double RollTime = 0.46;
         private const double SlideTime = 0.36;
         private const double Total = RollTime + SlideTime;
+        private const int Strip = 8;
 
         /// <summary>
         /// Starts the animation. <paramref name="shot"/> is the window picture
@@ -187,16 +381,16 @@ namespace Okna
         /// </summary>
         public static void Play(Bitmap shot, Native.RECT frame, IntPtr hwnd)
         {
-            PlayCore(shot, frame, hwnd, false, false);
+            PlayCore(shot, frame, hwnd, false, RollDirection.Auto);
         }
 
         /// <summary>
-        /// Plays the roll with a chosen direction. <paramref name="horizontal"/>
-        /// rolls the window sideways into the taskbar instead of upwards.
+        /// Plays the roll with a chosen direction. Auto follows the edge of the
+        /// screen the taskbar is docked to.
         /// </summary>
-        public static void Play(Bitmap shot, Native.RECT frame, IntPtr hwnd, bool horizontal)
+        public static void Play(Bitmap shot, Native.RECT frame, IntPtr hwnd, RollDirection direction)
         {
-            PlayCore(shot, frame, hwnd, false, horizontal);
+            PlayCore(shot, frame, hwnd, false, direction);
         }
 
         /// <summary>
@@ -205,18 +399,16 @@ namespace Okna
         /// </summary>
         public static void PlayToTray(Bitmap shot, Native.RECT frame)
         {
-            PlayCore(shot, frame, IntPtr.Zero, true, false);
+            PlayCore(shot, frame, IntPtr.Zero, true, RollDirection.Auto);
         }
 
-        /// <summary>
-        /// Rolls the copy into the notification area sideways.
-        /// </summary>
-        public static void PlayToTray(Bitmap shot, Native.RECT frame, bool horizontal)
+        public static void PlayToTray(Bitmap shot, Native.RECT frame, RollDirection direction)
         {
-            PlayCore(shot, frame, IntPtr.Zero, true, horizontal);
+            PlayCore(shot, frame, IntPtr.Zero, true, direction);
         }
 
-        private static void PlayCore(Bitmap shot, Native.RECT frame, IntPtr hwnd, bool toTray, bool horizontal)
+        private static void PlayCore(Bitmap shot, Native.RECT frame, IntPtr hwnd, bool toTray,
+            RollDirection direction)
         {
             if (shot == null) return;
             if (shot.Width < 60 || shot.Height < 60) { shot.Dispose(); return; }
@@ -225,7 +417,7 @@ namespace Okna
             {
                 try
                 {
-                    Run(shot, frame, hwnd, toTray, horizontal);
+                    Run(shot, frame, hwnd, toTray, direction);
                 }
                 catch (Exception ex)
                 {
@@ -239,7 +431,8 @@ namespace Okna
             thread.Start();
         }
 
-        private static void Run(Bitmap shot, Native.RECT frame, IntPtr hwnd, bool toTray, bool horizontal)
+        private static void Run(Bitmap shot, Native.RECT frame, IntPtr hwnd, bool toTray,
+            RollDirection requested)
         {
             int vx = Native.GetSystemMetrics(Native.SM_XVIRTUALSCREEN);
             int vy = Native.GetSystemMetrics(Native.SM_YVIRTUALSCREEN);
@@ -251,6 +444,7 @@ namespace Okna
             bool hasBar = TaskbarFinder.TryGet(frame, out bar);
             Native.RECT tray = new Native.RECT();
             bool hasTray = toTray && TrayFinder.TryGet(frame, out tray);
+            RollDirection direction = ResolveDirection(frame, hasBar, bar, requested);
 
             // The canvas has to hold the window, the bar and the little arc the
             // tube takes on its way down.
@@ -274,9 +468,9 @@ namespace Okna
             float targetX;
             float targetY;
             if (hasTray)
-                TrayPoint(tray, out targetX, out targetY);
+                TrayPoint(tray, direction, out targetX, out targetY);
             else
-                TargetPoint(frame, hasBar, bar, out targetX, out targetY);
+                TargetPoint(hwnd, frame, hasBar, bar, direction, out targetX, out targetY);
 
             IntPtr screen = Native.GetDC(IntPtr.Zero);
             if (screen == IntPtr.Zero) { shot.Dispose(); return; }
@@ -347,10 +541,10 @@ namespace Okna
                         g.PixelOffsetMode = PixelOffsetMode.HighSpeed;
 
                         if (t < RollTime)
-                            DrawRoll(g, shot, frame, left, top, t / RollTime, horizontal);
+                            DrawRoll(g, shot, frame, left, top, t / RollTime, direction);
                         else
                             DrawSlide(g, shot, frame, left, top, targetX, targetY,
-                                (t - RollTime) / SlideTime, toTray, horizontal, ref blend);
+                                (t - RollTime) / SlideTime, toTray, direction, ref blend);
                     }
 
                     BitmapData data = canvas.LockBits(new Rectangle(0, 0, w, h),
@@ -399,17 +593,59 @@ namespace Okna
                 if (canvas != null) canvas.Dispose();
                 if (shot != null) shot.Dispose();
                 Log.Debug("Roll done frames=" + frames + " elapsed=" +
-                    clock.ElapsedMilliseconds + "ms canvas=" + w + "x" + h);
+                    clock.ElapsedMilliseconds + "ms canvas=" + w + "x" + h +
+                    " dir=" + direction);
             }
         }
 
         /// <summary>
-        /// Where the tube should end up: inside the taskbar, as close as the
-        /// geometry allows to the window's own centre.
+        /// Auto rolls towards the taskbar: down for a bottom bar, up for a top
+        /// bar, left for a right bar and right for a left bar. The forced
+        /// values are returned untouched.
         /// </summary>
-        private static void TargetPoint(Native.RECT frame, bool hasBar, Native.RECT bar,
-            out float x, out float y)
+        internal static RollDirection ResolveDirection(Native.RECT frame, bool hasBar,
+            Native.RECT bar, RollDirection requested)
         {
+            if (requested != RollDirection.Auto) return requested;
+            if (!hasBar) return RollDirection.Down;
+
+            bool barHorizontal = bar.Width >= bar.Height;
+            double barCx = (bar.Left + bar.Right) * 0.5;
+            double barCy = (bar.Top + bar.Bottom) * 0.5;
+            double frameCx = (frame.Left + frame.Right) * 0.5;
+            double frameCy = (frame.Top + frame.Bottom) * 0.5;
+
+            if (barHorizontal)
+                return barCy >= frameCy ? RollDirection.Down : RollDirection.Up;
+            return barCx >= frameCx ? RollDirection.Right : RollDirection.Left;
+        }
+
+        internal static bool IsHorizontal(RollDirection direction)
+        {
+            return direction == RollDirection.Left || direction == RollDirection.Right;
+        }
+
+        /// <summary>
+        /// Where the tube should end up: inside the window's real taskbar
+        /// button when automation can find it, otherwise in the bar under the
+        /// window's centre. The point is always clamped into the bar so the
+        /// tube never dives into empty desktop.
+        /// </summary>
+        internal static void TargetPoint(IntPtr hwnd, Native.RECT frame, bool hasBar,
+            Native.RECT bar, RollDirection direction, out float x, out float y)
+        {
+            Native.RECT button;
+            if (hwnd != IntPtr.Zero && TaskbarButtonFinder.TryGet(hwnd, out button))
+            {
+                x = (button.Left + button.Right) * 0.5f;
+                y = (button.Top + button.Bottom) * 0.5f;
+                if (hasBar) ClampToBar(ref x, ref y, bar);
+                Log.Debug("Roll target: taskbar button " + button.Left + "," + button.Top +
+                    " " + button.Width + "x" + button.Height + " -> " + (int)x + "," + (int)y);
+                return;
+            }
+            Log.Debug("Roll target: geometry fallback");
+
             float cx = frame.Left + frame.Width * 0.5f;
             float cy = frame.Top + frame.Height * 0.5f;
             if (!hasBar)
@@ -432,12 +668,19 @@ namespace Okna
             }
         }
 
+        private static void ClampToBar(ref float x, ref float y, Native.RECT bar)
+        {
+            x = Math.Max(bar.Left + 8, Math.Min(bar.Right - 8, x));
+            y = Math.Max(bar.Top + 8, Math.Min(bar.Bottom - 8, y));
+        }
+
         /// <summary>
         /// Where the tube should end up inside the notification area. The
         /// icons sit at the start of the tray and the clock takes its end, so
         /// a third of the way in is on the icons, whatever the bar's edge.
         /// </summary>
-        private static void TrayPoint(Native.RECT tray, out float x, out float y)
+        internal static void TrayPoint(Native.RECT tray, RollDirection direction,
+            out float x, out float y)
         {
             if (tray.Width >= tray.Height)
             {
@@ -452,96 +695,147 @@ namespace Okna
         }
 
         /// <summary>
-        /// Phase one: the picture is rolled from the top down. The flat part
-        /// keeps its scale (the material disappears into the tube), the tube
-        /// grows as more of the window is gathered. A sideways roll gathers
-        /// from the right edge towards the left instead.
+        /// The geometry of the first phase in screen coordinates: the flat
+        /// remaining picture, the tube, the texture strip on the tube and the
+        /// picture region still visible. Exposed for the geometry tests.
         /// </summary>
-        private static void DrawRoll(Graphics g, Bitmap shot, Native.RECT frame,
-            int originX, int originY, double p, bool horizontal)
+        internal static void ComputeRollGeometry(Native.RECT frame, RollDirection direction,
+            double p, out RectangleF tube, out RectangleF flat, out RectangleF flatSource,
+            out RectangleF tubeSource, out bool horizontal)
         {
             if (p < 0) p = 0;
             if (p > 1) p = 1;
             double s = p * p * (3 - 2 * p);
+            horizontal = IsHorizontal(direction);
+
+            float shotW = frame.Width;
+            float shotH = frame.Height;
 
             if (!horizontal)
             {
                 float maxRadius = Math.Min(frame.Height * 0.5f, Math.Max(10f, frame.Height * 0.03f));
                 float radius = 3f + (maxRadius - 3f) * (float)Math.Pow(s, 0.85);
-                float centerY = frame.Top + radius + (frame.Height - 2 * radius) * (float)s;
-                float flatTop = centerY + radius;
+                bool down = direction != RollDirection.Up;
+                float centerY = down
+                    ? frame.Top + radius + (frame.Height - 2 * radius) * (float)s
+                    : frame.Bottom - radius - (frame.Height - 2 * radius) * (float)s;
 
-                g.InterpolationMode = InterpolationMode.NearestNeighbor;
-                float flatHeight = frame.Bottom - flatTop;
-                if (flatHeight > 1)
+                tube = new RectangleF(frame.Left, centerY - radius, frame.Width, radius * 2);
+                float strip = Math.Min(Strip, shotH);
+                if (down)
                 {
-                    g.DrawImage(shot,
-                        new RectangleF(frame.Left - originX, flatTop - originY, frame.Width, flatHeight),
-                        new RectangleF(0, flatTop - frame.Top, shot.Width, flatHeight),
-                        GraphicsUnit.Pixel);
+                    float flatTop = centerY + radius;
+                    flat = new RectangleF(frame.Left, flatTop, frame.Width,
+                        Math.Max(0f, frame.Bottom - flatTop));
+                    flatSource = new RectangleF(0, flatTop - frame.Top, shotW,
+                        Math.Max(0f, frame.Bottom - flatTop));
+                    tubeSource = new RectangleF(0, 0, shotW, strip);
                 }
-
-                g.InterpolationMode = InterpolationMode.Bilinear;
-                // The tube shows only the outermost layer of the roll: a thin strip
-                // of the picture stretched into a band, so it reads as rolled paper
-                // instead of a squashed screenshot.
-                float stripY = Math.Max(0f, centerY - radius - frame.Top - 4f);
-                float stripH = Math.Min(8f, shot.Height - stripY);
-                DrawTube(g, shot,
-                    new RectangleF(frame.Left - originX, centerY - radius - originY,
-                        frame.Width, radius * 2),
-                    new RectangleF(0, stripY, shot.Width, Math.Max(1f, stripH)), false);
+                else
+                {
+                    float flatBottom = centerY - radius;
+                    flat = new RectangleF(frame.Left, frame.Top, frame.Width,
+                        Math.Max(0f, flatBottom - frame.Top));
+                    flatSource = new RectangleF(0, 0, shotW, Math.Max(0f, flatBottom - frame.Top));
+                    tubeSource = new RectangleF(0, Math.Max(0f, shotH - strip), shotW, strip);
+                }
             }
             else
             {
                 float maxRadius = Math.Min(frame.Width * 0.5f, Math.Max(10f, frame.Width * 0.03f));
                 float radius = 3f + (maxRadius - 3f) * (float)Math.Pow(s, 0.85);
-                float centre = frame.Right - radius - (frame.Width - 2 * radius) * (float)s;
-                float flatRight = centre - radius;
+                bool left = direction == RollDirection.Left;
+                float centerX = left
+                    ? frame.Right - radius - (frame.Width - 2 * radius) * (float)s
+                    : frame.Left + radius + (frame.Width - 2 * radius) * (float)s;
 
-                g.InterpolationMode = InterpolationMode.NearestNeighbor;
-                float flatWidth = (float)(flatRight - frame.Left);
-                if (flatWidth > 1)
+                tube = new RectangleF(centerX - radius, frame.Top, radius * 2, frame.Height);
+                float strip = Math.Min(Strip, shotW);
+                if (left)
                 {
-                    // The flat part keeps its scale: the right side disappears
-                    // into the tube instead of the whole picture being squashed.
-                    g.DrawImage(shot,
-                        new RectangleF(frame.Left - originX, frame.Top - originY,
-                            flatWidth, frame.Height),
-                        new RectangleF(0, 0, Math.Max(1f, flatWidth), shot.Height),
-                        GraphicsUnit.Pixel);
+                    float flatRight = centerX - radius;
+                    flat = new RectangleF(frame.Left, frame.Top,
+                        Math.Max(0f, flatRight - frame.Left), frame.Height);
+                    flatSource = new RectangleF(0, 0, Math.Max(0f, flatRight - frame.Left), shotH);
+                    tubeSource = new RectangleF(Math.Max(0f, shotW - strip), 0, strip, shotH);
                 }
-
-                g.InterpolationMode = InterpolationMode.Bilinear;
-                float stripPos = Math.Max(0f, (centre - radius) - frame.Left - 4f);
-                DrawTube(g, shot,
-                    new RectangleF((centre - radius) - originX, frame.Top - originY,
-                        2 * radius, frame.Height),
-                    new RectangleF(stripPos, 0, Math.Max(1f, shot.Width - stripPos), shot.Height), true);
+                else
+                {
+                    float flatLeft = centerX + radius;
+                    flat = new RectangleF(flatLeft, frame.Top,
+                        Math.Max(0f, frame.Right - flatLeft), frame.Height);
+                    flatSource = new RectangleF(flatLeft - frame.Left, 0,
+                        Math.Max(0f, frame.Right - flatLeft), shotH);
+                    tubeSource = new RectangleF(0, 0, strip, shotH);
+                }
             }
         }
 
         /// <summary>
+        /// Phase one: the picture is rolled from one edge. The flat part keeps
+        /// its scale (the material disappears into the tube), the tube grows
+        /// as more of the window is gathered.
+        /// </summary>
+        private static void DrawRoll(Graphics g, Bitmap shot, Native.RECT frame,
+            int originX, int originY, double p, RollDirection direction)
+        {
+            RectangleF tube, flat, flatSource, tubeSource;
+            bool horizontal;
+            ComputeRollGeometry(frame, direction, p, out tube, out flat, out flatSource,
+                out tubeSource, out horizontal);
+
+            g.InterpolationMode = InterpolationMode.NearestNeighbor;
+            if (flat.Width > 1 && flat.Height > 1 && flatSource.Width > 1 && flatSource.Height > 1)
+            {
+                g.DrawImage(shot,
+                    new RectangleF(flat.X - originX, flat.Y - originY, flat.Width, flat.Height),
+                    flatSource, GraphicsUnit.Pixel);
+            }
+
+            g.InterpolationMode = InterpolationMode.Bilinear;
+            DrawTube(g, shot,
+                new RectangleF(tube.X - originX, tube.Y - originY, tube.Width, tube.Height),
+                tubeSource, horizontal);
+        }
+
+        /// <summary>
         /// Phase two: the tube travels to the taskbar in a shallow arc,
-        /// shrinking to the size of a taskbar button and fading into it. For
-        /// a sideways roll the travel runs along the window's width.
+        /// shrinking to the size of a taskbar button and fading into it.
         /// </summary>
         private static void DrawSlide(Graphics g, Bitmap shot, Native.RECT frame,
             int originX, int originY, float targetX, float targetY, double q,
-            bool toTray, bool horizontal, ref Native.BLENDFUNCTION blend)
+            bool toTray, RollDirection direction, ref Native.BLENDFUNCTION blend)
         {
             if (q < 0) q = 0;
             if (q > 1) q = 1;
             double e = q * q * (3 - 2 * q);
+            bool horizontal = IsHorizontal(direction);
 
             float maxRadius = Math.Min((horizontal ? frame.Width : frame.Height) * 0.5f,
                 Math.Max(10f, (horizontal ? frame.Width : frame.Height) * 0.03f));
             float startLen = horizontal ? frame.Height : frame.Width;
             float startDia = maxRadius * 2;
-            float startX = horizontal ? frame.Right + maxRadius
-                : frame.Left + startLen * 0.5f;
-            float startY = horizontal ? frame.Top + frame.Height * 0.5f
-                : frame.Bottom - maxRadius;
+            float startX;
+            float startY;
+            switch (direction)
+            {
+                case RollDirection.Up:
+                    startX = frame.Left + frame.Width * 0.5f;
+                    startY = frame.Top + maxRadius;
+                    break;
+                case RollDirection.Left:
+                    startX = frame.Right - maxRadius;
+                    startY = frame.Top + frame.Height * 0.5f;
+                    break;
+                case RollDirection.Right:
+                    startX = frame.Left + maxRadius;
+                    startY = frame.Top + frame.Height * 0.5f;
+                    break;
+                default:
+                    startX = frame.Left + frame.Width * 0.5f;
+                    startY = frame.Bottom - maxRadius;
+                    break;
+            }
 
             // A tray icon is smaller than a taskbar button: the tube shrinks
             // to its size before it disappears into the notification area.
@@ -574,24 +868,26 @@ namespace Okna
             g.TranslateTransform(-cx, -cy);
 
             g.InterpolationMode = InterpolationMode.Bilinear;
+            float strip = Math.Min(Strip, horizontal ? shot.Width : shot.Height);
             if (horizontal)
             {
                 // Sideways: the tube is long along Y and thick along X. Its
-                // texture is the rightmost strip of the picture, the outer
-                // layer of a sideways roll.
+                // texture is the edge the roll started from.
                 float tubeX = cx - height * 0.5f - originX;
                 float tubeY = cy - width * 0.5f - originY;
-                float stripW = Math.Min(8f, shot.Width);
-                DrawTube(g, shot, new RectangleF(tubeX, tubeY, height, width),
-                    new RectangleF(Math.Max(0f, shot.Width - stripW), 0, Math.Max(1f, stripW), shot.Height), true);
+                RectangleF source = direction == RollDirection.Left
+                    ? new RectangleF(Math.Max(0f, shot.Width - strip), 0, strip, shot.Height)
+                    : new RectangleF(0, 0, strip, shot.Height);
+                DrawTube(g, shot, new RectangleF(tubeX, tubeY, height, width), source, true);
             }
             else
             {
-                float stripY = Math.Max(0f, shot.Height - 8f);
-                DrawTube(g, shot,
-                    new RectangleF(cx - width * 0.5f - originX, cy - height * 0.5f - originY,
-                        width, height),
-                    new RectangleF(0, stripY, shot.Width, shot.Height - stripY), false);
+                float tubeX = cx - width * 0.5f - originX;
+                float tubeY = cy - height * 0.5f - originY;
+                RectangleF source = direction == RollDirection.Up
+                    ? new RectangleF(0, Math.Max(0f, shot.Height - strip), shot.Width, strip)
+                    : new RectangleF(0, 0, shot.Width, strip);
+                DrawTube(g, shot, new RectangleF(tubeX, tubeY, width, height), source, false);
             }
 
             g.Restore(state);
@@ -599,11 +895,12 @@ namespace Okna
 
         /// <summary>
         /// Draws a rolled tube: the picture squashed into a rounded bar, lit
-        /// from above like a cylinder, with a soft shadow underneath. For a
-        /// sideways roll the tube is long along the vertical axis and lit
-        /// from the left instead of from above.
+        /// like a cylinder, with a soft shadow underneath. For a sideways roll
+        /// the tube is long along the vertical axis and lit from the left
+        /// instead of from above.
         /// </summary>
-        private static void DrawTube(Graphics g, Bitmap shot, RectangleF tube, RectangleF source, bool horizontal)
+        private static void DrawTube(Graphics g, Bitmap shot, RectangleF tube, RectangleF source,
+            bool horizontal)
         {
             float radius = Math.Min(tube.Height * 0.5f, tube.Width * 0.5f);
             if (radius < 1f) radius = 1f;
@@ -632,7 +929,8 @@ namespace Okna
                     ? new RectangleF(tube.X - 1f, tube.Y, Math.Max(1f, tube.Width), Math.Max(1f, tube.Height))
                     : new RectangleF(tube.X, tube.Y - 1f, Math.Max(1f, tube.Width), Math.Max(1f, tube.Height));
                 using (LinearGradientBrush shade = new LinearGradientBrush(shadeRect,
-                    Color.Transparent, Color.Transparent, horizontal ? LinearGradientMode.Horizontal : LinearGradientMode.Vertical))
+                    Color.Transparent, Color.Transparent,
+                    horizontal ? LinearGradientMode.Horizontal : LinearGradientMode.Vertical))
                 {
                     ColorBlend blend = new ColorBlend(5);
                     blend.Colors = new Color[]
@@ -654,10 +952,20 @@ namespace Okna
                     g.DrawPath(edge, path);
                 using (Pen light = new Pen(Color.FromArgb(70, 255, 255, 255), 1f))
                 {
-                    float lineY = tube.Y + tube.Height * 0.26f;
-                    if (tube.Width > radius * 2.4f)
-                        g.DrawLine(light, tube.X + radius * 0.7f, lineY,
-                            tube.Right - radius * 0.7f, lineY);
+                    if (horizontal)
+                    {
+                        float lineX = tube.X + tube.Width * 0.26f;
+                        if (tube.Height > radius * 2.4f)
+                            g.DrawLine(light, lineX, tube.Y + radius * 0.7f,
+                                lineX, tube.Bottom - radius * 0.7f);
+                    }
+                    else
+                    {
+                        float lineY = tube.Y + tube.Height * 0.26f;
+                        if (tube.Width > radius * 2.4f)
+                            g.DrawLine(light, tube.X + radius * 0.7f, lineY,
+                                tube.Right - radius * 0.7f, lineY);
+                    }
                 }
             }
         }

@@ -10,6 +10,7 @@ if (-not (Test-Path $csc)) {
 
 $src = Join-Path $PSScriptRoot "src"
 $assets = Join-Path $PSScriptRoot "assets"
+$wpf = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF"
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
 $files = Get-ChildItem -Path $src -Filter *.cs | ForEach-Object { $_.FullName }
@@ -28,7 +29,10 @@ $arguments = @(
     "/r:System.Core.dll",
     "/r:System.Drawing.dll",
     "/r:System.Windows.Forms.dll",
-    "/r:System.Web.Extensions.dll"
+    "/r:System.Web.Extensions.dll",
+    "/r:$wpf\UIAutomationClient.dll",
+    "/r:$wpf\UIAutomationTypes.dll",
+    "/r:$wpf\WindowsBase.dll"
 ) + $files
 
 & $csc $arguments

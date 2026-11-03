@@ -1,11 +1,11 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Okna
 {
-    internal static class Native
+    internal static partial class Native
     {
         public const int WM_NCHITTEST = 0x0084;
         public const int WM_CANCELMODE = 0x001F;
@@ -393,210 +393,7 @@ namespace Okna
         private static extern bool GetLayeredWindowAttributes(IntPtr hwnd, out uint colorKey,
             out byte alpha, out uint flags);
 
-        public static long GetWindowLongPtr(IntPtr hwnd, int index)
-        {
-            if (IntPtr.Size == 8)
-                return GetWindowLongPtr64(hwnd, index).ToInt64();
-            return GetWindowLong32(hwnd, index);
-        }
 
-        public static long SetWindowLongPtr(IntPtr hwnd, int index, long value)
-        {
-            if (IntPtr.Size == 8)
-                return SetWindowLongPtr64(hwnd, index, new IntPtr(value)).ToInt64();
-            return SetWindowLong32(hwnd, index, (int)value);
-        }
-
-        /// <summary>
-        /// Makes a foreign window see-through (alpha 0-255). The window keeps
-        /// being composited, so the app keeps painting and PrintWindow still
-        /// returns its content; it just does not reach the screen.
-        /// </summary>
-        public static bool SetWindowAlpha(IntPtr hwnd, byte alpha)
-        {
-            return SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
-        }
-
-        /// <summary>
-        /// Reads a layered window's alpha. Returns false when the window is not
-        /// layered (or has no alpha), which is what a crash recovery check needs.
-        /// </summary>
-        public static bool TryGetWindowAlpha(IntPtr hwnd, out byte alpha)
-        {
-            uint key;
-            uint flags;
-            alpha = 255;
-            if (!GetLayeredWindowAttributes(hwnd, out key, out alpha, out flags)) return false;
-            return (flags & LWA_ALPHA) != 0;
-        }
-
-        public static bool IsCloaked(IntPtr hwnd)
-        {
-            int cloaked;
-            int hr = DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, out cloaked, 4);
-            return hr == 0 && cloaked != 0;
-        }
-
-        public static void EnableDarkTitleBar(IntPtr hwnd)
-        {
-            int enabled = 1;
-            int hr = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref enabled, 4);
-            if (hr != 0)
-                DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref enabled, 4);
-        }
-
-        /// <summary>
-        /// Turns the DWM open/close/minimize/restore animations of a window on
-        /// or off. While the window is rolled up by Okna the system's own
-        /// minimize animation would slide a second copy towards the taskbar,
-        /// so it is switched off for that moment and switched back on after.
-        /// </summary>
-        public static bool SetWindowTransitions(IntPtr hwnd, bool enabled)
-        {
-            try
-            {
-                int value = enabled ? 0 : 1;
-                return DwmSetWindowAttribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, ref value, 4) == 0;
-            }
-            catch (EntryPointNotFoundException) { return false; }
-            catch (DllNotFoundException) { return false; }
-        }
-
-        public static void EnablePerMonitorDpi()
-        {
-            try
-            {
-                // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
-                if (SetProcessDpiAwarenessContext(new IntPtr(-4)))
-                    return;
-            }
-            catch (EntryPointNotFoundException) { }
-            catch (DllNotFoundException) { }
-
-            try
-            {
-                // PROCESS_PER_MONITOR_DPI_AWARE = 2
-                if (SetProcessDpiAwareness(2) == 0)
-                    return;
-            }
-            catch (EntryPointNotFoundException) { }
-            catch (DllNotFoundException) { }
-
-            try { SetProcessDPIAware(); }
-            catch { }
-        }
-
-        public static bool IsProcessElevated(uint processId, out bool elevated)
-        {
-            elevated = false;
-            IntPtr process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
-            if (process == IntPtr.Zero)
-                return false;
-            IntPtr token = IntPtr.Zero;
-            try
-            {
-                if (!OpenProcessToken(process, TOKEN_QUERY, out token))
-                    return false;
-                TOKEN_ELEVATION info;
-                int returned;
-                if (!GetTokenInformation(token, TokenElevation, out info, Marshal.SizeOf(typeof(TOKEN_ELEVATION)), out returned))
-                    return false;
-                elevated = info.TokenIsElevated != 0;
-                return true;
-            }
-            finally
-            {
-                if (token != IntPtr.Zero) CloseHandle(token);
-                CloseHandle(process);
-            }
-        }
-
-        public static bool IsOwnProcessWindow(IntPtr hwnd)
-        {
-            uint pid;
-            GetWindowThreadProcessId(hwnd, out pid);
-            return pid == GetCurrentProcessId();
-        }
-
-        /// <summary>
-        /// True when another window is painted on top of <paramref name="rect"/>,
-        /// i.e. a screen grab of that rectangle would show that window instead
-        /// of the target. Always-on-top windows (some Electron shells) do this
-        /// even while the target is the foreground window.
-        /// </summary>
-        public static bool IsCovered(IntPtr target, RECT rect)
-        {
-            // A maximized window's frame overlaps the taskbar by a pixel or
-            // two, which is not a window painted over it.
-            const int Inset = 3;
-            int left = rect.Left + Inset;
-            int top = rect.Top + Inset;
-            int right = rect.Right - Inset;
-            int bottom = rect.Bottom - Inset;
-            if (right <= left || bottom <= top) return false;
-
-            for (IntPtr h = GetWindow(target, GW_HWNDPREV); h != IntPtr.Zero;
-                 h = GetWindow(h, GW_HWNDPREV))
-            {
-                if (h == target) continue;
-                if (!IsWindowVisible(h) || IsIconic(h)) continue;
-                if (IsCloaked(h)) continue;
-                if (IsOwnProcessWindow(h)) continue;
-
-                RECT r;
-                if (!GetWindowRect(h, out r)) continue;
-                if (r.Right <= r.Left || r.Bottom <= r.Top) continue;
-                if (r.Left >= right || r.Right <= left ||
-                    r.Top >= bottom || r.Bottom <= top) continue;
-
-                return true;
-            }
-            return false;
-        }
-
-        public static string GetWindowTitle(IntPtr hwnd)
-        {
-            StringBuilder sb = new StringBuilder(512);
-            GetWindowText(hwnd, sb, sb.Capacity);
-            return sb.ToString();
-        }
-
-        public static string GetWindowClass(IntPtr hwnd)
-        {
-            StringBuilder sb = new StringBuilder(256);
-            GetClassName(hwnd, sb, sb.Capacity);
-            return sb.ToString();
-        }
-
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern bool QueryFullProcessImageName(IntPtr process, uint flags,
-            StringBuilder name, ref int size);
-
-        /// <summary>
-        /// The file name of the program that owns the window ("chrome.exe"),
-        /// or null when it cannot be read (elevated programs).
-        /// </summary>
-        public static string GetWindowProcessName(IntPtr hwnd)
-        {
-            uint pid;
-            GetWindowThreadProcessId(hwnd, out pid);
-            if (pid == 0) return null;
-            IntPtr process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-            if (process == IntPtr.Zero) return null;
-            try
-            {
-                StringBuilder sb = new StringBuilder(1024);
-                int size = sb.Capacity;
-                if (!QueryFullProcessImageName(process, 0, sb, ref size)) return null;
-                string path = sb.ToString(0, size);
-                try { return System.IO.Path.GetFileName(path); }
-                catch { return null; }
-            }
-            finally
-            {
-                CloseHandle(process);
-            }
-        }
 
         public const int SM_REMOTESESSION = 0x1000;
 
@@ -614,23 +411,22 @@ namespace Okna
         [DllImport("kernel32.dll")]
         public static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS status);
 
-        public static bool IsRemoteSession()
-        {
-            return GetSystemMetrics(SM_REMOTESESSION) != 0;
-        }
-
-        public static bool IsBatterySaverOn()
-        {
-            SYSTEM_POWER_STATUS status;
-            if (!GetSystemPowerStatus(out status)) return false;
-            return status.SystemStatusFlag == 1;
-        }
 
         public const int WM_HOTKEY = 0x0312;
         public const uint MOD_ALT = 0x0001;
         public const uint MOD_CONTROL = 0x0002;
+        public const uint MOD_SHIFT = 0x0004;
+        public const uint MOD_WIN = 0x0008;
         public const uint MOD_NOREPEAT = 0x4000;
         public const int VK_J = 0x4A;
+
+        // Windows' "reduce motion" / animation switch (Windows 7 SP1 and
+        // later; the call simply fails on older systems and is ignored).
+        public const uint SPI_GETCLIENTAREAANIMATION = 0x1042;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool SystemParametersInfo(uint action, uint param, out int value, uint flags);
+
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
@@ -638,120 +434,9 @@ namespace Okna
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
 
-        /// <summary>
-        /// True when the window covers its whole monitor, which is how games
-        /// and full-screen video look. A merely maximized window leaves the
-        /// taskbar visible and is not counted.
-        /// </summary>
-        public static bool IsFullscreenWindow(IntPtr hwnd)
-        {
-            if (hwnd == IntPtr.Zero) return false;
-            if (!IsWindowVisible(hwnd) || IsIconic(hwnd)) return false;
-            if (IsOwnProcessWindow(hwnd)) return false;
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool DestroyIcon(IntPtr icon);
 
-            string cls = GetWindowClass(hwnd);
-            if (cls == "Progman" || cls == "WorkerW" || cls == "Shell_TrayWnd" ||
-                cls == "Shell_SecondaryTrayWnd")
-                return false;
-
-            RECT rect;
-            if (!GetWindowRect(hwnd, out rect)) return false;
-            IntPtr monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-            if (monitor == IntPtr.Zero) return false;
-            var info = new MONITORINFO();
-            info.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
-            if (!GetMonitorInfo(monitor, ref info)) return false;
-
-            const int slack = 2;
-            return rect.Left <= info.rcMonitor.Left + slack &&
-                   rect.Top <= info.rcMonitor.Top + slack &&
-                   rect.Right >= info.rcMonitor.Right - slack &&
-                   rect.Bottom >= info.rcMonitor.Bottom - slack;
-        }
-
-        public static IntPtr MakeLParam(int x, int y)
-        {
-            return (IntPtr)((y << 16) | (x & 0xFFFF));
-        }
     }
 
-    internal static class Log
-    {
-        private static readonly object Sync = new object();
-        private static readonly string FilePath = ResolvePath();
-        private static readonly string ExeFallback =
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Okna.log");
-        private static readonly string TempFallback =
-            Path.Combine(Path.GetTempPath(), "Okna.log");
-        private static readonly bool DebugEnabled =
-            string.Equals(Environment.GetEnvironmentVariable("OKNA_DEBUG"), "1", StringComparison.Ordinal);
-
-        public static string LogPath
-        {
-            get { return FilePath; }
-        }
-
-        private static string ResolvePath()
-        {
-            try
-            {
-                string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                if (!string.IsNullOrEmpty(local))
-                    return Path.Combine(Path.Combine(local, "Okna"), "okna.log");
-            }
-            catch { }
-            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Okna.log");
-        }
-
-        public static void Info(string message)
-        {
-            Write("INFO", message);
-        }
-
-        public static void Error(string message)
-        {
-            Write("ERROR", message);
-        }
-
-        public static void Debug(string message)
-        {
-            if (DebugEnabled)
-                Write("DEBUG", message);
-        }
-
-        private static void Write(string level, string message)
-        {
-            string line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") +
-                          " [" + level + "] " + message + Environment.NewLine;
-            if (TryWrite(FilePath, line)) return;
-            if (TryWrite(ExeFallback, line)) return;
-            TryWrite(TempFallback, line);
-        }
-
-        private static bool TryWrite(string path, string line)
-        {
-            try
-            {
-                lock (Sync)
-                {
-                    string folder = Path.GetDirectoryName(path);
-                    if (!string.IsNullOrEmpty(folder))
-                        Directory.CreateDirectory(folder);
-                    FileInfo info = new FileInfo(path);
-                    if (info.Exists && info.Length > 1024 * 1024)
-                    {
-                        string old = path + ".old";
-                        try { if (File.Exists(old)) File.Delete(old); } catch { }
-                        try { File.Move(path, old); } catch { }
-                    }
-                    File.AppendAllText(path, line, Encoding.UTF8);
-                }
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-    }
 }

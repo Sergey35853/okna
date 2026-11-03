@@ -9,12 +9,25 @@ namespace Okna
     {
         private const string MutexName = @"Local\Okna.SingleInstance";
         private const string DispatcherTitle = "Okna Dispatcher";
+        private static System.Windows.Forms.Timer _healthTimer;
 
         [STAThread]
         private static void Main(string[] args)
         {
             Native.EnablePerMonitorDpi();
             Log.Info("Application start. " + Updater.CurrentLabel + " args=" + string.Join(" ", args));
+
+            // The watchdog is the previous build, started by the updater after
+            // a restart. It must run before the single-instance mutex: the new
+            // process owns it while the watchdog decides whether to roll back.
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (string.Equals(args[i], "--watchdog", StringComparison.OrdinalIgnoreCase))
+                {
+                    Updater.RunWatchdog(args);
+                    return;
+                }
+            }
 
             bool silent = false;
             bool restart = false;
@@ -81,6 +94,20 @@ namespace Okna
                 tray.Dispatcher = dispatcher;
                 engine.StatusChanged += delegate { tray.RefreshStatus(); };
                 dispatcher.Show();
+                tray.ApplyHotkey(false);
+
+                // Tell the update watchdog (if one is waiting) that this build
+                // is alive. The delay leaves time for a startup crash.
+                _healthTimer = new System.Windows.Forms.Timer();
+                _healthTimer.Interval = 4000;
+                _healthTimer.Tick += delegate
+                {
+                    _healthTimer.Stop();
+                    _healthTimer.Dispose();
+                    _healthTimer = null;
+                    Updater.MarkHealthy();
+                };
+                _healthTimer.Start();
 
                 try
                 {
@@ -88,6 +115,12 @@ namespace Okna
                 }
                 finally
                 {
+                    if (_healthTimer != null)
+                    {
+                        _healthTimer.Stop();
+                        _healthTimer.Dispose();
+                        _healthTimer = null;
+                    }
                     engine.Stop();
                     Log.Info("Application exit.");
                     try { if (dispatcher != null && !dispatcher.IsDisposed) dispatcher.Dispose(); } catch { }

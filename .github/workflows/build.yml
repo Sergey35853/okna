@@ -15,3 +15,7 @@ jobs:
       - name: Build
         shell: pwsh
         run: .\build.ps1
+
+      - name: Test
+        shell: pwsh
+        run: .\test.ps1

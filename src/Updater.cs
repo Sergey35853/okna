@@ -7,6 +7,7 @@ using System.Net;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Web.Script.Serialization;
 
 namespace Okna
@@ -95,9 +96,35 @@ namespace Okna
             get { return Path.Combine(UpdateDir, "pending.txt"); }
         }
 
+        public static string HealthFile
+        {
+            get { return Path.Combine(UpdateDir, "health.txt"); }
+        }
+
         public static string ExePath
         {
             get { return Assembly.GetExecutingAssembly().Location; }
+        }
+
+        /// <summary>
+        /// Written by a freshly updated process once it has really started
+        /// (engine running, tray created). The watchdog reads it to decide
+        /// whether the new build is healthy.
+        /// </summary>
+        public static void MarkHealthy()
+        {
+            try
+            {
+                Directory.CreateDirectory(UpdateDir);
+                File.WriteAllText(HealthFile,
+                    CurrentLabel + "|" + DateTime.UtcNow.Ticks + "|" + Process.GetCurrentProcess().Id,
+                    Encoding.ASCII);
+                Log.Info("Update health marker written: " + CurrentLabel);
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Health marker failed: " + ex.Message);
+            }
         }
 
         /// <summary>
@@ -221,6 +248,7 @@ namespace Okna
                 return false;
             }
 
+            Version expected = PendingVersion();
             string backup = target + ".old";
             try
             {
@@ -244,18 +272,25 @@ namespace Okna
                 return false;
             }
 
+            Process started;
             try
             {
                 ProcessStartInfo start = new ProcessStartInfo(target, "--silent --restart");
                 start.WorkingDirectory = Path.GetDirectoryName(target);
                 start.UseShellExecute = false;
-                Process.Start(start);
+                started = Process.Start(start);
             }
             catch (Exception ex)
             {
                 Log.Error("Update restart failed: " + ex.Message);
+                RestoreBackup(target, backup);
                 return false;
             }
+
+            // The old build stays on disk as the watchdog: it waits for the
+            // new process to report that it is healthy, and puts itself back
+            // if it never does.
+            StartWatchdog(target, backup, expected, started == null ? 0 : started.Id);
 
             try { File.Delete(PendingFile); } catch { }
             try { File.Delete(StagedExe); } catch { }
@@ -263,8 +298,165 @@ namespace Okna
             return true;
         }
 
+        private static void StartWatchdog(string target, string backup, Version expected, int pid)
+        {
+            try
+            {
+                if (!File.Exists(backup)) return;
+                ProcessStartInfo info = new ProcessStartInfo(backup);
+                info.Arguments = "--watchdog " + Quote(target) + " " + Quote(backup) + " " +
+                    Quote(expected == null ? "" : Format(expected)) + " " + pid;
+                info.WorkingDirectory = Path.GetDirectoryName(backup);
+                info.UseShellExecute = false;
+                Process.Start(info);
+                Log.Info("Update watchdog started");
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Update watchdog failed to start: " + ex.Message);
+            }
+        }
+
+        private static string Quote(string value)
+        {
+            return "\"" + (value ?? "") + "\"";
+        }
+
+        private static void RestoreBackup(string target, string backup)
+        {
+            try
+            {
+                if (File.Exists(backup)) File.Copy(backup, target, true);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Update rollback failed: " + ex.Message);
+            }
+        }
+
         /// <summary>
-        /// Removes leftovers of a previous update. Called once at startup.
+        /// Runs in the old executable after an update. Waits for the new
+        /// process to write the health marker; if it does not appear in time
+        /// (or the process dies), the old build is put back and started.
+        /// </summary>
+        public static bool RunWatchdog(string[] args)
+        {
+            string target = null, backup = null, expected = null;
+            int pid = 0;
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                if (!string.Equals(args[i], "--watchdog", StringComparison.OrdinalIgnoreCase)) continue;
+                if (i + 4 < args.Length)
+                {
+                    target = args[i + 1];
+                    backup = args[i + 2];
+                    expected = args[i + 3];
+                    int.TryParse(args[i + 4], out pid);
+                }
+                break;
+            }
+
+            if (string.IsNullOrEmpty(target) || string.IsNullOrEmpty(backup))
+            {
+                Log.Error("Watchdog: bad arguments");
+                return false;
+            }
+
+            Log.Info("Watchdog waiting for " + expected + " pid=" + pid);
+            DateTime start = DateTime.UtcNow;
+            bool healthy = false;
+            for (int i = 0; i < 150; i++)
+            {
+                if (HealthIsGood(expected, start))
+                {
+                    healthy = true;
+                    break;
+                }
+                if (pid > 0 && ProcessExited(pid))
+                    break;
+                Thread.Sleep(200);
+            }
+
+            if (healthy)
+            {
+                try { if (File.Exists(HealthFile)) File.Delete(HealthFile); } catch { }
+                try { if (File.Exists(backup)) File.Delete(backup); } catch { }
+                Log.Info("Watchdog: new version is healthy");
+                return true;
+            }
+
+            Log.Error("Watchdog: new version did not start; rolling back");
+            Kill(pid);
+            RestoreBackup(target, backup);
+            try { if (File.Exists(HealthFile)) File.Delete(HealthFile); } catch { }
+
+            try
+            {
+                ProcessStartInfo info = new ProcessStartInfo(target, "--silent --restart");
+                info.WorkingDirectory = Path.GetDirectoryName(target);
+                info.UseShellExecute = false;
+                Process.Start(info);
+                Log.Info("Watchdog: previous version restarted");
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Watchdog restart failed: " + ex.Message);
+            }
+            return false;
+        }
+
+        private static bool HealthIsGood(string expected, DateTime start)
+        {
+            try
+            {
+                if (!File.Exists(HealthFile)) return false;
+                string[] parts = File.ReadAllText(HealthFile).Trim().Split('|');
+                if (parts.Length < 2) return false;
+                if (!string.IsNullOrEmpty(expected) &&
+                    !string.Equals(parts[0], "v" + expected, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(parts[0], expected, StringComparison.OrdinalIgnoreCase))
+                    return false;
+                long ticks;
+                if (!long.TryParse(parts[1], out ticks)) return false;
+                return ticks >= start.Ticks - TimeSpan.FromSeconds(3).Ticks;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool ProcessExited(int pid)
+        {
+            try
+            {
+                Process p = Process.GetProcessById(pid);
+                return p.HasExited;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private static void Kill(int pid)
+        {
+            if (pid <= 0) return;
+            try
+            {
+                Process p = Process.GetProcessById(pid);
+                if (!p.HasExited)
+                {
+                    p.Kill();
+                    p.WaitForExit(3000);
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Removes leftovers of a previous update. Called once at startup. A
+        /// young .old file is left alone: the watchdog may still need it.
         /// </summary>
         public static void Cleanup()
         {
@@ -275,7 +467,13 @@ namespace Okna
                 {
                     foreach (string old in Directory.GetFiles(dir, "Okna.exe.old"))
                     {
-                        try { File.Delete(old); } catch { }
+                        try
+                        {
+                            FileInfo info = new FileInfo(old);
+                            if (DateTime.UtcNow - info.LastWriteTimeUtc > TimeSpan.FromMinutes(10))
+                                File.Delete(old);
+                        }
+                        catch { }
                     }
                 }
             }
@@ -286,6 +484,9 @@ namespace Okna
                 if (!File.Exists(PendingFile) && File.Exists(StagedExe)) File.Delete(StagedExe);
                 if (!File.Exists(PendingFile) && File.Exists(StagedExe + ".part"))
                     File.Delete(StagedExe + ".part");
+                if (File.Exists(HealthFile) &&
+                    DateTime.UtcNow - File.GetLastWriteTimeUtc(HealthFile) > TimeSpan.FromDays(1))
+                    File.Delete(HealthFile);
             }
             catch { }
         }
