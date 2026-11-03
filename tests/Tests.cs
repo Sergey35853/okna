@@ -32,6 +32,7 @@ namespace Okna.Tests
             Run("close overrides pick the first matching mask", CloseOverrides);
             Run("close overrides can be replaced and removed", CloseOverrideEditing);
             Run("economy preset disables the costly effects", EconomyPreset);
+            Run("jelly slider reaches the extended maximum", JellyRange);
             Run("hotkey label is readable", HotkeyLabel);
             Run("sideways setting migrates to the left roll", SidewaysMigration);
             Run("roll direction rejects impossible values", DirectionRange);
@@ -351,6 +352,23 @@ namespace Okna.Tests
             Check(!s.MaxShake, "shake should be off");
             Check(!s.Bend, "bend should be off");
             Check(s.Jelly == 40, "jelly should settle at 40");
+        }
+
+        private static void JellyRange()
+        {
+            AppSettings s = new AppSettings();
+            s.Jelly = 200;
+            Check(s.Jelly == 200, "the extended maximum should be allowed");
+            Check(s.JellyLabel == "Максимально вязко", "the top of the range should be labelled");
+            s.Jelly = 250;
+            Check(s.Jelly == 200, "values above the maximum should clamp");
+            s.Jelly = -5;
+            Check(s.Jelly == 0, "negative values should clamp to zero");
+            s.Jelly = 70;
+            Check(s.JellyLabel == "Упруго", "the default should keep its label");
+            Check(s.JellyFactor > 1.0 && s.JellyFactor < 1.2, "the default factor should stay near 1.1");
+            s.Jelly = 200;
+            Check(s.JellyFactor > 2.0, "the top of the range should be noticeably stronger");
         }
 
         private static void HotkeyLabel()

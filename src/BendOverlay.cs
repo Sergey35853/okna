@@ -13,7 +13,7 @@ namespace Okna
     /// </summary>
     internal sealed class BendOverlay : IDisposable
     {
-        private const int Margin = 80;
+        private const int Margin = 128;
         private const int StripTarget = 110;
 
         private static readonly string _dumpDir = Environment.GetEnvironmentVariable("OKNA_DUMP");

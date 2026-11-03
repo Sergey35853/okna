@@ -62,9 +62,19 @@ namespace Okna
             set
             {
                 if (value < 0) value = 0;
-                if (value > 100) value = 100;
+                if (value > 200) value = 200;
                 _jelly = value;
             }
+        }
+
+        /// <summary>
+        /// How strongly the jelly effects react at the current slider value.
+        /// 1.1 at the default 70 and 2.4 at the new maximum 200, so the top
+        /// half of the slider keeps making windows noticeably more viscous.
+        /// </summary>
+        public double JellyFactor
+        {
+            get { return 0.4 + _jelly / 100.0; }
         }
 
         public bool ReleaseWobble
@@ -438,23 +448,14 @@ namespace Okna
         public bool FirstRun { get; set; }
         public bool StartWithWindows { get; set; }
 
-        public double SpringK
-        {
-            get { return 500.0 - 400.0 * (_jelly / 100.0); }
-        }
-
-        public double SpringC
-        {
-            get { return 32.0 - 20.0 * (_jelly / 100.0); }
-        }
-
         public string JellyLabel
         {
             get
             {
                 if (_jelly < 35) return "Сдержанно";
                 if (_jelly < 78) return "Упруго";
-                return "Очень желейно";
+                if (_jelly < 130) return "Очень желейно";
+                return "Максимально вязко";
             }
         }
 

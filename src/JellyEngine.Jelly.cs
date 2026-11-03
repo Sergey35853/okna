@@ -161,10 +161,13 @@ namespace Okna
             double w = _shakeRect.Width;
             double h = _shakeRect.Height;
             double phase = 2.0 * Math.PI * elapsed;
-            double ax = 0.010 * w * env * Math.Cos(phase * 1.90 + 0.8);
-            double ay = 0.022 * h * env * Math.Cos(phase * 2.20);
-            double ox = 0.0025 * w * env * Math.Cos(phase * 1.90 + 1.4);
-            double oy = 0.0025 * h * env * Math.Cos(phase * 2.20 + 0.5);
+            // Same normalisation as the release wobble: the default 70 is
+            // unchanged, the top of the slider sloshes much harder.
+            double visc = Math.Max(0.6, _settings.JellyFactor / 1.1);
+            double ax = 0.010 * w * env * Math.Cos(phase * 1.90 + 0.8) * visc;
+            double ay = 0.022 * h * env * Math.Cos(phase * 2.20) * visc;
+            double ox = 0.0025 * w * env * Math.Cos(phase * 1.90 + 1.4) * visc;
+            double oy = 0.0025 * h * env * Math.Cos(phase * 2.20 + 0.5) * visc;
 
             _shot.RenderJelly(
                 _shakeRect.Left + (int)Math.Round(ox),

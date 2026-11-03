@@ -26,6 +26,7 @@ namespace Okna
         private volatile bool _manualPause;
         private IntPtr _explicitShakeTarget;
         private IntPtr _lastExternal;
+        private volatile IntPtr _ownTarget;
         private volatile string _status = "Готово";
         private bool _ownElevated;
 
@@ -275,6 +276,22 @@ namespace Okna
         {
             _explicitShakeTarget = hwnd;
             _shakeRequested = true;
+        }
+
+        /// <summary>
+        /// Lets one window of this process be treated like any other target.
+        /// The settings window registers itself here, so it can be dragged and
+        /// wobbled while the jelly slider is being tried out. Everything else
+        /// in the process (the tray, dialogs) stays out of the effects.
+        /// </summary>
+        public void AllowOwnWindow(IntPtr hwnd)
+        {
+            _ownTarget = hwnd;
+        }
+
+        public void DisallowOwnWindow(IntPtr hwnd)
+        {
+            if (_ownTarget == hwnd) _ownTarget = IntPtr.Zero;
         }
 
         public void Stop()

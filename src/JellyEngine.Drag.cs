@@ -16,7 +16,11 @@ namespace Okna
             IntPtr hwnd = Native.WindowFromPoint(p);
             IntPtr root = Native.GetAncestor(hwnd, 2);
             if (root == IntPtr.Zero || !Native.IsWindow(root)) return;
-            if (Native.IsOwnProcessWindow(root)) return;
+            // Own-process windows are normally off limits. The settings form
+            // registers itself as the one exception, so the jelly can be tried
+            // on the real settings window instead of a fake preview.
+            bool ownTarget = root == _ownTarget;
+            if (Native.IsOwnProcessWindow(root) && !ownTarget) return;
             if (!Native.IsWindowVisible(root) || Native.IsIconic(root) || Native.IsZoomed(root) || !Native.IsWindowEnabled(root))
                 return;
 
@@ -36,7 +40,7 @@ namespace Okna
 
             uint pid;
             Native.GetWindowThreadProcessId(root, out pid);
-            if (pid == Native.GetCurrentProcessId()) return;
+            if (pid == Native.GetCurrentProcessId() && !ownTarget) return;
             if (!_ownElevated)
             {
                 bool targetElevated;
@@ -250,10 +254,18 @@ namespace Okna
                     _releasePerpX = -_releaseDirY;
                     _releasePerpY = _releaseDirX;
 
-                    _releaseAlongAmp = Math.Min(42.0, 12.0 + _releaseSpeed * 0.055);
-                    _releasePerpAmp = Math.Min(30.0, 9.0 + _releaseSpeed * 0.045);
+                    // The slider keeps working above the old 100: the top of
+                    // the new range makes the release noticeably gooier. The
+                    // factors are normalised so the default 70 feels exactly as
+                    // before.
+                    double visc = Math.Max(0.6, _settings.JellyFactor / 1.1);
+                    double alongCap = Math.Min(80.0, 42.0 * visc);
+                    double perpCap = Math.Min(56.0, 30.0 * visc);
+                    double sizeCap = Math.Min(36.0, 20.0 * visc);
+                    _releaseAlongAmp = Math.Min(alongCap, (12.0 + _releaseSpeed * 0.055) * visc);
+                    _releasePerpAmp = Math.Min(perpCap, (9.0 + _releaseSpeed * 0.045) * visc);
                     if (_canResize)
-                        _releaseSizeAmp = Math.Min(20.0, 8.0 + _releaseSpeed * 0.030);
+                        _releaseSizeAmp = Math.Min(sizeCap, (8.0 + _releaseSpeed * 0.030) * visc);
                 }
             }
             Log.Debug("Release speed=" + _releaseSpeed.ToString("f0") +
