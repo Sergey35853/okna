@@ -14,7 +14,12 @@ namespace Okna
     internal sealed class BendOverlay : IDisposable
     {
         private const int Margin = 128;
-        private const int StripTarget = 110;
+        // One strip per pixel row: the warp shifts whole strips sideways, so a
+        // coarse strip shows the curve as stair steps (four or five pixels at
+        // the strongest bends). Pixel rows keep every step at one pixel, which
+        // reads as a smooth bend. The cap only bounds the arrays for very tall
+        // windows.
+        private const int StripTarget = 2400;
 
         private static readonly string _dumpDir = Environment.GetEnvironmentVariable("OKNA_DUMP");
         private int _dumpIndex;
@@ -536,8 +541,8 @@ namespace Okna
 
             Native.PatBlt(_memDc, 0, 0, _ow, _oh, Native.BLACKNESS);
 
-            int strips = Math.Min(StripTarget, Math.Max(8, _h / 4));
-            int sh = Math.Max(2, (_h + strips - 1) / strips);
+            int strips = Math.Min(StripTarget, Math.Max(8, _h));
+            int sh = Math.Max(1, (_h + strips - 1) / strips);
 
             // One pass: each strip is shifted sideways and its rows are
             // stretched to the next boundary, so the copy is a single warped
@@ -571,7 +576,6 @@ namespace Okna
                 int sy0 = _srcRows[i];
                 int srcH = _srcRows[i + 1] - sy0;
                 int dstH = _dstRows[i + 1] - _dstRows[i];
-                if (srcH <= 0 || dstH <= 0) continue;
 
                 int dx;
                 if (jelly)
@@ -591,6 +595,10 @@ namespace Okna
                 if (dx > Margin - 2) dx = Margin - 2;
                 else if (dx < -(Margin - 2)) dx = -(Margin - 2);
                 _dxStrips[i] = dx;
+
+                // A compressed strip can end up with no rows at all; leave its
+                // dx in place for the band fill, but copy nothing.
+                if (srcH <= 0 || dstH <= 0) continue;
 
                 // Copy row by row instead of StretchBlt: GDI's stretch drops the
                 // alpha channel, which made the bent part invisible.
