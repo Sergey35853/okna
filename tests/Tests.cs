@@ -32,6 +32,7 @@ namespace Okna.Tests
             Run("close overrides pick the first matching mask", CloseOverrides);
             Run("close overrides can be replaced and removed", CloseOverrideEditing);
             Run("economy preset disables the costly effects", EconomyPreset);
+            Run("presets leave a working effect after economy", PresetsKeepTheEffectWorking);
             Run("jelly slider reaches the extended maximum", JellyRange);
             Run("hotkey label is readable", HotkeyLabel);
             Run("sideways setting migrates to the left roll", SidewaysMigration);
@@ -352,6 +353,40 @@ namespace Okna.Tests
             Check(!s.MaxShake, "shake should be off");
             Check(!s.Bend, "bend should be off");
             Check(s.Jelly == 40, "jelly should settle at 40");
+        }
+
+        private static void PresetsKeepTheEffectWorking()
+        {
+            AppSettings s = new AppSettings();
+
+            // "Экономно" turns the live effects off on purpose.
+            s.ApplyPreset(3);
+            Check(s.Economy, "economy preset should be on");
+            Check(!s.Bend && !s.MaxShake && !s.ReleaseWobble, "economy should switch the effects off");
+
+            // Choosing "Желе" afterwards must bring them back: the window used
+            // to stay rigid while the slider said "Максимально вязко".
+            s.ApplyPreset(2);
+            Check(!s.Economy, "jelly preset should leave economy");
+            Check(s.Bend, "jelly preset should enable the bend");
+            Check(s.MaxShake, "jelly preset should enable the shake");
+            Check(s.ReleaseWobble, "jelly preset should enable the release wobble");
+            Check(s.Jelly == 130, "jelly preset value");
+
+            // Dragging the slider is a manual override of economy.
+            s.ApplyPreset(3);
+            s.LeaveEconomy();
+            Check(!s.Economy, "the slider should leave economy");
+            Check(s.Bend && s.MaxShake, "the slider should restore the live effects");
+            Check(s.Jelly == 40, "leaving economy should not change the value");
+
+            s.ApplyPreset(0);
+            Check(!s.Economy && s.Bend && s.MaxShake && !s.ReleaseWobble, "calm preset should work");
+            Check(s.Jelly == 18, "calm preset value");
+
+            s.ApplyPreset(1);
+            Check(!s.Economy && s.Bend && s.MaxShake && !s.ReleaseWobble, "balance preset should work");
+            Check(s.Jelly == 70, "balance preset value");
         }
 
         private static void JellyRange()

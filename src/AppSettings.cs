@@ -502,6 +502,41 @@ namespace Okna
             _jelly = 40;
         }
 
+        /// <summary>
+        /// Ready-made strength presets: 0 = calm, 1 = balance, 2 = jelly,
+        /// 3 = economy. They set the effect switches as well as the value, so
+        /// choosing one always leaves a working effect. Choosing "Желе" right
+        /// after "Экономно" used to keep bend and shake off, and the window
+        /// stayed rigid while the slider claimed maximum viscosity.
+        /// </summary>
+        public void ApplyPreset(int index)
+        {
+            if (index >= 3)
+            {
+                ApplyEconomyPreset();
+                return;
+            }
+
+            _economy = false;
+            _bend = true;
+            _maxShake = true;
+            _releaseWobble = index == 2;
+            _jelly = index == 0 ? 18 : (index == 1 ? 70 : 130);
+        }
+
+        /// <summary>
+        /// The slider is a manual override of the economy preset. Leaving the
+        /// preset has to bring the live copy and the bend back; otherwise the
+        /// window would stay rigid at any slider value.
+        /// </summary>
+        public void LeaveEconomy()
+        {
+            if (!_economy) return;
+            _economy = false;
+            _bend = true;
+            _maxShake = true;
+        }
+
         /// <summary>Restores every option to its factory value.</summary>
         public void ResetAll()
         {

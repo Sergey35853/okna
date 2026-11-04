@@ -39,6 +39,7 @@ namespace Okna
         private Label _hintLabel;
         private StatusPill _statusPill;
         private JellyButton[] _presets;
+        private bool _syncing;
         private Timer _statusTimer;
         private Timer _saveTimer;
 
@@ -659,7 +660,7 @@ namespace Okna
             _bendSwitch.CheckedChanged += delegate
             {
                 _settings.Bend = _bendSwitch.Checked;
-                if (_settings.Economy) _settings.Economy = false;
+                if (!_syncing && _settings.Economy) _settings.Economy = false;
                 UpdatePresetStyles();
                 SaveSoon();
             };
@@ -667,7 +668,7 @@ namespace Okna
             _maxShakeSwitch.CheckedChanged += delegate
             {
                 _settings.MaxShake = _maxShakeSwitch.Checked;
-                if (_settings.Economy) _settings.Economy = false;
+                if (!_syncing && _settings.Economy) _settings.Economy = false;
                 UpdatePresetStyles();
                 SaveSoon();
             };
@@ -766,7 +767,16 @@ namespace Okna
 
             _slider.ValueChanged += delegate
             {
+                // Moving the slider is a manual override: it leaves the
+                // economy preset, which otherwise keeps the live copy and the
+                // bend switched off and makes the window look rigid at any
+                // value. SyncFromSettings raises this event too; the guard
+                // keeps the preset's own state intact while it is applied.
+                if (_syncing) return;
+                _settings.LeaveEconomy();
                 _settings.Jelly = _slider.Value;
+                _bendSwitch.Checked = _settings.Bend;
+                _maxShakeSwitch.Checked = _settings.MaxShake;
                 UpdateJellyLabel();
                 UpdatePresetStyles();
                 SaveSoon();
@@ -777,18 +787,12 @@ namespace Okna
                 int index = i;
                 _presets[i].Click += delegate
                 {
-                    if (index == 3)
-                    {
-                        _settings.ApplyEconomyPreset();
-                        _settings.Save();
-                        SyncFromSettings();
-                        return;
-                    }
-
-                    _settings.Economy = false;
-                    int value = index == 0 ? 18 : (index == 1 ? 70 : 130);
-                    _slider.Value = value;
-                    UpdatePresetStyles();
+                    // The presets set the effect switches as well as the
+                    // value. Choosing "Желе" right after "Экономно" used to
+                    // leave bend and shake off, so the window stayed rigid.
+                    _settings.ApplyPreset(index);
+                    _settings.Save();
+                    SyncFromSettings();
                 };
             }
         }
@@ -805,29 +809,37 @@ namespace Okna
 
         public void SyncFromSettings()
         {
-            _effectSwitch.Checked = _settings.Enabled;
-            _wobbleSwitch.Checked = _settings.ReleaseWobble;
-            _bendSwitch.Checked = _settings.Bend;
-            _maxShakeSwitch.Checked = _settings.MaxShake;
-            UpdateCloseStyles();
-            _rollSwitch.Checked = _settings.Roll;
-            UpdateDirectionStyles();
-            _startupSwitch.Checked = _settings.StartWithWindows;
-            _callSwitch.Checked = _settings.PauseOnCall;
-            _batterySwitch.Checked = _settings.PauseOnBattery;
-            _motionSwitch.Checked = _settings.RespectReduceMotion;
-            _portableSwitch.Checked = _settings.IsPortable;
-            UpdatePortableLabel();
-            _hotkeyButton.Text = _settings.HotkeyLabel;
-            _hotkeyStatus.Text = _tray != null ? _tray.HotkeyStatus : "";
-            _hotkeyStatus.ForeColor = Theme.Muted;
-            RefreshExcludeList();
-            RefreshOverrideList();
-            _slider.Value = _settings.Jelly;
-            UpdateJellyLabel();
-            UpdatePresetStyles();
-            UpdateHint();
-            _statusPill.SetStatus(_engine.PauseReason ?? _engine.Status);
+            _syncing = true;
+            try
+            {
+                _effectSwitch.Checked = _settings.Enabled;
+                _wobbleSwitch.Checked = _settings.ReleaseWobble;
+                _bendSwitch.Checked = _settings.Bend;
+                _maxShakeSwitch.Checked = _settings.MaxShake;
+                UpdateCloseStyles();
+                _rollSwitch.Checked = _settings.Roll;
+                UpdateDirectionStyles();
+                _startupSwitch.Checked = _settings.StartWithWindows;
+                _callSwitch.Checked = _settings.PauseOnCall;
+                _batterySwitch.Checked = _settings.PauseOnBattery;
+                _motionSwitch.Checked = _settings.RespectReduceMotion;
+                _portableSwitch.Checked = _settings.IsPortable;
+                UpdatePortableLabel();
+                _hotkeyButton.Text = _settings.HotkeyLabel;
+                _hotkeyStatus.Text = _tray != null ? _tray.HotkeyStatus : "";
+                _hotkeyStatus.ForeColor = Theme.Muted;
+                RefreshExcludeList();
+                RefreshOverrideList();
+                _slider.Value = _settings.Jelly;
+                UpdateJellyLabel();
+                UpdatePresetStyles();
+                UpdateHint();
+                _statusPill.SetStatus(_engine.PauseReason ?? _engine.Status);
+            }
+            finally
+            {
+                _syncing = false;
+            }
         }
 
         private void UpdateHint()
