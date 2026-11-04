@@ -598,17 +598,10 @@ namespace Okna
             Label version = MakeLabel(Updater.CurrentLabel + "  ·  живёт в трее", 24, 880, Theme.FontTiny, Theme.Faint);
             Controls.Add(version);
 
-            JellyButton shake = new JellyButton();
-            shake.Text = "Потрясти окно";
-            shake.Location = new Point(760, 852);
-            shake.Size = new Size(150, 38);
-            shake.Click += delegate { _engine.ShakeWindow(Handle); };
-            Controls.Add(shake);
-
             JellyButton done = new JellyButton();
             done.Text = "Готово";
             done.Accent = true;
-            done.Location = new Point(920, 852);
+            done.Location = new Point(968, 852);
             done.Size = new Size(96, 38);
             done.Click += delegate { Hide(); };
             Controls.Add(done);
@@ -616,7 +609,6 @@ namespace Okna
             ToolTip tip = new ToolTip();
             tip.SetToolTip(_effectSwitch, "Включить или выключить эффект");
             tip.SetToolTip(_slider, "0–200: насколько сильно окно отстаёт и изгибается; 200 — максимально вязко");
-            tip.SetToolTip(shake, "Показать желе на этом окне");
             tip.SetToolTip(_wobbleSwitch, "Добавляет боковое покачивание в конце движения");
             tip.SetToolTip(_bendSwitch, "Настоящая гнутость: окно на время перетаскивания замирает и изгибается");
             tip.SetToolTip(_maxShakeSwitch, "Окно качается, когда разворачивается на весь экран, восстанавливается или возвращается из панели задач");

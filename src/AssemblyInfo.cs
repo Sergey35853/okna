@@ -6,6 +6,6 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyProduct("Окна")]
 [assembly: AssemblyCompany("")]
 [assembly: AssemblyCopyright("2026")]
-[assembly: AssemblyVersion("1.7.2.0")]
-[assembly: AssemblyFileVersion("1.7.2.0")]
+[assembly: AssemblyVersion("1.7.3.0")]
+[assembly: AssemblyFileVersion("1.7.3.0")]
 [assembly: ComVisible(false)]
