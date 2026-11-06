@@ -181,18 +181,30 @@ namespace Okna
     }
 
     /// <summary>
-    /// Chooses the close effect for one program: shards, fire, or nothing.
-    /// The program name may be a glob mask ("steam*").
+    /// Per-program rules: the close effect plus switches that turn the bend,
+    /// the shake and the roll off for this program only. The program name may
+    /// be a glob mask ("steam*").
     /// </summary>
     internal sealed class CloseOverrideDialog : Form
     {
+        private readonly AppSettings _settings;
         private readonly ComboBox _program;
+        private readonly JellySwitch _bendSwitch;
+        private readonly JellySwitch _shakeSwitch;
+        private readonly JellySwitch _rollSwitch;
         private int _effect;
+        private bool _bend = true;
+        private bool _shake = true;
+        private bool _roll = true;
+        private bool _loading;
+        private bool _dirty;
+        private string _loadedName;
 
         private CloseOverrideDialog(AppSettings settings, string presetProgram)
         {
-            Text = "Эффект для программы";
-            ClientSize = new Size(440, 250);
+            _settings = settings;
+            Text = "Правила для программы";
+            ClientSize = new Size(460, 390);
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -208,32 +220,65 @@ namespace Okna
 
             _program = new ComboBox();
             _program.Location = new Point(20, 66);
-            _program.Size = new Size(400, 28);
+            _program.Size = new Size(420, 28);
             _program.DropDownStyle = ComboBoxStyle.DropDown;
             _program.BackColor = Theme.CardAlt;
             _program.ForeColor = Theme.Text;
             _program.Font = Theme.FontSmall;
-            if (!string.IsNullOrEmpty(presetProgram)) _program.Text = presetProgram;
             Controls.Add(_program);
 
             FillPrograms();
+            _program.SelectedIndexChanged += delegate { LoadProfileFor(_program.Text.Trim()); };
+            _program.TextChanged += delegate
+            {
+                if (!_loading && _program.Text.Trim() != _loadedName) _dirty = false;
+            };
+            _program.Leave += delegate
+            {
+                // Do not reload the stored rule after the user has already
+                // flipped a switch: that would silently undo the edit.
+                if (!_dirty) LoadProfileFor(_program.Text.Trim());
+            };
 
             Controls.Add(MakeLabel("Что делать при закрытии", 20, 108, Theme.FontCardTitle, Theme.Text));
 
             JellyButton none = EffectButton("Без эффекта", 20, 0);
             JellyButton shatter = EffectButton("Осколки", 170, 1);
             JellyButton burn = EffectButton("Сгорание", 320, 2);
-            none.Click += delegate { _effect = 0; UpdateEffectStyles(); };
-            shatter.Click += delegate { _effect = 1; UpdateEffectStyles(); };
-            burn.Click += delegate { _effect = 2; UpdateEffectStyles(); };
+            none.Click += delegate { _effect = 0; _dirty = true; UpdateEffectStyles(); };
+            shatter.Click += delegate { _effect = 1; _dirty = true; UpdateEffectStyles(); };
+            burn.Click += delegate { _effect = 2; _dirty = true; UpdateEffectStyles(); };
             Controls.Add(none);
             Controls.Add(shatter);
             Controls.Add(burn);
 
+            Panel divider = new Panel();
+            divider.Location = new Point(20, 180);
+            divider.Size = new Size(420, 1);
+            divider.BackColor = Theme.BorderSoft;
+            Controls.Add(divider);
+
+            Controls.Add(MakeLabel("Другие эффекты для этой программы", 20, 192,
+                Theme.FontCardTitle, Theme.Text));
+
+            Controls.Add(MakeLabel("Гнуть окно", 20, 222, Theme.FontLabel, Theme.Text));
+            Controls.Add(MakeLabel("Тряска при развороте", 20, 252, Theme.FontLabel, Theme.Text));
+            Controls.Add(MakeLabel("Скатывать в трубочку", 20, 282, Theme.FontLabel, Theme.Text));
+
+            _bendSwitch = MakeSwitch(390, 218);
+            _shakeSwitch = MakeSwitch(390, 248);
+            _rollSwitch = MakeSwitch(390, 278);
+            _bendSwitch.CheckedChanged += delegate { if (!_loading) _dirty = true; };
+            _shakeSwitch.CheckedChanged += delegate { if (!_loading) _dirty = true; };
+            _rollSwitch.CheckedChanged += delegate { if (!_loading) _dirty = true; };
+            Controls.Add(_bendSwitch);
+            Controls.Add(_shakeSwitch);
+            Controls.Add(_rollSwitch);
+
             JellyButton ok = new JellyButton();
             ok.Text = "Сохранить";
             ok.Accent = true;
-            ok.Location = new Point(320, 202);
+            ok.Location = new Point(340, 338);
             ok.Size = new Size(100, 34);
             ok.Font = Theme.FontSmall;
             ok.Click += delegate
@@ -246,14 +291,28 @@ namespace Okna
 
             JellyButton cancel = new JellyButton();
             cancel.Text = "Отмена";
-            cancel.Location = new Point(212, 202);
+            cancel.Location = new Point(232, 338);
             cancel.Size = new Size(100, 34);
             cancel.Font = Theme.FontSmall;
             cancel.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
             Controls.Add(cancel);
 
             _effect = settings.Burn ? 2 : (settings.Shatter ? 1 : 0);
+            if (!string.IsNullOrEmpty(presetProgram))
+            {
+                _program.Text = presetProgram;
+                LoadProfileFor(presetProgram);
+            }
             UpdateEffectStyles();
+            UpdateSwitchStyles();
+        }
+
+        private JellySwitch MakeSwitch(int x, int y)
+        {
+            JellySwitch s = new JellySwitch();
+            s.Location = new Point(x, y);
+            s.BackColor = Theme.Bg;
+            return s;
         }
 
         private JellyButton EffectButton(string text, int x, int effect)
@@ -280,6 +339,52 @@ namespace Okna
                     b.Invalidate();
                 }
             }
+        }
+
+        private void UpdateSwitchStyles()
+        {
+            _loading = true;
+            try
+            {
+                _bendSwitch.Checked = _bend;
+                _shakeSwitch.Checked = _shake;
+                _rollSwitch.Checked = _roll;
+            }
+            finally
+            {
+                _loading = false;
+            }
+        }
+
+        /// <summary>
+        /// Shows the stored rule when the name already exists, so editing a
+        /// program does not silently reset its switches.
+        /// </summary>
+        private void LoadProfileFor(string name)
+        {
+            if (_loading || string.IsNullOrEmpty(name)) return;
+            int effect;
+            bool bend;
+            bool shake;
+            bool roll;
+            if (_settings.GetAppProfile(name, out effect, out bend, out shake, out roll))
+            {
+                _effect = effect;
+                _bend = bend;
+                _shake = shake;
+                _roll = roll;
+            }
+            else
+            {
+                _effect = _settings.Burn ? 2 : (_settings.Shatter ? 1 : 0);
+                _bend = true;
+                _shake = true;
+                _roll = true;
+            }
+            _loadedName = name;
+            _dirty = false;
+            UpdateEffectStyles();
+            UpdateSwitchStyles();
         }
 
         private void FillPrograms()
@@ -313,11 +418,24 @@ namespace Okna
         public static bool ShowFor(IWin32Window owner, AppSettings settings, string presetProgram,
             out string program, out int effect)
         {
+            bool bend;
+            bool shake;
+            bool roll;
+            return ShowFor(owner, settings, presetProgram, out program, out effect,
+                out bend, out shake, out roll);
+        }
+
+        public static bool ShowFor(IWin32Window owner, AppSettings settings, string presetProgram,
+            out string program, out int effect, out bool bend, out bool shake, out bool roll)
+        {
             using (CloseOverrideDialog form = new CloseOverrideDialog(settings, presetProgram))
             {
                 DialogResult result = form.ShowDialog(owner);
                 program = form._program.Text.Trim();
                 effect = form._effect;
+                bend = form._bendSwitch.Checked;
+                shake = form._shakeSwitch.Checked;
+                roll = form._rollSwitch.Checked;
                 return result == DialogResult.OK && program.Length > 0;
             }
         }

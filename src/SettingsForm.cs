@@ -503,9 +503,9 @@ namespace Okna
             overrideCard.Size = new Size(colW, 140);
             Controls.Add(overrideCard);
 
-            Label overrideTitle = MakeLabel("Эффект для отдельной программы", 20, 12, Theme.FontCardTitle, Theme.Text);
+            Label overrideTitle = MakeLabel("Свои правила для программы", 20, 12, Theme.FontCardTitle, Theme.Text);
             overrideCard.Controls.Add(overrideTitle);
-            Label overrideSub = MakeLabel("Перекрывает общий выбор при закрытии", 20, 34, Theme.FontSmall, Theme.Muted);
+            Label overrideSub = MakeLabel("Эффект закрытия и отключение изгиба, тряски, скатывания", 20, 34, Theme.FontSmall, Theme.Muted);
             overrideCard.Controls.Add(overrideSub);
 
             _overrideList = new ListBox();
@@ -959,16 +959,23 @@ namespace Okna
             if (_overrideList == null) return;
             _overrideList.BeginUpdate();
             _overrideList.Items.Clear();
-            string[] list = _settings.CloseOverrides;
+            string[] list = _settings.AppProfiles;
             for (int i = 0; i < list.Length; i++)
             {
-                int eq = list[i].LastIndexOf('=');
-                if (eq <= 0) continue;
-                string name = list[i].Substring(0, eq);
+                string mask;
                 int effect;
-                int.TryParse(list[i].Substring(eq + 1), out effect);
+                bool bend;
+                bool shake;
+                bool roll;
+                if (!AppSettings.ParseProfile(list[i], out mask, out effect, out bend,
+                        out shake, out roll))
+                    continue;
                 string label = effect == 2 ? "сгорание" : (effect == 1 ? "осколки" : "без эффекта");
-                _overrideList.Items.Add(name + "  —  " + label);
+                string notes = "";
+                if (!bend) notes += " · без изгиба";
+                if (!shake) notes += " · без тряски";
+                if (!roll) notes += " · без скатывания";
+                _overrideList.Items.Add(mask + "  —  " + label + notes);
             }
             _overrideList.EndUpdate();
         }
@@ -1019,8 +1026,13 @@ namespace Okna
         {
             string program;
             int effect;
-            if (!CloseOverrideDialog.ShowFor(this, _settings, "", out program, out effect)) return;
-            _settings.SetCloseOverride(program, effect);
+            bool bend;
+            bool shake;
+            bool roll;
+            if (!CloseOverrideDialog.ShowFor(this, _settings, "", out program, out effect,
+                    out bend, out shake, out roll))
+                return;
+            _settings.SetAppProfile(program, effect, bend, shake, roll);
             RefreshOverrideList();
             SaveSoon();
         }
@@ -1029,11 +1041,17 @@ namespace Okna
         {
             int index = _overrideList.SelectedIndex;
             if (index < 0) return;
-            string[] list = _settings.CloseOverrides;
+            string[] list = _settings.AppProfiles;
             if (index >= list.Length) return;
-            int eq = list[index].LastIndexOf('=');
-            if (eq <= 0) return;
-            _settings.RemoveCloseOverride(list[index].Substring(0, eq));
+            string mask;
+            int effect;
+            bool bend;
+            bool shake;
+            bool roll;
+            if (!AppSettings.ParseProfile(list[index], out mask, out effect, out bend,
+                    out shake, out roll))
+                return;
+            _settings.RemoveCloseOverride(mask);
             RefreshOverrideList();
             SaveSoon();
         }

@@ -69,9 +69,12 @@ namespace Okna
                     FileInfo info = new FileInfo(path);
                     if (info.Exists && info.Length > 1024 * 1024)
                     {
-                        string old = path + ".old";
+                        string old = OldPathFor(path);
                         try { if (File.Exists(old)) File.Delete(old); } catch { }
                         try { File.Move(path, old); } catch { }
+                        // A build before 1.7.4 used "okna.log.old".
+                        string legacy = path + ".old";
+                        try { if (File.Exists(legacy)) File.Delete(legacy); } catch { }
                     }
                     File.AppendAllText(path, line, Encoding.UTF8);
                 }
@@ -81,6 +84,20 @@ namespace Okna
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// The rotated name: "okna.log" becomes "okna.old.log", so the file
+        /// stays easy to find next to the current one.
+        /// </summary>
+        internal static string OldPathFor(string path)
+        {
+            string folder = Path.GetDirectoryName(path);
+            string name = Path.GetFileNameWithoutExtension(path);
+            string extension = Path.GetExtension(path);
+            if (string.IsNullOrEmpty(name)) name = "okna";
+            string file = name + ".old" + extension;
+            return string.IsNullOrEmpty(folder) ? file : Path.Combine(folder, file);
         }
     }
 }

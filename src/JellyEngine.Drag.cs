@@ -129,8 +129,10 @@ namespace Okna
             _lastRequestedH = int.MinValue;
             _frame = 0;
             _followTicks = 0;
+            _resizeOnly = false;
+            ClearResizeWatch();
             _overlayActive = false;
-            _overlayPending = _settings.Bend && !_settings.Economy && Active;
+            _overlayPending = _settings.Bend && !_settings.Economy && Active && _appBend;
             _captureTried = false;
             _captureOk = false;
             _following = false;
@@ -218,6 +220,7 @@ namespace Okna
         private void BeginSettle(double now, bool allowWobble)
         {
             _mode = Mode.Settling;
+            _resizeOnly = false;
             _releaseTime = DateTime.UtcNow;
             _releaseAlongAmp = 0;
             _releasePerpAmp = 0;
@@ -274,6 +277,63 @@ namespace Okna
                 " size=" + _releaseSizeAmp.ToString("f1") +
                 " resize=" + _canResize);
             SetStatus("Успокаивается");
+        }
+
+        /// <summary>
+        /// Starts the short size wave that follows an edge resize. The window
+        /// itself already has its new size; only the settle animation changes
+        /// it for a few frames and then puts it back exactly.
+        /// </summary>
+        private void BeginResizeSettle(IntPtr hwnd, Native.RECT rect, double speed)
+        {
+            if (_mode != Mode.Idle || !Active) return;
+            if (_settings.Economy || !_settings.Bend) return;
+
+            string exe = Native.GetWindowProcessName(hwnd);
+            int effect;
+            bool bend;
+            bool shake;
+            bool roll;
+            if (_settings.GetAppProfile(exe, out effect, out bend, out shake, out roll) && !bend)
+                return;
+            if ((Native.GetWindowLongPtr(hwnd, Native.GWL_STYLE) & Native.WS_THICKFRAME) == 0)
+                return;
+
+            double visc = Math.Max(0.6, _settings.JellyFactor / 1.1);
+            double amp = Math.Min(14.0, (3.0 + speed * 0.018) * visc);
+            if (amp < 1.5) return;
+
+            _target = hwnd;
+            _baseWidth = rect.Width;
+            _baseHeight = rect.Height;
+            _x = rect.Left;
+            _y = rect.Top;
+            _vx = 0;
+            _vy = 0;
+            _targetX = rect.Left;
+            _targetY = rect.Top;
+            _canResize = true;
+            _overlayActive = false;
+            _overlayPending = false;
+            _following = false;
+            _windowUnderOverlay = false;
+            _resizeOnly = true;
+            _releaseTime = DateTime.UtcNow;
+            _releaseAlongAmp = 0;
+            _releasePerpAmp = 0;
+            _releaseSizeAmp = amp;
+            _releaseDirX = 1;
+            _releaseDirY = 0;
+            _releasePerpX = 0;
+            _releasePerpY = 1;
+            _lastRequestedX = int.MinValue;
+            _lastRequestedY = int.MinValue;
+            _lastRequestedW = int.MinValue;
+            _lastRequestedH = int.MinValue;
+            _mode = Mode.Settling;
+            SetStatus("Упруго");
+            Log.Debug("Resize settle " + hwnd.ToInt64() + " " + rect.Width + "x" +
+                rect.Height + " speed=" + speed.ToString("f0") + " amp=" + amp.ToString("f1"));
         }
 
         private void StepPhysics(double dt)

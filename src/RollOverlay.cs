@@ -444,7 +444,10 @@ namespace Okna
             bool hasBar = TaskbarFinder.TryGet(frame, out bar);
             Native.RECT tray = new Native.RECT();
             bool hasTray = toTray && TrayFinder.TryGet(frame, out tray);
-            RollDirection direction = ResolveDirection(frame, hasBar, bar, requested);
+            Native.RECT work = new Native.RECT();
+            bool hasWork = hasBar && Native.GetWorkAreaForRect(bar, out work);
+            RollDirection direction = ResolveDirection(frame, hasBar, bar,
+                hasWork ? work : new Native.RECT(), requested);
 
             // The canvas has to hold the window, the bar and the little arc the
             // tube takes on its way down.
@@ -601,14 +604,26 @@ namespace Okna
         /// <summary>
         /// Auto rolls towards the taskbar: down for a bottom bar, up for a top
         /// bar, left for a right bar and right for a left bar. The forced
-        /// values are returned untouched.
+        /// values are returned untouched. The bar is the one nearest to the
+        /// window, so each monitor follows its own taskbar.
         /// </summary>
         internal static RollDirection ResolveDirection(Native.RECT frame, bool hasBar,
             Native.RECT bar, RollDirection requested)
         {
+            return ResolveDirection(frame, hasBar, bar, new Native.RECT(), requested);
+        }
+
+        internal static RollDirection ResolveDirection(Native.RECT frame, bool hasBar,
+            Native.RECT bar, Native.RECT work, RollDirection requested)
+        {
             if (requested != RollDirection.Auto) return requested;
             if (!hasBar) return RollDirection.Down;
 
+            RollDirection edge;
+            if (ResolveBarEdge(bar, work, out edge)) return edge;
+
+            // No usable work area (a synthetic bar in a test, an unusual
+            // shell): fall back to comparing the centres.
             bool barHorizontal = bar.Width >= bar.Height;
             double barCx = (bar.Left + bar.Right) * 0.5;
             double barCy = (bar.Top + bar.Bottom) * 0.5;
@@ -618,6 +633,45 @@ namespace Okna
             if (barHorizontal)
                 return barCy >= frameCy ? RollDirection.Down : RollDirection.Up;
             return barCx >= frameCx ? RollDirection.Right : RollDirection.Left;
+        }
+
+        /// <summary>
+        /// The edge a bar is docked to, read from the monitor work area: the
+        /// work area stops exactly where the bar begins. This is more reliable
+        /// than comparing centres when a window sits far from the bar.
+        /// </summary>
+        internal static bool ResolveBarEdge(Native.RECT bar, Native.RECT work,
+            out RollDirection direction)
+        {
+            direction = RollDirection.Down;
+            if (work.Width <= 0 || work.Height <= 0) return false;
+
+            if (bar.Width >= bar.Height)
+            {
+                if (bar.Bottom >= work.Bottom - 2 && bar.Top >= work.Top - 2)
+                {
+                    direction = RollDirection.Down;
+                    return true;
+                }
+                if (bar.Top <= work.Top + 2 && bar.Bottom <= work.Bottom + 2)
+                {
+                    direction = RollDirection.Up;
+                    return true;
+                }
+                return false;
+            }
+
+            if (bar.Right >= work.Right - 2)
+            {
+                direction = RollDirection.Right;
+                return true;
+            }
+            if (bar.Left <= work.Left + 2)
+            {
+                direction = RollDirection.Left;
+                return true;
+            }
+            return false;
         }
 
         internal static bool IsHorizontal(RollDirection direction)

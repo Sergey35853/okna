@@ -21,8 +21,10 @@ namespace Okna
         private readonly AppSettings _settings;
         private readonly AutoPause _autoPause;
         private Thread _thread;
+        private volatile int _restarts;
         private volatile bool _stopping;
         private volatile bool _shakeRequested;
+        private bool _shakeBypassProfile;
         private volatile bool _manualPause;
         private IntPtr _explicitShakeTarget;
         private IntPtr _lastExternal;
@@ -34,6 +36,16 @@ namespace Okna
         private string _excludedName;
         private IntPtr _excludeCheckHwnd;
         private double _excludeCheckAt;
+
+        // Per-program profile of the window in front. A program may switch
+        // off the bend, the shake, the roll or the close effect while the
+        // global switches stay on.
+        private bool _appBend = true;
+        private bool _appShake = true;
+        private bool _appRoll = true;
+        private int _appCloseEffect = -1;
+        private IntPtr _appCheckHwnd;
+        private double _appCheckAt;
 
         private Mode _mode = Mode.Idle;
         private IntPtr _target;
@@ -104,6 +116,18 @@ namespace Okna
         private double _bendY;
 
         private DateTime _releaseTime;
+        private bool _resizeOnly;
+
+        // Edge-resize watcher: after the user lets go of a resized window, a
+        // short size wave makes the new size land like jelly. The watcher only
+        // arms when the press began near a border and the size really changed.
+        private IntPtr _resizeWatch;
+        private Native.RECT _resizeStartRect;
+        private Native.RECT _resizeLastRect;
+        private double _resizeLastAt;
+        private double _resizeCheckAt;
+        private bool _resizeArmed;
+        private double _resizeSpeed;
 
         private Native.RECT _shakeRect;
         private DateTime _shakeStart;
@@ -188,6 +212,12 @@ namespace Okna
             get { return _thread != null && _thread.IsAlive; }
         }
 
+        /// <summary>How many times the supervisor had to restart the worker.</summary>
+        public int Restarts
+        {
+            get { return _restarts; }
+        }
+
         /// <summary>
         /// True while the user asked for a temporary pause (the 30 minute
         /// item in the tray menu). The master switch is not touched.
@@ -249,6 +279,35 @@ namespace Okna
                     _excludedName = exe ?? cls;
                 }
             }
+
+            if (foreground != _appCheckHwnd || now >= _appCheckAt)
+            {
+                _appCheckHwnd = foreground;
+                _appCheckAt = now + 0.5;
+                string exe = Native.GetWindowProcessName(foreground);
+                int effect;
+                bool bend;
+                bool shake;
+                bool roll;
+                bool found = _settings.GetAppProfile(exe, out effect, out bend,
+                    out shake, out roll);
+                _appBend = !found || bend;
+                _appShake = !found || shake;
+                _appRoll = !found || roll;
+                _appCloseEffect = found ? effect : -1;
+            }
+        }
+
+        private bool RollAllowed(string executableName)
+        {
+            int effect;
+            bool bend;
+            bool shake;
+            bool roll;
+            if (_settings.GetAppProfile(executableName, out effect, out bend,
+                    out shake, out roll))
+                return _settings.Roll && roll;
+            return _settings.Roll;
         }
 
         public void Start()
@@ -258,7 +317,7 @@ namespace Okna
             if (Native.IsProcessElevated(Native.GetCurrentProcessId(), out elevated))
                 _ownElevated = elevated;
 
-            _thread = new Thread(Worker);
+            _thread = new Thread(Supervisor);
             _thread.IsBackground = true;
             _thread.Priority = ThreadPriority.AboveNormal;
             _thread.Name = "Okna.Engine";
@@ -266,15 +325,46 @@ namespace Okna
             Log.Info("Engine started. elevated=" + _ownElevated);
         }
 
+        /// <summary>
+        /// Keeps the engine worker alive. The worker itself already catches a
+        /// failing tick, but a failure outside that inner guard (a COM call in
+        /// the message pump, a broken capture object) must not leave the
+        /// program running without any effects. The supervisor logs it and
+        /// starts a fresh worker after a short pause.
+        /// </summary>
+        private void Supervisor()
+        {
+            int restarts = 0;
+            while (!_stopping)
+            {
+                try
+                {
+                    Worker();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Engine worker crashed: " + ex);
+                }
+
+                if (_stopping) break;
+                restarts++;
+                _restarts = restarts;
+                Log.Error("Engine worker stopped unexpectedly; restarting (" + restarts + ")");
+                try { Thread.Sleep(1000); } catch { }
+            }
+        }
+
         public void RequestShake()
         {
             _explicitShakeTarget = IntPtr.Zero;
+            _shakeBypassProfile = true;
             _shakeRequested = true;
         }
 
         public void ShakeWindow(IntPtr hwnd)
         {
             _explicitShakeTarget = hwnd;
+            _shakeBypassProfile = true;
             _shakeRequested = true;
         }
 
@@ -416,10 +506,12 @@ namespace Okna
             if (_shakeRequested)
             {
                 _shakeRequested = false;
+                bool userRequest = _shakeBypassProfile;
+                _shakeBypassProfile = false;
                 IntPtr requested = _explicitShakeTarget;
                 _explicitShakeTarget = IntPtr.Zero;
                 if (_mode == Mode.Idle)
-                    StartJelly(requested);
+                    StartJelly(requested, userRequest);
             }
 
             if (_mode == Mode.Idle)
@@ -431,17 +523,20 @@ namespace Okna
 
                 UpdateGates(foreground, now);
 
-                if (Active && (_settings.Shatter || _settings.Burn))
+                bool closeOn = _appCloseEffect >= 0
+                    ? _appCloseEffect != 0
+                    : (_settings.Shatter || _settings.Burn);
+                if (Active && closeOn)
                     WatchClose(foreground, now);
                 else
                     ClearCloseWatch();
 
-                if (Active && _settings.Roll)
+                if (Active && _settings.Roll && _appRoll)
                     WatchMinimize(foreground, now);
                 else
                     ClearMinimizeWatch();
 
-                if (Active && _settings.MaxShake)
+                if (Active && _settings.MaxShake && _appShake)
                 {
                     // The idle loop runs every few milliseconds, but window
                     // state changes are far slower: a look every 30 ms is
@@ -508,6 +603,15 @@ namespace Okna
             bool down = IsKeyDown(Native.VK_LBUTTON);
             bool shift = IsKeyDown(Native.VK_SHIFT);
             bool escape = IsKeyDown(Native.VK_ESCAPE);
+
+            // The resize watcher runs beside the idle/candidate states: a
+            // press near a border is not a drag, but the size change has to be
+            // noticed before the button goes up so the wave can start then.
+            if ((_mode == Mode.Idle || _mode == Mode.Candidate) &&
+                Active && _settings.Bend && !_settings.Economy && _appBend)
+                WatchResize(Native.GetForegroundWindow(), now);
+            else if (_mode == Mode.Idle || _mode == Mode.Candidate)
+                ClearResizeWatch();
 
             if (_mode == Mode.Idle)
             {
@@ -727,6 +831,7 @@ namespace Okna
                 double speed = Math.Sqrt(_vx * _vx + _vy * _vy);
                 bool wobble = _releaseAlongAmp > 0.2 || _releasePerpAmp > 0.2 || _releaseSizeAmp > 0.2;
                 double minTime = wobble ? 0.95 : 0.12;
+                if (_resizeOnly) minTime = 0.62;
                 if (_overlayActive && minTime < (wobble ? 1.10 : 0.35))
                     minTime = wobble ? 1.10 : 0.35;
 
@@ -779,6 +884,7 @@ namespace Okna
             _mode = Mode.Idle;
             _target = IntPtr.Zero;
             _followTicks = 0;
+            _resizeOnly = false;
             _windowUnderOverlay = false;
             _lastRequestedX = int.MinValue;
             _lastRequestedY = int.MinValue;

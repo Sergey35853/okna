@@ -19,6 +19,11 @@ namespace Okna
 
         private void StartJelly(IntPtr explicitTarget)
         {
+            StartJelly(explicitTarget, false);
+        }
+
+        private void StartJelly(IntPtr explicitTarget, bool userRequest)
+        {
             // Economy mode never takes a live screen grab: the wobble is a
             // one-shot capture, and that is exactly the cost it avoids.
             if (_settings.Economy) return;
@@ -34,6 +39,24 @@ namespace Okna
             if (fg == IntPtr.Zero) return;
             if (!explicitOwn && Native.IsOwnProcessWindow(fg)) return;
             if (!Native.IsWindow(fg) || !Native.IsWindowVisible(fg) || Native.IsIconic(fg)) return;
+
+            // A program profile may switch the shake off. An explicit request
+            // from the tray or the settings window still wins.
+            if (!userRequest)
+            {
+                int profileEffect;
+                bool profileBend;
+                bool profileShake;
+                bool profileRoll;
+                string exe = Native.GetWindowProcessName(fg);
+                if (_settings.GetAppProfile(exe, out profileEffect, out profileBend,
+                        out profileShake, out profileRoll) && !profileShake)
+                {
+                    Log.Debug("Jelly skipped: shake is off for " + (exe ?? "this window"));
+                    return;
+                }
+            }
+            ClearResizeWatch();
 
             Native.RECT rect;
             if (!Native.GetWindowRect(fg, out rect)) return;

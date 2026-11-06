@@ -194,6 +194,9 @@ namespace Okna
         public static extern IntPtr MonitorFromWindow(IntPtr hwnd, int flags);
 
         [DllImport("user32.dll")]
+        public static extern IntPtr MonitorFromRect(ref RECT rect, int flags);
+
+        [DllImport("user32.dll")]
         public static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
 
         /// <summary>
@@ -204,6 +207,19 @@ namespace Okna
         {
             work = new RECT();
             IntPtr monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            if (monitor == IntPtr.Zero) return false;
+            var info = new MONITORINFO();
+            info.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+            if (!GetMonitorInfo(monitor, ref info)) return false;
+            work = info.rcWork;
+            return true;
+        }
+
+        /// <summary>The work area of the monitor a rectangle sits on.</summary>
+        public static bool GetWorkAreaForRect(RECT rect, out RECT work)
+        {
+            work = new RECT();
+            IntPtr monitor = MonitorFromRect(ref rect, MONITOR_DEFAULTTONEAREST);
             if (monitor == IntPtr.Zero) return false;
             var info = new MONITORINFO();
             info.cbSize = Marshal.SizeOf(typeof(MONITORINFO));

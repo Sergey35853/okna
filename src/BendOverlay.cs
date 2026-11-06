@@ -20,6 +20,12 @@ namespace Okna
         // reads as a smooth bend. The cap only bounds the arrays for very tall
         // windows.
         private const int StripTarget = 2400;
+        // Work budget for one composed bend frame. The headroom keeps a
+        // 1920-wide window up to 1200 pixels tall on one strip per pixel row;
+        // only larger windows grow to two or more pixels per strip.
+        private const long PixelBudget = 1200000L;
+        private const int PixelHeadroom = 2;
+        private const int MaxStripHeight = 4;
 
         private static readonly string _dumpDir = Environment.GetEnvironmentVariable("OKNA_DUMP");
         private int _dumpIndex;
@@ -533,6 +539,28 @@ namespace Okna
             Compose(x, y, true, ax, ay, 0, opaqueFill);
         }
 
+        /// <summary>
+        /// Height of one warp strip in source pixels. One pixel per row is the
+        /// smoothest, but a 4K window would then build millions of strip cells
+        /// every frame. The budget keeps the work bounded and grows the strip
+        /// only when the window is genuinely large; a 1920-wide window up to
+        /// 1200 pixels tall still gets the pixel-perfect bend.
+        /// </summary>
+        internal static int ComputeStripHeight(int width, int height)
+        {
+            if (height <= 0) return 1;
+            int strips = Math.Min(StripTarget, Math.Max(8, height));
+            long cells = (long)strips * Math.Max(1, width);
+            long budget = PixelBudget * PixelHeadroom;
+            if (cells > budget)
+            {
+                int budgetStrips = (int)Math.Max(8L, budget / Math.Max(1, width));
+                if (budgetStrips < strips) strips = budgetStrips;
+            }
+            int sh = Math.Max(1, (height + strips - 1) / strips);
+            return Math.Min(MaxStripHeight, sh);
+        }
+
         private void Compose(int x, int y, bool jelly, double ax, double ay, int gy, bool opaqueFill)
         {
             if (_hwnd == IntPtr.Zero || _memDc == IntPtr.Zero) return;
@@ -541,12 +569,7 @@ namespace Okna
 
             Native.PatBlt(_memDc, 0, 0, _ow, _oh, Native.BLACKNESS);
 
-            int strips = Math.Min(StripTarget, Math.Max(8, _h));
-            int sh = Math.Max(1, (_h + strips - 1) / strips);
-
-            // One pass: each strip is shifted sideways and its rows are
-            // stretched to the next boundary, so the copy is a single warped
-            // sheet instead of a strip of independent pictures.
+            int sh = ComputeStripHeight(_w, _h);
             int count = (_h + sh - 1) / sh;
             if (count + 1 > _srcRows.Length) count = _srcRows.Length - 1;
             for (int i = 0; i <= count; i++)
@@ -601,7 +624,9 @@ namespace Okna
                 if (srcH <= 0 || dstH <= 0) continue;
 
                 // Copy row by row instead of StretchBlt: GDI's stretch drops the
-                // alpha channel, which made the bent part invisible.
+                // alpha channel, which made the bent part invisible. A whole
+                // strip cannot be copied in one call because the destination
+                // bitmap has the wider Margin pitch.
                 for (int j = 0; j < dstH; j++)
                 {
                     int srcRow = sy0 + (j * srcH) / dstH;

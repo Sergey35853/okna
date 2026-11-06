@@ -207,12 +207,37 @@ namespace Okna
         }
 
         /// <summary>
-        /// Per-program close effects: "name.exe=0|1|2". Programs without an
-        /// entry use the global Shatter/Burn choice.
+        /// Per-program rules: "name.exe=effect,bend,shake,roll". The effect is
+        /// 0 = none, 1 = shards, 2 = fire; the three flags are 1 when the
+        /// matching effect is allowed for that program. An entry written by an
+        /// older build ("name.exe=1") has no flags and therefore allows every
+        /// effect, exactly as before.
         /// </summary>
         public string[] CloseOverrides
         {
             get { return _closeOverrides; }
+        }
+
+        /// <summary>The same list, under the name the settings form uses.</summary>
+        public string[] AppProfiles
+        {
+            get { return _closeOverrides; }
+        }
+
+        /// <summary>
+        /// Which ready-made preset the current values look like: 0 calm,
+        /// 1 balance, 2 jelly, 3 economy. Shared by the settings window and
+        /// the tray menu so both show the same check mark.
+        /// </summary>
+        public int CurrentPresetIndex
+        {
+            get
+            {
+                if (_economy) return 3;
+                if (_jelly < 42) return 0;
+                if (_jelly < 100) return 1;
+                return 2;
+            }
         }
 
         public bool IsPortable
@@ -376,45 +401,132 @@ namespace Okna
         }
 
         /// <summary>
-        /// -1 when the program has no override and the global close effect
+        /// -1 when the program has no profile and the global close effect
         /// applies; otherwise 0 = none, 1 = shards, 2 = fire.
         /// </summary>
         public int GetCloseEffect(string executableName)
         {
-            if (string.IsNullOrEmpty(executableName)) return -1;
+            int effect;
+            bool bend;
+            bool shake;
+            bool roll;
+            return GetAppProfile(executableName, out effect, out bend, out shake, out roll)
+                ? effect
+                : -1;
+        }
+
+        /// <summary>
+        /// The first profile whose mask matches the executable. Returns false
+        /// when the program uses the global settings. A profile that only
+        /// carries a close effect (an older entry) allows bend, shake and roll.
+        /// </summary>
+        public bool GetAppProfile(string executableName, out int effect,
+            out bool bend, out bool shake, out bool roll)
+        {
+            effect = -1;
+            bend = true;
+            shake = true;
+            roll = true;
+            if (string.IsNullOrEmpty(executableName)) return false;
+
             string[] list = _closeOverrides;
             for (int i = 0; i < list.Length; i++)
             {
-                int eq = list[i].LastIndexOf('=');
-                if (eq <= 0) continue;
-                string mask = list[i].Substring(0, eq);
-                int effect;
-                if (!int.TryParse(list[i].Substring(eq + 1), NumberStyles.Integer,
-                        CultureInfo.InvariantCulture, out effect))
+                string mask;
+                int parsedEffect;
+                bool parsedBend;
+                bool parsedShake;
+                bool parsedRoll;
+                if (!ParseProfile(list[i], out mask, out parsedEffect, out parsedBend,
+                        out parsedShake, out parsedRoll))
                     continue;
-                if (WildcardMatch(mask, executableName))
-                    return effect < 0 ? 0 : (effect > 2 ? 2 : effect);
+                if (!WildcardMatch(mask, executableName)) continue;
+                effect = parsedEffect;
+                bend = parsedBend;
+                shake = parsedShake;
+                roll = parsedRoll;
+                return true;
             }
-            return -1;
+            return false;
+        }
+
+        /// <summary>
+        /// Reads one stored profile. Both "app.exe=1" (1.7.x and older) and
+        /// "app.exe=1,1,0,1" (this build) are accepted.
+        /// </summary>
+        internal static bool ParseProfile(string entry, out string mask, out int effect,
+            out bool bend, out bool shake, out bool roll)
+        {
+            mask = null;
+            effect = -1;
+            bend = true;
+            shake = true;
+            roll = true;
+            if (string.IsNullOrEmpty(entry)) return false;
+
+            int eq = entry.LastIndexOf('=');
+            if (eq <= 0) return false;
+            mask = entry.Substring(0, eq).Trim();
+            if (mask.Length == 0) return false;
+
+            string[] parts = entry.Substring(eq + 1).Split(',');
+            int value;
+            if (!int.TryParse(parts[0].Trim(), NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out value))
+                return false;
+            effect = value < 0 ? 0 : (value > 2 ? 2 : value);
+
+            bool[] flags = new bool[] { true, true, true };
+            for (int i = 0; i < flags.Length; i++)
+            {
+                if (i + 1 >= parts.Length) break;
+                int flag;
+                if (int.TryParse(parts[i + 1].Trim(), NumberStyles.Integer,
+                        CultureInfo.InvariantCulture, out flag))
+                    flags[i] = flag != 0;
+            }
+            bend = flags[0];
+            shake = flags[1];
+            roll = flags[2];
+            return true;
         }
 
         public void SetCloseOverride(string executableName, int effect)
+        {
+            SetAppProfile(executableName, effect, true, true, true);
+        }
+
+        /// <summary>
+        /// Adds or replaces the whole rule for one program. The three flags
+        /// only switch the effects off; the global settings still decide what
+        /// is available at all.
+        /// </summary>
+        public void SetAppProfile(string executableName, int effect,
+            bool bend, bool shake, bool roll)
         {
             string name = CleanPattern(executableName);
             if (name == null || name.StartsWith("class:", StringComparison.OrdinalIgnoreCase)) return;
             if (effect < 0) effect = 0;
             if (effect > 2) effect = 2;
 
+            string value = name + "=" + effect + "," + (bend ? 1 : 0) + "," +
+                           (shake ? 1 : 0) + "," + (roll ? 1 : 0);
             string[] list = _closeOverrides;
             List<string> next = new List<string>();
             bool replaced = false;
             for (int i = 0; i < list.Length; i++)
             {
-                int eq = list[i].LastIndexOf('=');
-                string mask = eq > 0 ? list[i].Substring(0, eq) : list[i];
+                string mask;
+                int oldEffect;
+                bool oldBend;
+                bool oldShake;
+                bool oldRoll;
+                if (!ParseProfile(list[i], out mask, out oldEffect, out oldBend,
+                        out oldShake, out oldRoll))
+                    mask = list[i];
                 if (string.Equals(mask, name, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!replaced) next.Add(name + "=" + effect);
+                    if (!replaced) next.Add(value);
                     replaced = true;
                 }
                 else
@@ -422,7 +534,7 @@ namespace Okna
                     next.Add(list[i]);
                 }
             }
-            if (!replaced) next.Add(name + "=" + effect);
+            if (!replaced) next.Add(value);
             _closeOverrides = next.ToArray();
         }
 
@@ -658,15 +770,17 @@ namespace Okna
             for (int i = 0; i < values.Length; i++)
             {
                 string value = values[i];
-                if (string.IsNullOrEmpty(value)) continue;
-                int eq = value.LastIndexOf('=');
-                if (eq <= 0) continue;
-                string name = CleanPattern(value.Substring(0, eq));
+                string mask;
                 int effect;
-                if (name == null || !int.TryParse(value.Substring(eq + 1), out effect)) continue;
-                if (effect < 0) effect = 0;
-                if (effect > 2) effect = 2;
-                next.Add(name + "=" + effect);
+                bool bend;
+                bool shake;
+                bool roll;
+                if (!ParseProfile(value, out mask, out effect, out bend, out shake, out roll))
+                    continue;
+                string name = CleanPattern(mask);
+                if (name == null) continue;
+                next.Add(name + "=" + effect + "," + (bend ? 1 : 0) + "," +
+                         (shake ? 1 : 0) + "," + (roll ? 1 : 0));
             }
             _closeOverrides = next.ToArray();
         }

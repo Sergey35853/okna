@@ -73,7 +73,10 @@ namespace Okna
                     {
                         Log.Debug("Roll to tray " + hidden.ToInt64() + " '" +
                             Native.GetWindowTitle(hidden) + "'");
-                        RollOverlay.PlayToTray(hiddenShot, _closeFrame, _settings.RollDirection);
+                        if (RollAllowed(_closeExe))
+                            RollOverlay.PlayToTray(hiddenShot, _closeFrame, _settings.RollDirection);
+                        else
+                            hiddenShot.Dispose();
                     }
                     return;
                 }
@@ -235,7 +238,10 @@ namespace Okna
                     _minimizeShot = null;
                     ClearCloseWatch();
                     Log.Debug("Roll " + target.ToInt64());
-                    RollOverlay.Play(shot, frame, target, _settings.RollDirection);
+                    if (RollAllowed(Native.GetWindowProcessName(target)))
+                        RollOverlay.Play(shot, frame, target, _settings.RollDirection);
+                    else if (shot != null)
+                        shot.Dispose();
                     return;
                 }
 
@@ -479,6 +485,133 @@ namespace Okna
                 _minimizeShot.Dispose();
                 _minimizeShot = null;
             }
+        }
+
+        /// <summary>
+        /// True when a press at <paramref name="p"/> began on one of the four
+        /// borders of the window, i.e. it can only be an edge resize. The
+        /// margin is in physical pixels and follows the window's DPI.
+        /// </summary>
+        internal static bool IsResizeEdge(Native.POINT p, Native.RECT rect, int margin)
+        {
+            if (rect.Width <= 0 || rect.Height <= 0) return false;
+            if (p.X < rect.Left - margin || p.X > rect.Right + margin ||
+                p.Y < rect.Top - margin || p.Y > rect.Bottom + margin)
+                return false;
+            return p.X <= rect.Left + margin || p.X >= rect.Right - margin ||
+                   p.Y <= rect.Top + margin || p.Y >= rect.Bottom - margin;
+        }
+
+        /// <summary>
+        /// Watches an edge resize and hands the final rectangle to a short
+        /// size wave when the button goes up. A move never changes the size,
+        /// so a drag started at the top border cannot trigger it.
+        /// </summary>
+        private void WatchResize(IntPtr foreground, double now)
+        {
+            bool down = IsKeyDown(Native.VK_LBUTTON);
+
+            if (_resizeWatch != IntPtr.Zero)
+            {
+                if (!down)
+                {
+                    IntPtr hwnd = _resizeWatch;
+                    Native.RECT last = _resizeLastRect;
+                    bool armed = _resizeArmed;
+                    double speed = _resizeSpeed;
+                    ClearResizeWatch();
+                    if (armed && speed > 40.0 &&
+                        Native.IsWindow(hwnd) && Native.IsWindowVisible(hwnd) &&
+                        !Native.IsIconic(hwnd) && !Native.IsZoomed(hwnd) &&
+                        last.Width >= 80 && last.Height >= 50)
+                    {
+                        BeginResizeSettle(hwnd, last, speed);
+                    }
+                    else
+                    {
+                        Log.Debug("Resize settle skipped armed=" + armed +
+                            " speed=" + speed.ToString("f0"));
+                    }
+                    return;
+                }
+
+                if (!Native.IsWindow(_resizeWatch) ||
+                    !Native.IsWindowVisible(_resizeWatch) ||
+                    Native.IsIconic(_resizeWatch) || Native.IsZoomed(_resizeWatch))
+                {
+                    ClearResizeWatch();
+                    return;
+                }
+
+                if (now < _resizeCheckAt) return;
+                _resizeCheckAt = now + 0.03;
+
+                Native.RECT current;
+                if (!Native.GetWindowRect(_resizeWatch, out current))
+                {
+                    ClearResizeWatch();
+                    return;
+                }
+
+                int dw = Math.Abs(current.Width - _resizeLastRect.Width);
+                int dh = Math.Abs(current.Height - _resizeLastRect.Height);
+                if (dw > 1 || dh > 1)
+                {
+                    double dt = now - _resizeLastAt;
+                    if (dt < 0.001) dt = 0.001;
+                    double instant = Math.Sqrt((double)dw * dw + (double)dh * dh) / dt;
+                    if (instant > 4000.0) instant = 4000.0;
+                    _resizeSpeed = _resizeSpeed * 0.55 + instant * 0.45;
+                    _resizeLastAt = now;
+                }
+                else if (now - _resizeLastAt > 0.15)
+                {
+                    _resizeSpeed *= 0.55;
+                }
+
+                if (Math.Abs(current.Width - _resizeStartRect.Width) > 2 ||
+                    Math.Abs(current.Height - _resizeStartRect.Height) > 2)
+                    _resizeArmed = true;
+                _resizeLastRect = current;
+                return;
+            }
+
+            if (!down || now < _resizeCheckAt) return;
+            _resizeCheckAt = now + 0.04;
+
+            Native.POINT p;
+            if (!Native.GetCursorPos(out p)) return;
+
+            IntPtr target = foreground;
+            if (target == IntPtr.Zero || !Native.IsWindow(target)) return;
+            if (Native.IsOwnProcessWindow(target) && target != _ownTarget) return;
+            if (!Native.IsWindowVisible(target) || Native.IsIconic(target) ||
+                Native.IsZoomed(target) || Native.IsCloaked(target))
+                return;
+            if (IsShellWindowClass(Native.GetWindowClass(target))) return;
+            if ((Native.GetWindowLongPtr(target, Native.GWL_STYLE) & Native.WS_THICKFRAME) == 0)
+                return;
+
+            Native.RECT rect;
+            if (!Native.GetWindowRect(target, out rect)) return;
+            int margin = (8 * GetWindowDpi(target) + 48) / 96;
+            if (!IsResizeEdge(p, rect, margin)) return;
+
+            Log.Debug("Resize watch " + target.ToInt64() + " at " + p.X + "," + p.Y +
+                " rect=" + rect.Left + "," + rect.Top + " " + rect.Width + "x" + rect.Height);
+            _resizeWatch = target;
+            _resizeStartRect = rect;
+            _resizeLastRect = rect;
+            _resizeLastAt = now;
+            _resizeArmed = false;
+            _resizeSpeed = 0;
+        }
+
+        private void ClearResizeWatch()
+        {
+            _resizeWatch = IntPtr.Zero;
+            _resizeArmed = false;
+            _resizeSpeed = 0;
         }
 
     }

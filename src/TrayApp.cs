@@ -20,6 +20,7 @@ namespace Okna
         private readonly ToolStripMenuItem _startupItem;
         private readonly ToolStripMenuItem _jellyItem;
         private readonly ToolStripMenuItem _rollItem;
+        private ToolStripMenuItem[] _presetItems;
         private readonly ToolStripMenuItem _closeNoneItem;
         private readonly ToolStripMenuItem _closeShatterItem;
         private readonly ToolStripMenuItem _closeBurnItem;
@@ -106,6 +107,25 @@ namespace Okna
                 SyncForm();
             };
             _menu.Items.Add(_rollItem);
+
+            ToolStripMenuItem presetMenu = NewItem("Режим");
+            _presetItems = new ToolStripMenuItem[4];
+            string[] presetNames = new string[] { "Спокойно", "Баланс", "Желе", "Экономно" };
+            for (int i = 0; i < presetNames.Length; i++)
+            {
+                int index = i;
+                ToolStripMenuItem item = NewItem(presetNames[i]);
+                item.Click += delegate
+                {
+                    _settings.ApplyPreset(index);
+                    _settings.Save();
+                    UpdateMenu();
+                    SyncForm();
+                };
+                _presetItems[i] = item;
+                presetMenu.DropDownItems.Add(item);
+            }
+            _menu.Items.Add(presetMenu);
 
             ToolStripMenuItem closeMenu = NewItem("Эффект при закрытии");
             _closeNoneItem = NewItem("Без эффекта");
@@ -327,6 +347,12 @@ namespace Okna
             {
                 _rollItem.Text = _settings.Roll ? "Скатывать в трубочку: вкл" : "Скатывать в трубочку: выкл";
                 _rollItem.Checked = _settings.Roll;
+            }
+            if (_presetItems != null)
+            {
+                int currentPreset = _settings.CurrentPresetIndex;
+                for (int i = 0; i < _presetItems.Length; i++)
+                    _presetItems[i].Checked = i == currentPreset;
             }
             if (_closeNoneItem != null)
             {

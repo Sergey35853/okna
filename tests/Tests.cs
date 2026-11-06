@@ -31,6 +31,14 @@ namespace Okna.Tests
             Run("exclusion entries are cleaned and deduplicated", ExclusionBookkeeping);
             Run("close overrides pick the first matching mask", CloseOverrides);
             Run("close overrides can be replaced and removed", CloseOverrideEditing);
+            Run("program profiles parse old and new entries", ProfileParsing);
+            Run("program profiles gate the effects per program", ProfileGates);
+            Run("program profiles are edited as one rule", ProfileEditing);
+            Run("the current preset is derived from the values", PresetIndex);
+            Run("the taskbar edge is read from the work area", RollBarEdge);
+            Run("an edge press is told apart from a drag", ResizeEdgeDetection);
+            Run("the bend strip grows only for large windows", StripHeightBudget);
+            Run("the rotated log keeps its name readable", LogRotationName);
             Run("economy preset disables the costly effects", EconomyPreset);
             Run("presets leave a working effect after economy", PresetsKeepTheEffectWorking);
             Run("jelly slider reaches the extended maximum", JellyRange);
@@ -337,6 +345,202 @@ namespace Okna.Tests
             Check(s.GetCloseEffect("chrome.exe") == 2, "replacement value was not stored");
             s.RemoveCloseOverride("chrome.exe");
             Check(s.CloseOverrides.Length == 0, "removal failed");
+        }
+
+        private static void ProfileParsing()
+        {
+            string mask;
+            int effect;
+            bool bend;
+            bool shake;
+            bool roll;
+
+            Check(AppSettings.ParseProfile("steam.exe=1", out mask, out effect,
+                    out bend, out shake, out roll), "a legacy entry should parse");
+            Check(mask == "steam.exe" && effect == 1 && bend && shake && roll,
+                "a legacy entry should allow every effect");
+
+            Check(AppSettings.ParseProfile("chrome.exe=2,1,0,0", out mask, out effect,
+                    out bend, out shake, out roll), "a new entry should parse");
+            Check(mask == "chrome.exe" && effect == 2 && bend && !shake && !roll,
+                "the three flags were read wrongly");
+
+            Check(AppSettings.ParseProfile("game.exe=1,0", out mask, out effect,
+                    out bend, out shake, out roll), "a partial entry should parse");
+            Check(!bend && shake && roll, "missing flags should default to allowed");
+
+            Check(AppSettings.ParseProfile("x=9", out mask, out effect,
+                    out bend, out shake, out roll) && effect == 2, "effect should clamp to 2");
+            Check(AppSettings.ParseProfile("x=-3", out mask, out effect,
+                    out bend, out shake, out roll) && effect == 0, "negative effect should clamp to 0");
+
+            Check(!AppSettings.ParseProfile("", out mask, out effect, out bend, out shake, out roll),
+                "an empty entry should be rejected");
+            Check(!AppSettings.ParseProfile("=1", out mask, out effect, out bend, out shake, out roll),
+                "a missing name should be rejected");
+            Check(!AppSettings.ParseProfile("x=abc", out mask, out effect, out bend, out shake, out roll),
+                "a non-numeric effect should be rejected");
+            Check(!AppSettings.ParseProfile("no equals sign", out mask, out effect,
+                    out bend, out shake, out roll), "an entry without = should be rejected");
+        }
+
+        private static void ProfileGates()
+        {
+            AppSettings s = new AppSettings();
+            int effect;
+            bool bend;
+            bool shake;
+            bool roll;
+
+            Check(!s.GetAppProfile("chrome.exe", out effect, out bend, out shake, out roll),
+                "no rule should mean the global settings");
+            Check(s.GetCloseEffect("chrome.exe") == -1, "no rule should report -1");
+
+            s.SetAppProfile("steam*", 2, true, false, false);
+            Check(s.GetAppProfile("STEAM.EXE", out effect, out bend, out shake, out roll),
+                "a wildcard rule should match");
+            Check(effect == 2 && bend && !shake && !roll, "the stored flags were not applied");
+            Check(s.GetCloseEffect("steamwebhelper.exe") == 2, "the wildcard should cover helpers");
+            Check(!s.GetAppProfile("chrome.exe", out effect, out bend, out shake, out roll),
+                "the rule must not leak to another program");
+
+            s.SetAppProfile("chrome.exe", 0, false, true, true);
+            Check(s.GetAppProfile("chrome.exe", out effect, out bend, out shake, out roll),
+                "an exact rule should match");
+            Check(effect == 0 && !bend && shake && roll, "the exact rule was read wrongly");
+        }
+
+        private static void ProfileEditing()
+        {
+            AppSettings s = new AppSettings();
+            s.SetAppProfile("chrome.exe", 1, true, true, true);
+            s.SetAppProfile("chrome.exe", 2, false, false, false);
+            Check(s.AppProfiles.Length == 1, "replacing a rule should not duplicate it");
+            Check(s.AppProfiles[0] == "chrome.exe=2,0,0,0", "the whole rule was not stored");
+
+            // The old API writes a rule that allows every effect, so an old
+            // caller cannot leave a program with the effects silently off.
+            s.SetCloseOverride("chrome.exe", 1);
+            Check(s.AppProfiles[0] == "chrome.exe=1,1,1,1", "the legacy setter should allow every effect");
+
+            s.SetAppProfile(@"C:\Program Files\Steam\steam.exe", 1, true, true, true);
+            Check(s.AppProfiles.Length == 2 && s.AppProfiles[1] == "steam.exe=1,1,1,1",
+                "a full path should become a file name");
+
+            s.SetAppProfile("class:Progman", 1, true, true, true);
+            Check(s.AppProfiles.Length == 2, "a window class must not become a program rule");
+
+            s.RemoveCloseOverride("chrome.exe");
+            Check(s.AppProfiles.Length == 1 && s.AppProfiles[0].StartsWith("steam.exe="),
+                "removal failed");
+        }
+
+        private static void PresetIndex()
+        {
+            AppSettings s = new AppSettings();
+            s.ApplyPreset(0);
+            Check(s.CurrentPresetIndex == 0, "calm preset index");
+            s.ApplyPreset(1);
+            Check(s.CurrentPresetIndex == 1, "balance preset index");
+            s.ApplyPreset(2);
+            Check(s.CurrentPresetIndex == 2, "jelly preset index");
+            s.ApplyPreset(3);
+            Check(s.CurrentPresetIndex == 3, "economy preset index");
+
+            // Economy wins even at a jelly value that would otherwise be "jelly".
+            s.Jelly = 130;
+            Check(s.CurrentPresetIndex == 3, "economy should stay checked");
+            s.LeaveEconomy();
+            Check(s.CurrentPresetIndex == 2, "leaving economy should show the matching preset");
+        }
+
+        private static void RollBarEdge()
+        {
+            RollDirection direction;
+
+            Native.RECT bottomWork = Rect(0, 0, 1920, 1040);
+            Native.RECT bottomBar = Rect(0, 1040, 1920, 1080);
+            Check(RollOverlay.ResolveBarEdge(bottomBar, bottomWork, out direction) &&
+                  direction == RollDirection.Down, "a bottom bar should roll down");
+
+            Native.RECT topWork = Rect(0, 40, 1920, 1080);
+            Native.RECT topBar = Rect(0, 0, 1920, 40);
+            Check(RollOverlay.ResolveBarEdge(topBar, topWork, out direction) &&
+                  direction == RollDirection.Up, "a top bar should roll up");
+
+            Native.RECT rightWork = Rect(0, 0, 1880, 1080);
+            Native.RECT rightBar = Rect(1880, 0, 1920, 1080);
+            Check(RollOverlay.ResolveBarEdge(rightBar, rightWork, out direction) &&
+                  direction == RollDirection.Right, "a right bar should roll right");
+
+            Native.RECT leftWork = Rect(40, 0, 1920, 1080);
+            Native.RECT leftBar = Rect(0, 0, 40, 1080);
+            Check(RollOverlay.ResolveBarEdge(leftBar, leftWork, out direction) &&
+                  direction == RollDirection.Left, "a left bar should roll left");
+
+            Native.RECT floating = Rect(700, 500, 1200, 540);
+            Check(!RollOverlay.ResolveBarEdge(floating, bottomWork, out direction),
+                "a floating bar has no edge");
+            Check(!RollOverlay.ResolveBarEdge(bottomBar, new Native.RECT(), out direction),
+                "an empty work area should be rejected");
+
+            // The monitor-aware overload should use the work area, not the
+            // distance between centres: this window sits far above the bar.
+            Native.RECT frame = Rect(100, 100, 900, 700);
+            Check(RollOverlay.ResolveDirection(frame, true, bottomBar, bottomWork,
+                    RollDirection.Auto) == RollDirection.Down,
+                "the work area should decide the direction");
+            Check(RollOverlay.ResolveDirection(frame, true, topBar, topWork,
+                    RollDirection.Auto) == RollDirection.Up,
+                "a top bar with a work area should roll up");
+        }
+
+        private static void ResizeEdgeDetection()
+        {
+            Native.RECT rect = Rect(100, 100, 500, 400);
+            Check(JellyEngine.IsResizeEdge(new Native.POINT { X = 105, Y = 250 }, rect, 10),
+                "the left border should count as an edge");
+            Check(JellyEngine.IsResizeEdge(new Native.POINT { X = 495, Y = 250 }, rect, 10),
+                "the right border should count as an edge");
+            Check(JellyEngine.IsResizeEdge(new Native.POINT { X = 250, Y = 105 }, rect, 10),
+                "the top border should count as an edge");
+            Check(JellyEngine.IsResizeEdge(new Native.POINT { X = 250, Y = 395 }, rect, 10),
+                "the bottom border should count as an edge");
+            Check(JellyEngine.IsResizeEdge(new Native.POINT { X = 105, Y = 105 }, rect, 10),
+                "a corner should count as an edge");
+            Check(!JellyEngine.IsResizeEdge(new Native.POINT { X = 300, Y = 250 }, rect, 10),
+                "the middle of the window is a drag, not a resize");
+            Check(!JellyEngine.IsResizeEdge(new Native.POINT { X = 50, Y = 250 }, rect, 10),
+                "a point outside the margin is not an edge");
+            Check(!JellyEngine.IsResizeEdge(new Native.POINT { X = 105, Y = 250 },
+                    new Native.RECT(), 10), "a degenerate rectangle should be rejected");
+        }
+
+        private static void StripHeightBudget()
+        {
+            Check(BendOverlay.ComputeStripHeight(1920, 1200) == 1,
+                "a 1920x1200 window should keep the pixel-perfect bend");
+            Check(BendOverlay.ComputeStripHeight(2560, 1440) == 2,
+                "a 2560x1440 window should use two-pixel strips");
+            Check(BendOverlay.ComputeStripHeight(3840, 2160) == 4,
+                "a 4K window should use four-pixel strips");
+            Check(BendOverlay.ComputeStripHeight(7680, 4320) <= 4,
+                "an 8K window should stay inside the strip cap");
+            Check(BendOverlay.ComputeStripHeight(800, 600) == 1,
+                "a small window should keep one-pixel strips");
+            Check(BendOverlay.ComputeStripHeight(1920, 0) == 1,
+                "a zero height should not divide by zero");
+        }
+
+        private static void LogRotationName()
+        {
+            Check(Log.OldPathFor(@"C:\Users\me\AppData\Local\Okna\okna.log") ==
+                @"C:\Users\me\AppData\Local\Okna\okna.old.log",
+                "the rotated log should sit next to the current one");
+            Check(Log.OldPathFor("okna.log") == "okna.old.log",
+                "a relative log name should stay relative");
+            Check(Log.OldPathFor("other.txt") == "other.old.txt",
+                "the extension should be kept");
         }
 
         private static void EconomyPreset()
