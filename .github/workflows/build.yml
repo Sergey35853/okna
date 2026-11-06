@@ -19,3 +19,7 @@ jobs:
       - name: Test
         shell: pwsh
         run: .\test.ps1
+
+      - name: UI smoke
+        shell: pwsh
+        run: .\ui-smoke.ps1

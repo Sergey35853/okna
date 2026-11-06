@@ -513,7 +513,7 @@ namespace Okna
             return hit >= 10 && hit <= 17;
         }
 
-        private static bool ReportsResizeBorder(IntPtr hwnd, Native.POINT p)
+        internal static bool ReportsResizeBorder(IntPtr hwnd, Native.POINT p)
         {
             UIntPtr hit;
             IntPtr ok = Native.SendMessageTimeout(hwnd, Native.WM_NCHITTEST, IntPtr.Zero,

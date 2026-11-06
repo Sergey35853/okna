@@ -43,6 +43,9 @@ namespace Okna
         private Timer _statusTimer;
         private Timer _saveTimer;
 
+        /// <summary>Set by --ui-smoke so clicks never reach the real settings.</summary>
+        internal bool SmokeMode;
+
         public bool ReallyExit { get; set; }
 
         public SettingsForm(AppSettings settings, JellyEngine engine, Icon icon, TrayApp tray)
@@ -90,7 +93,7 @@ namespace Okna
             _saveTimer.Tick += delegate
             {
                 _saveTimer.Stop();
-                _settings.Save();
+                Persist();
             };
 
             SyncFromSettings();
@@ -145,7 +148,7 @@ namespace Okna
             const int WM_CLOSE = 0x0010;
             if (m.Msg == WM_CLOSE && !ReallyExit && !Environment.HasShutdownStarted)
             {
-                _settings.Save();
+                Persist();
                 BeginInvoke(new MethodInvoker(delegate { Hide(); }));
                 return;
             }
@@ -783,7 +786,7 @@ namespace Okna
                     // value. Choosing "Желе" right after "Экономно" used to
                     // leave bend and shake off, so the window stayed rigid.
                     _settings.ApplyPreset(index);
-                    _settings.Save();
+                    Persist();
                     SyncFromSettings();
                 };
             }
@@ -791,7 +794,7 @@ namespace Okna
 
         private void ApplyHotkey()
         {
-            _settings.Save();
+            Persist();
             bool ok = _tray == null || _tray.ApplyHotkey(true);
             _hotkeyButton.Text = _settings.HotkeyLabel;
             _hotkeyStatus.Text = _tray != null ? _tray.HotkeyStatus : (ok ? "работает" : "занята");
@@ -914,9 +917,16 @@ namespace Okna
 
         private void SaveSoon()
         {
-            if (_saveTimer == null) return;
+            if (SmokeMode || _saveTimer == null) return;
             _saveTimer.Stop();
             _saveTimer.Start();
+        }
+
+        /// <summary>Writes the settings unless the form is only being smoke-tested.</summary>
+        private void Persist()
+        {
+            if (SmokeMode) return;
+            _settings.Save();
         }
 
         private void DrawExcludeItem(object sender, DrawItemEventArgs e)
@@ -1083,7 +1093,7 @@ namespace Okna
                         "Окна", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
-                _settings.Save();
+                Persist();
                 SyncFromSettings();
                 if (_tray != null) _tray.ApplyHotkey(true);
                 MessageBox.Show(this, "Настройки загружены.", "Окна",
@@ -1097,9 +1107,100 @@ namespace Okna
                     "Окна", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 return;
             _settings.ResetAll();
-            _settings.Save();
+            Persist();
             SyncFromSettings();
             if (_tray != null) _tray.ApplyHotkey(true);
+        }
+
+        /// <summary>
+        /// Exercises the real controls without saving anything: presets,
+        /// slider, switches, close effects, roll direction, both lists and the
+        /// diagnostics text. Used by --ui-smoke.
+        /// </summary>
+        internal string RunSmokeTest()
+        {
+            SmokeMode = true;
+            System.Collections.Generic.List<string> lines =
+                new System.Collections.Generic.List<string>();
+            int failed = 0;
+            Action<string, bool> check = delegate(string name, bool ok)
+            {
+                if (ok) lines.Add("[ok] " + name);
+                else { failed++; lines.Add("[FAIL] " + name); }
+            };
+
+            try
+            {
+                for (int i = 0; i < _presets.Length; i++)
+                {
+                    _presets[i].PerformClick();
+                    Application.DoEvents();
+                    check("preset " + i + " applies",
+                        _settings.CurrentPresetIndex == i);
+                }
+
+                _slider.Value = 150;
+                Application.DoEvents();
+                check("the slider reaches the settings", _settings.Jelly == 150);
+
+                bool bend = _settings.Bend;
+                _bendSwitch.Checked = !bend;
+                Application.DoEvents();
+                check("the bend switch changes the setting", _settings.Bend == !bend);
+                _bendSwitch.Checked = bend;
+
+                bool roll = _settings.Roll;
+                _rollSwitch.Checked = !roll;
+                Application.DoEvents();
+                check("the roll switch changes the setting", _settings.Roll == !roll);
+                _rollSwitch.Checked = roll;
+
+                _closeBurn.PerformClick();
+                check("burn is chosen alone", _settings.Burn && !_settings.Shatter);
+                _closeShatter.PerformClick();
+                check("shards are chosen alone", _settings.Shatter && !_settings.Burn);
+                _closeNone.PerformClick();
+                check("no close effect can be chosen", !_settings.Shatter && !_settings.Burn);
+
+                for (int i = 0; i < _directionButtons.Length; i++)
+                {
+                    _directionButtons[i].PerformClick();
+                    check("roll direction " + i + " applies",
+                        (int)_settings.RollDirection == i);
+                }
+
+                _settings.AddExclude("smoke-test.exe");
+                RefreshExcludeList();
+                check("the exclusion list shows a new mask", _excludeList.Items.Count > 0);
+                _settings.RemoveExclude("smoke-test.exe");
+                RefreshExcludeList();
+
+                _settings.SetAppProfile("smoke-test.exe", 2, true, false, false);
+                RefreshOverrideList();
+                check("the program list shows a new rule", _overrideList.Items.Count > 0);
+                _settings.RemoveCloseOverride("smoke-test.exe");
+                RefreshOverrideList();
+
+                string report = Diagnostics.BuildReport(_settings, _engine, "smoke");
+                check("the diagnostics report has content", report.Length > 200);
+                check("the diagnostics report names the program",
+                    report.IndexOf("Okna", StringComparison.OrdinalIgnoreCase) >= 0);
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                lines.Add("[FAIL] the smoke test crashed: " + ex.Message);
+            }
+            finally
+            {
+                SmokeMode = false;
+            }
+
+            lines.Add("");
+            lines.Add(failed == 0
+                ? "All " + lines.Count + " UI checks passed."
+                : failed + " of " + lines.Count + " UI checks failed.");
+            return string.Join(Environment.NewLine, lines.ToArray());
         }
 
         public void ShowSettings()
@@ -1135,11 +1236,11 @@ namespace Okna
                 e.CloseReason != CloseReason.TaskManagerClosing)
             {
                 e.Cancel = true;
-                _settings.Save();
+                Persist();
                 BeginInvoke(new MethodInvoker(delegate { Hide(); }));
                 return;
             }
-            _settings.Save();
+            Persist();
             base.OnFormClosing(e);
         }
 

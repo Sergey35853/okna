@@ -36,6 +36,7 @@ namespace Okna
         private ToolStripMenuItem _updateItem;
         private ToolStripMenuItem _checkItem;
         private ToolStripMenuItem _autoUpdateItem;
+        private ToolStripMenuItem _shakeItem;
         private Timer _updateTimer;
         private Timer _firstCheck;
         private Timer _applyTimer;
@@ -43,6 +44,9 @@ namespace Okna
         private bool _checking;
         private int _applyAttempts;
         private string _hotkeyStatus = "не проверена";
+
+        /// <summary>Set by --ui-smoke so menu clicks never reach the real settings.</summary>
+        internal bool SmokeMode;
 
         public DispatcherForm Dispatcher { get; set; }
 
@@ -92,7 +96,7 @@ namespace Okna
             _jellyItem.Click += delegate
             {
                 _settings.Bend = !_settings.Bend;
-                _settings.Save();
+                Persist();
                 UpdateMenu();
                 SyncForm();
             };
@@ -102,7 +106,7 @@ namespace Okna
             _rollItem.Click += delegate
             {
                 _settings.Roll = !_settings.Roll;
-                _settings.Save();
+                Persist();
                 UpdateMenu();
                 SyncForm();
             };
@@ -118,7 +122,7 @@ namespace Okna
                 item.Click += delegate
                 {
                     _settings.ApplyPreset(index);
-                    _settings.Save();
+                    Persist();
                     UpdateMenu();
                     SyncForm();
                 };
@@ -145,9 +149,9 @@ namespace Okna
             settingsItem.Click += delegate { ShowSettings(); };
             _menu.Items.Add(settingsItem);
 
-            ToolStripMenuItem shakeItem = NewItem("Потрясти активное окно");
-            shakeItem.Click += delegate { _engine.RequestShake(); };
-            _menu.Items.Add(shakeItem);
+            _shakeItem = NewItem("Потрясти активное окно");
+            _shakeItem.Click += delegate { _engine.RequestShake(); };
+            _menu.Items.Add(_shakeItem);
 
             _menu.Items.Add(new ToolStripSeparator());
 
@@ -157,7 +161,7 @@ namespace Okna
                 bool enable = !AppSettings.IsAutoStartEnabled();
                 AppSettings.SetAutoStart(enable, Application.ExecutablePath);
                 _settings.StartWithWindows = enable;
-                _settings.Save();
+                Persist();
                 UpdateMenu();
                 SyncForm();
             };
@@ -179,7 +183,7 @@ namespace Okna
             _autoUpdateItem.Click += delegate
             {
                 _settings.AutoUpdate = !_settings.AutoUpdate;
-                _settings.Save();
+                Persist();
                 UpdateMenu();
                 if (_settings.AutoUpdate && _ready != null) ScheduleApply();
             };
@@ -279,7 +283,7 @@ namespace Okna
         {
             _settings.Shatter = effect == 1;
             _settings.Burn = effect == 2;
-            _settings.Save();
+            Persist();
             UpdateMenu();
             SyncForm();
         }
@@ -431,7 +435,7 @@ namespace Okna
         private void TogglePause(bool notify)
         {
             _settings.Enabled = !_settings.Enabled;
-            _settings.Save();
+            Persist();
             Log.Debug("Effects " + (_settings.Enabled ? "on" : "off"));
             if (!_settings.Enabled) ClearTimedPause();
             UpdateMenu();
@@ -618,6 +622,106 @@ namespace Okna
             Balloon("Не удалось обновить", "Подробности в журнале. Новую версию можно скачать с GitHub вручную.");
         }
 
+        /// <summary>Writes the settings unless the menu is only being smoke-tested.</summary>
+        private void Persist()
+        {
+            if (SmokeMode) return;
+            _settings.Save();
+        }
+
+        /// <summary>
+        /// Clicks the safe menu items and checks that they leave the settings
+        /// in a sane state. Used by --ui-smoke; nothing is written to disk.
+        /// </summary>
+        internal string RunSmokeTest()
+        {
+            SmokeMode = true;
+            System.Collections.Generic.List<string> lines =
+                new System.Collections.Generic.List<string>();
+            int failed = 0;
+            Action<string, bool> check = delegate(string name, bool ok)
+            {
+                if (ok) lines.Add("[ok] " + name);
+                else { failed++; lines.Add("[FAIL] " + name); }
+            };
+
+            try
+            {
+                check("the tray menu has its main items", _menu.Items.Count >= 15);
+                check("the preset submenu has four modes",
+                    _presetItems != null && _presetItems.Length == 4);
+
+                for (int i = 0; i < _presetItems.Length; i++)
+                {
+                    _presetItems[i].PerformClick();
+                    check("tray preset " + i + " applies",
+                        _settings.CurrentPresetIndex == i);
+                }
+
+                bool bend = _settings.Bend;
+                _jellyItem.PerformClick();
+                check("the tray bend item flips the switch", _settings.Bend == !bend);
+                _jellyItem.PerformClick();
+
+                bool roll = _settings.Roll;
+                _rollItem.PerformClick();
+                check("the tray roll item flips the switch", _settings.Roll == !roll);
+                _rollItem.PerformClick();
+
+                _closeBurnItem.PerformClick();
+                check("the tray burn item is exclusive", _settings.Burn && !_settings.Shatter);
+                _closeShatterItem.PerformClick();
+                check("the tray shard item is exclusive", _settings.Shatter && !_settings.Burn);
+                _closeNoneItem.PerformClick();
+                check("the tray none item clears both", !_settings.Shatter && !_settings.Burn);
+
+                bool enabled = _settings.Enabled;
+                _toggleItem.PerformClick();
+                check("the tray master switch turns off", _settings.Enabled == !enabled);
+                _toggleItem.PerformClick();
+                check("the tray master switch turns back on", _settings.Enabled == enabled);
+
+                _shakeItem.PerformClick();
+                check("the shake item asks the engine for a wobble", true);
+
+                bool auto = _settings.AutoUpdate;
+                _autoUpdateItem.PerformClick();
+                _autoUpdateItem.PerformClick();
+                check("the update switch returns to its value", _settings.AutoUpdate == auto);
+
+                UpdateMenu();
+                check("the status line is filled", _statusItem.Text.Length > 0);
+                check("the pause item is present", _pauseItem != null);
+                check("the update item is present", _updateItem != null);
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                lines.Add("[FAIL] the tray smoke test crashed: " + ex.Message);
+            }
+            finally
+            {
+                SmokeMode = false;
+            }
+
+            lines.Add("");
+            lines.Add(failed == 0
+                ? "All " + lines.Count + " tray checks passed."
+                : failed + " of " + lines.Count + " tray checks failed.");
+            return string.Join(Environment.NewLine, lines.ToArray());
+        }
+
+        internal void DisposeForSmoke()
+        {
+            try { if (_startTimer != null) { _startTimer.Stop(); _startTimer.Dispose(); } } catch { }
+            try { if (_pauseTimer != null) { _pauseTimer.Stop(); _pauseTimer.Dispose(); } } catch { }
+            try { if (_updateTimer != null) { _updateTimer.Stop(); _updateTimer.Dispose(); } } catch { }
+            try { if (_firstCheck != null) { _firstCheck.Stop(); _firstCheck.Dispose(); } } catch { }
+            try { if (_applyTimer != null) { _applyTimer.Stop(); _applyTimer.Dispose(); } } catch { }
+            try { _notify.Visible = false; _notify.Dispose(); } catch { }
+            try { _menu.Dispose(); } catch { }
+        }
+
         private void Balloon(string title, string text)
         {
             if (_notify == null) return;
@@ -643,7 +747,7 @@ namespace Okna
         {
             if (_exiting) return;
             _exiting = true;
-            _settings.Save();
+            Persist();
 
             if (_firstCheck != null) { _firstCheck.Stop(); _firstCheck.Dispose(); _firstCheck = null; }
             if (_updateTimer != null) { _updateTimer.Stop(); _updateTimer.Dispose(); _updateTimer = null; }

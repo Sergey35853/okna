@@ -17,6 +17,21 @@ namespace Okna
             Native.EnablePerMonitorDpi();
             Log.Info("Application start. " + Updater.CurrentLabel + " args=" + string.Join(" ", args));
 
+            // Automated end-to-end check: runs the real engine against its own
+            // window and drags the edges. It needs the interactive desktop and
+            // is started by hand or by self-test.ps1, never on a normal start.
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (string.Equals(args[i], "--self-test", StringComparison.OrdinalIgnoreCase))
+                {
+                    Environment.Exit(SelfTest.Run());
+                }
+                if (string.Equals(args[i], "--ui-smoke", StringComparison.OrdinalIgnoreCase))
+                {
+                    Environment.Exit(UiSmoke.Run());
+                }
+            }
+
             // The watchdog is the previous build, started by the updater after
             // a restart. It must run before the single-instance mutex: the new
             // process owns it while the watchdog decides whether to roll back.
