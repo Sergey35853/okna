@@ -284,7 +284,17 @@ namespace Okna
         /// itself already has its new size; only the settle animation changes
         /// it for a few frames and then puts it back exactly.
         /// </summary>
-        private void BeginResizeSettle(IntPtr hwnd, Native.RECT rect, double speed)
+        /// <summary>
+        /// How strong the post-resize wave should be. Speed keeps a quick
+        /// flick lively; the distance keeps a slow, long drag visible.
+        /// </summary>
+        internal static double ResizeAmplitude(double speed, int delta, double jellyFactor)
+        {
+            double visc = Math.Max(0.6, jellyFactor / 1.1);
+            return Math.Min(14.0, (2.5 + speed * 0.012 + delta * 0.02) * visc);
+        }
+
+        private void BeginResizeSettle(IntPtr hwnd, Native.RECT rect, double speed, int delta)
         {
             if (_mode != Mode.Idle || !Active) return;
             if (_settings.Economy || !_settings.Bend) return;
@@ -297,8 +307,10 @@ namespace Okna
             if (_settings.GetAppProfile(exe, out effect, out bend, out shake, out roll) && !bend)
                 return;
 
-            double visc = Math.Max(0.6, _settings.JellyFactor / 1.1);
-            double amp = Math.Min(14.0, (3.0 + speed * 0.018) * visc);
+            // The wave follows both the speed of the hand and the distance the
+            // edge travelled. A slow 300 px drag used to give almost nothing,
+            // while a quick 40 px nudge looked stronger than the drag.
+            double amp = ResizeAmplitude(speed, delta, _settings.JellyFactor);
             if (amp < 1.5) return;
 
             _target = hwnd;
@@ -330,8 +342,10 @@ namespace Okna
             _lastRequestedH = int.MinValue;
             _mode = Mode.Settling;
             SetStatus("Упруго");
+            System.Threading.Interlocked.Increment(ref _resizeWaves);
             Log.Debug("Resize settle " + hwnd.ToInt64() + " " + rect.Width + "x" +
-                rect.Height + " speed=" + speed.ToString("f0") + " amp=" + amp.ToString("f1"));
+                rect.Height + " speed=" + speed.ToString("f0") + " delta=" + delta +
+                " amp=" + amp.ToString("f1"));
         }
 
         private void StepPhysics(double dt)

@@ -38,6 +38,7 @@ namespace Okna.Tests
             Run("the taskbar edge is read from the work area", RollBarEdge);
             Run("an edge press is told apart from a drag", ResizeEdgeDetection);
             Run("frameless windows report their resize borders", ResizeHitCodes);
+            Run("the resize wave follows distance as well as speed", ResizeWaveStrength);
             Run("the bend strip grows only for large windows", StripHeightBudget);
             Run("the rotated log keeps its name readable", LogRotationName);
             Run("economy preset disables the costly effects", EconomyPreset);
@@ -525,6 +526,23 @@ namespace Okna.Tests
             Check(!JellyEngine.IsResizeHit(2), "HTCAPTION is not a resize border");
             Check(!JellyEngine.IsResizeHit(0), "HTNOWHERE is not a resize border");
             Check(!JellyEngine.IsResizeHit(18), "an unknown hit is not a resize border");
+        }
+
+        private static void ResizeWaveStrength()
+        {
+            double slowLong = JellyEngine.ResizeAmplitude(10, 300, 1.1);
+            double fastShort = JellyEngine.ResizeAmplitude(400, 40, 1.1);
+            Check(slowLong > 6.0, "a slow long drag should still be visible");
+            Check(slowLong >= fastShort - 0.01,
+                "distance should not lose to a short flick");
+            Check(JellyEngine.ResizeAmplitude(200, 100, 1.1) >
+                  JellyEngine.ResizeAmplitude(200, 50, 1.1),
+                "a longer drag should be stronger");
+            Check(JellyEngine.ResizeAmplitude(200, 100, 2.4) >
+                  JellyEngine.ResizeAmplitude(200, 100, 1.1),
+                "the jelly slider should scale the wave");
+            Check(JellyEngine.ResizeAmplitude(4000, 4000, 2.4) <= 14.0,
+                "the wave should stay inside the amplitude cap");
         }
 
         private static void StripHeightBudget()

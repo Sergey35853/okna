@@ -128,6 +128,15 @@ namespace Okna
         private double _resizeCheckAt;
         private bool _resizeArmed;
         private double _resizeSpeed;
+        // Some windows (WinUI, Notepad) finish the resize after the button is
+        // released. The watcher waits a few frames for the final rectangle
+        // before it starts the wave, so those windows get one too.
+        private bool _resizePending;
+        private Native.RECT _resizePendingRect;
+        private double _resizePendingAt;
+        private double _resizePendingUntil;
+        private double _resizePendingSpeed;
+        private int _resizeWaves;
 
         private Native.RECT _shakeRect;
         private DateTime _shakeStart;
@@ -216,6 +225,16 @@ namespace Okna
         public int Restarts
         {
             get { return _restarts; }
+        }
+
+        /// <summary>
+        /// How many resize waves have started since the process began. The
+        /// self-test and the diagnostics report use it to prove that the
+        /// effect actually ran.
+        /// </summary>
+        public int ResizeWaves
+        {
+            get { return _resizeWaves; }
         }
 
         /// <summary>

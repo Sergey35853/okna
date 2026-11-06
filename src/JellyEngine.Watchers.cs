@@ -529,6 +529,50 @@ namespace Okna
         /// </summary>
         private void WatchResize(IntPtr foreground, double now)
         {
+            // A slow release, or a window that finishes its resize after the
+            // button is up (WinUI, Notepad), waits here for the final
+            // rectangle. A new press cancels the pending wave.
+            if (_resizePending)
+            {
+                IntPtr pending = _resizeWatch;
+                if (IsKeyDown(Native.VK_LBUTTON) || pending == IntPtr.Zero ||
+                    !Native.IsWindow(pending) || !Native.IsWindowVisible(pending) ||
+                    Native.IsIconic(pending) || Native.IsZoomed(pending))
+                {
+                    ClearResizeWatch();
+                    return;
+                }
+
+                Native.RECT current;
+                if (!Native.GetWindowRect(pending, out current))
+                {
+                    ClearResizeWatch();
+                    return;
+                }
+
+                if (Math.Abs(current.Width - _resizePendingRect.Width) > 1 ||
+                    Math.Abs(current.Height - _resizePendingRect.Height) > 1)
+                {
+                    _resizePendingRect = current;
+                    _resizePendingAt = now;
+                }
+
+                int pendingDelta = Math.Max(
+                    Math.Abs(current.Width - _resizeStartRect.Width),
+                    Math.Abs(current.Height - _resizeStartRect.Height));
+                bool stable = now - _resizePendingAt >= 0.12;
+                if ((pendingDelta >= 2 && stable) || now >= _resizePendingUntil)
+                {
+                    double pendingSpeed = _resizePendingSpeed;
+                    ClearResizeWatch();
+                    if (pendingDelta >= 2 && current.Width >= 80 && current.Height >= 50)
+                        BeginResizeSettle(pending, current, pendingSpeed, pendingDelta);
+                    else
+                        Log.Debug("Resize settle skipped: no size change");
+                }
+                return;
+            }
+
             bool down = IsKeyDown(Native.VK_LBUTTON);
 
             if (_resizeWatch != IntPtr.Zero)
@@ -539,19 +583,36 @@ namespace Okna
                     Native.RECT last = _resizeLastRect;
                     bool armed = _resizeArmed;
                     double speed = _resizeSpeed;
-                    ClearResizeWatch();
-                    if (armed && speed > 40.0 &&
-                        Native.IsWindow(hwnd) && Native.IsWindowVisible(hwnd) &&
-                        !Native.IsIconic(hwnd) && !Native.IsZoomed(hwnd) &&
-                        last.Width >= 80 && last.Height >= 50)
+                    int delta = Math.Max(
+                        Math.Abs(last.Width - _resizeStartRect.Width),
+                        Math.Abs(last.Height - _resizeStartRect.Height));
+
+                    if (!Native.IsWindow(hwnd) || !Native.IsWindowVisible(hwnd) ||
+                        Native.IsIconic(hwnd) || Native.IsZoomed(hwnd) ||
+                        last.Width < 80 || last.Height < 50)
                     {
-                        BeginResizeSettle(hwnd, last, speed);
-                    }
-                    else
-                    {
+                        ClearResizeWatch();
                         Log.Debug("Resize settle skipped armed=" + armed +
                             " speed=" + speed.ToString("f0"));
+                        return;
                     }
+
+                    if (delta >= 2 && speed >= 40.0)
+                    {
+                        ClearResizeWatch();
+                        BeginResizeSettle(hwnd, last, speed, delta);
+                        return;
+                    }
+
+                    // Slow drag or a resize that has not landed yet: keep the
+                    // window under watch and use the final rectangle.
+                    _resizePending = true;
+                    _resizePendingRect = last;
+                    _resizePendingAt = now;
+                    _resizePendingUntil = now + (delta >= 2 ? 0.30 : 0.70);
+                    _resizePendingSpeed = speed;
+                    Log.Debug("Resize settle waiting delta=" + delta +
+                        " speed=" + speed.ToString("f0"));
                     return;
                 }
 
@@ -627,6 +688,7 @@ namespace Okna
             _resizeLastAt = now;
             _resizeArmed = false;
             _resizeSpeed = 0;
+            _resizePending = false;
         }
 
         private void ClearResizeWatch()
@@ -634,6 +696,11 @@ namespace Okna
             _resizeWatch = IntPtr.Zero;
             _resizeArmed = false;
             _resizeSpeed = 0;
+            _resizePending = false;
+            _resizePendingRect = new Native.RECT();
+            _resizePendingAt = 0;
+            _resizePendingUntil = 0;
+            _resizePendingSpeed = 0;
         }
 
     }
