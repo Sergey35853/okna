@@ -36,6 +36,7 @@ namespace Okna.Tests
             Run("program profiles are edited as one rule", ProfileEditing);
             Run("the current preset is derived from the values", PresetIndex);
             Run("the taskbar edge is read from the work area", RollBarEdge);
+            Run("DPI scaling and monitor coordinates stay exact", MonitorGeometry);
             Run("an edge press is told apart from a drag", ResizeEdgeDetection);
             Run("frameless windows report their resize borders", ResizeHitCodes);
             Run("the resize wave follows distance as well as speed", ResizeWaveStrength);
@@ -495,6 +496,37 @@ namespace Okna.Tests
             Check(RollOverlay.ResolveDirection(frame, true, topBar, topWork,
                     RollDirection.Auto) == RollDirection.Up,
                 "a top bar with a work area should roll up");
+        }
+
+        private static void MonitorGeometry()
+        {
+            Check(Native.ScaleForDpi(8, 96) == 8, "96 DPI should keep 8 px");
+            Check(Native.ScaleForDpi(8, 120) == 10, "125% should scale to 10 px");
+            Check(Native.ScaleForDpi(8, 144) == 12, "150% should scale to 12 px");
+            Check(Native.ScaleForDpi(8, 192) == 16, "200% should scale to 16 px");
+            Check(Native.ScaleForDpi(8, 0) == 8, "a missing DPI should fall back to 96");
+
+            // A monitor left of the primary one has negative coordinates.
+            Native.RECT leftMonitor = Rect(-1920, 0, 0, 1080);
+            Check(JellyEngine.IsResizeEdge(new Native.POINT { X = -1915, Y = 500 },
+                    leftMonitor, 8), "a negative-coordinate left edge should work");
+            Check(JellyEngine.IsResizeEdge(new Native.POINT { X = -5, Y = 500 },
+                    leftMonitor, 8), "a negative-coordinate right edge should work");
+            Check(!JellyEngine.IsResizeEdge(new Native.POINT { X = -960, Y = 500 },
+                    leftMonitor, 8), "the middle of a left monitor is not an edge");
+
+            // A taskbar on the second monitor, which starts at x=1920.
+            Native.RECT secondWork = Rect(1920, 0, 3840, 1040);
+            Native.RECT secondBar = Rect(1920, 1040, 3840, 1080);
+            RollDirection direction;
+            Check(RollOverlay.ResolveBarEdge(secondBar, secondWork, out direction) &&
+                  direction == RollDirection.Down,
+                "a bar on the second monitor should roll down");
+            Native.RECT secondLeftWork = Rect(1920, 0, 3840, 1080);
+            Native.RECT secondLeftBar = Rect(1920, 0, 1960, 1080);
+            Check(RollOverlay.ResolveBarEdge(secondLeftBar, secondLeftWork, out direction) &&
+                  direction == RollDirection.Left,
+                "a vertical bar on the second monitor should roll left");
         }
 
         private static void ResizeEdgeDetection()

@@ -100,6 +100,17 @@ namespace Okna
             catch { }
         }
 
+        /// <summary>
+        /// Converts a 96-DPI design value to physical pixels for the given
+        /// window DPI. Kept pure so mixed-DPI behaviour can be tested without
+        /// a second monitor.
+        /// </summary>
+        internal static int ScaleForDpi(int value, int dpi)
+        {
+            if (dpi < 48) dpi = 96;
+            return (value * dpi + 48) / 96;
+        }
+
         public static bool IsProcessElevated(uint processId, out bool elevated)
         {
             elevated = false;

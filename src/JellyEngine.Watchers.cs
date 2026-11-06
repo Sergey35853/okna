@@ -337,8 +337,8 @@ namespace Okna
             if (!GetVisibleFrame(hwnd, out ext)) return false;
 
             int dpi = GetWindowDpi(hwnd);
-            int buttonW = (46 * dpi + 48) / 96;
-            int buttonH = (32 * dpi + 48) / 96;
+            int buttonW = Native.ScaleForDpi(46, dpi);
+            int buttonH = Native.ScaleForDpi(32, dpi);
 
             // Coarse pre-filter: the caption buttons live in the top-right
             // corner, so the cross-process hit test only runs there.
@@ -677,7 +677,7 @@ namespace Okna
 
             Native.RECT rect;
             if (!Native.GetWindowRect(target, out rect)) return;
-            int margin = (8 * GetWindowDpi(target) + 48) / 96;
+            int margin = Native.ScaleForDpi(8, GetWindowDpi(target));
             if (!IsResizeEdge(p, rect, margin)) return;
 
             Log.Debug("Resize watch " + target.ToInt64() + " at " + p.X + "," + p.Y +
