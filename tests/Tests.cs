@@ -37,6 +37,7 @@ namespace Okna.Tests
             Run("the current preset is derived from the values", PresetIndex);
             Run("the taskbar edge is read from the work area", RollBarEdge);
             Run("an edge press is told apart from a drag", ResizeEdgeDetection);
+            Run("frameless windows report their resize borders", ResizeHitCodes);
             Run("the bend strip grows only for large windows", StripHeightBudget);
             Run("the rotated log keeps its name readable", LogRotationName);
             Run("economy preset disables the costly effects", EconomyPreset);
@@ -514,6 +515,16 @@ namespace Okna.Tests
                 "a point outside the margin is not an edge");
             Check(!JellyEngine.IsResizeEdge(new Native.POINT { X = 105, Y = 250 },
                     new Native.RECT(), 10), "a degenerate rectangle should be rejected");
+        }
+
+        private static void ResizeHitCodes()
+        {
+            for (int hit = 10; hit <= 17; hit++)
+                Check(JellyEngine.IsResizeHit(hit), "hit " + hit + " should be a resize border");
+            Check(!JellyEngine.IsResizeHit(1), "HTCLIENT is not a resize border");
+            Check(!JellyEngine.IsResizeHit(2), "HTCAPTION is not a resize border");
+            Check(!JellyEngine.IsResizeHit(0), "HTNOWHERE is not a resize border");
+            Check(!JellyEngine.IsResizeHit(18), "an unknown hit is not a resize border");
         }
 
         private static void StripHeightBudget()

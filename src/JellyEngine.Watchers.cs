@@ -503,6 +503,26 @@ namespace Okna
         }
 
         /// <summary>
+        /// HTLEFT..HTBOTTOMRIGHT: the point is on a resize border. Frameless
+        /// windows (Electron, Chrome) have no WS_THICKFRAME and draw their own
+        /// border, so their answer to WM_NCHITTEST is the only reliable sign
+        /// that the edge can be dragged.
+        /// </summary>
+        internal static bool IsResizeHit(long hit)
+        {
+            return hit >= 10 && hit <= 17;
+        }
+
+        private static bool ReportsResizeBorder(IntPtr hwnd, Native.POINT p)
+        {
+            UIntPtr hit;
+            IntPtr ok = Native.SendMessageTimeout(hwnd, Native.WM_NCHITTEST, IntPtr.Zero,
+                Native.MakeLParam(p.X, p.Y), Native.SMTO_BLOCK | Native.SMTO_ABORTIFHUNG, 60,
+                out hit);
+            return ok != IntPtr.Zero && IsResizeHit((long)hit.ToUInt64());
+        }
+
+        /// <summary>
         /// Watches an edge resize and hands the final rectangle to a short
         /// size wave when the button goes up. A move never changes the size,
         /// so a drag started at the top border cannot trigger it.
@@ -589,7 +609,9 @@ namespace Okna
                 Native.IsZoomed(target) || Native.IsCloaked(target))
                 return;
             if (IsShellWindowClass(Native.GetWindowClass(target))) return;
-            if ((Native.GetWindowLongPtr(target, Native.GWL_STYLE) & Native.WS_THICKFRAME) == 0)
+
+            long style = Native.GetWindowLongPtr(target, Native.GWL_STYLE);
+            if ((style & Native.WS_THICKFRAME) == 0 && !ReportsResizeBorder(target, p))
                 return;
 
             Native.RECT rect;

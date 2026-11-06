@@ -296,8 +296,6 @@ namespace Okna
             bool roll;
             if (_settings.GetAppProfile(exe, out effect, out bend, out shake, out roll) && !bend)
                 return;
-            if ((Native.GetWindowLongPtr(hwnd, Native.GWL_STYLE) & Native.WS_THICKFRAME) == 0)
-                return;
 
             double visc = Math.Max(0.6, _settings.JellyFactor / 1.1);
             double amp = Math.Min(14.0, (3.0 + speed * 0.018) * visc);
