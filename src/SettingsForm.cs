@@ -64,7 +64,7 @@ namespace Okna
 
             Text = "Окна";
             Icon = icon;
-            ClientSize = new Size(950, 820);
+            ClientSize = new Size(1100, 950);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -183,9 +183,9 @@ namespace Okna
         private void BuildUi()
         {
             const int leftX = 20;
-            const int colW = 440;
-            const int rightX = 470;
-            const int topY = 74;
+            const int colW = 460;
+            const int rightX = 500;
+            const int topY = 70;
             const int gap = 8;
 
             PictureBox logo = new PictureBox();
@@ -223,19 +223,19 @@ namespace Okna
             moveCard.Controls.Add(effectSub);
 
             _effectSwitch = new JellySwitch();
-            _effectSwitch.Location = new Point(372, 24);
+            _effectSwitch.Location = new Point(402, 24);
             moveCard.Controls.Add(_effectSwitch);
 
             Panel divider = new Panel();
             divider.Location = new Point(20, 68);
-            divider.Size = new Size(400, 1);
+            divider.Size = new Size(420, 1);
             divider.BackColor = Theme.BorderSoft;
             moveCard.Controls.Add(divider);
 
             Label jellyLabel = MakeLabel("Желейность", 20, 80, Theme.FontLabel, Theme.Text);
             moveCard.Controls.Add(jellyLabel);
 
-            _valueLabel = MakeLabel("", 292, 80, Theme.FontSmall, Theme.Accent);
+            _valueLabel = MakeLabel("", 312, 80, Theme.FontSmall, Theme.Accent);
             _valueLabel.AutoSize = false;
             _valueLabel.Size = new Size(128, 16);
             _valueLabel.TextAlign = ContentAlignment.MiddleRight;
@@ -245,7 +245,7 @@ namespace Okna
             _slider.Minimum = 0;
             _slider.Maximum = 200;
             _slider.Location = new Point(20, 102);
-            _slider.Size = new Size(400, 24);
+            _slider.Size = new Size(420, 24);
             moveCard.Controls.Add(_slider);
 
             _presets = new JellyButton[6];
@@ -254,8 +254,8 @@ namespace Okna
             {
                 JellyButton b = new JellyButton();
                 b.Text = names[i];
-                b.Location = new Point(20 + i * 74, 130);
-                b.Size = new Size(70, 24);
+                b.Location = new Point(20 + i * 78, 132);
+                b.Size = new Size(74, 24);
                 b.Font = Theme.FontSmall;
                 b.Tag = i;
                 _presets[i] = b;
@@ -273,12 +273,12 @@ namespace Okna
             behaviorCard.Controls.Add(wobbleSub);
 
             _wobbleSwitch = new JellySwitch();
-            _wobbleSwitch.Location = new Point(372, 14);
+            _wobbleSwitch.Location = new Point(402, 14);
             behaviorCard.Controls.Add(_wobbleSwitch);
 
             Panel divider2 = new Panel();
             divider2.Location = new Point(20, 48);
-            divider2.Size = new Size(400, 1);
+            divider2.Size = new Size(420, 1);
             divider2.BackColor = Theme.BorderSoft;
             behaviorCard.Controls.Add(divider2);
 
@@ -288,12 +288,12 @@ namespace Okna
             behaviorCard.Controls.Add(bendSub);
 
             _bendSwitch = new JellySwitch();
-            _bendSwitch.Location = new Point(372, 60);
+            _bendSwitch.Location = new Point(402, 60);
             behaviorCard.Controls.Add(_bendSwitch);
 
             Panel divider3 = new Panel();
             divider3.Location = new Point(20, 90);
-            divider3.Size = new Size(400, 1);
+            divider3.Size = new Size(420, 1);
             divider3.BackColor = Theme.BorderSoft;
             behaviorCard.Controls.Add(divider3);
 
@@ -303,12 +303,12 @@ namespace Okna
             behaviorCard.Controls.Add(maxShakeSub);
 
             _maxShakeSwitch = new JellySwitch();
-            _maxShakeSwitch.Location = new Point(372, 102);
+            _maxShakeSwitch.Location = new Point(402, 102);
             behaviorCard.Controls.Add(_maxShakeSwitch);
 
             Panel divider4 = new Panel();
             divider4.Location = new Point(20, 134);
-            divider4.Size = new Size(400, 1);
+            divider4.Size = new Size(420, 1);
             divider4.BackColor = Theme.BorderSoft;
             behaviorCard.Controls.Add(divider4);
 
@@ -318,7 +318,7 @@ namespace Okna
             behaviorCard.Controls.Add(startupSub);
 
             _startupSwitch = new JellySwitch();
-            _startupSwitch.Location = new Point(372, 146);
+            _startupSwitch.Location = new Point(402, 146);
             behaviorCard.Controls.Add(_startupSwitch);
 
             Label elevatedTitle = MakeLabel("Запуск от имени администратора", 20, 176, Theme.FontCardTitle, Theme.Text);
@@ -327,7 +327,7 @@ namespace Okna
             behaviorCard.Controls.Add(elevatedSub);
 
             _autoStartElevatedSwitch = new JellySwitch();
-            _autoStartElevatedSwitch.Location = new Point(372, 180);
+            _autoStartElevatedSwitch.Location = new Point(402, 180);
             behaviorCard.Controls.Add(_autoStartElevatedSwitch);
 
             CardPanel closeCard = new CardPanel();
@@ -343,34 +343,34 @@ namespace Okna
             _closeNone = new JellyButton();
             _closeNone.Text = "Без эффекта";
             _closeNone.Location = new Point(20, 52);
-            _closeNone.Size = new Size(132, 26);
+            _closeNone.Size = new Size(110, 26);
             _closeNone.Font = Theme.FontSmall;
             closeCard.Controls.Add(_closeNone);
 
             _closeShatter = new JellyButton();
             _closeShatter.Text = "Осколки";
-            _closeShatter.Location = new Point(160, 52);
-            _closeShatter.Size = new Size(132, 26);
+            _closeShatter.Location = new Point(140, 52);
+            _closeShatter.Size = new Size(110, 26);
             _closeShatter.Font = Theme.FontSmall;
             closeCard.Controls.Add(_closeShatter);
 
             _closeBurn = new JellyButton();
             _closeBurn.Text = "Сгорание";
-            _closeBurn.Location = new Point(300, 52);
-            _closeBurn.Size = new Size(132, 26);
+            _closeBurn.Location = new Point(260, 52);
+            _closeBurn.Size = new Size(110, 26);
             _closeBurn.Font = Theme.FontSmall;
             closeCard.Controls.Add(_closeBurn);
 
             _closeFade = new JellyButton();
             _closeFade.Text = "Затухание";
             _closeFade.Location = new Point(20, 84);
-            _closeFade.Size = new Size(132, 26);
+            _closeFade.Size = new Size(110, 26);
             _closeFade.Font = Theme.FontSmall;
             closeCard.Controls.Add(_closeFade);
 
             Panel divider5 = new Panel();
             divider5.Location = new Point(20, 120);
-            divider5.Size = new Size(400, 1);
+            divider5.Size = new Size(420, 1);
             divider5.BackColor = Theme.BorderSoft;
             closeCard.Controls.Add(divider5);
 
@@ -380,7 +380,7 @@ namespace Okna
             closeCard.Controls.Add(rollSub);
 
             _rollSwitch = new JellySwitch();
-            _rollSwitch.Location = new Point(372, 132);
+            _rollSwitch.Location = new Point(402, 132);
             closeCard.Controls.Add(_rollSwitch);
 
             Label directionTitle = MakeLabel("Куда скатывать", 20, 166, Theme.FontLabel, Theme.Text);
@@ -394,8 +394,8 @@ namespace Okna
             {
                 JellyButton b = new JellyButton();
                 b.Text = directionNames[i];
-                b.Location = new Point(20 + i * 76, 172);
-                b.Size = new Size(72, 24);
+                b.Location = new Point(20 + i * 90, 172);
+                b.Size = new Size(82, 24);
                 b.Font = Theme.FontSmall;
                 b.Tag = (RollDirection)i;
                 _directionButtons[i] = b;
@@ -421,7 +421,7 @@ namespace Okna
             hotkeyCard.Controls.Add(_hotkeyButton);
 
             _hotkeyStatus = MakeLabel("", 210, 66, Theme.FontSmall, Theme.Muted);
-            _hotkeyStatus.Size = new Size(210, 20);
+            _hotkeyStatus.Size = new Size(220, 20);
             hotkeyCard.Controls.Add(_hotkeyStatus);
 
             CardPanel pauseCard = new CardPanel();
@@ -439,7 +439,7 @@ namespace Okna
             Label callSub = MakeLabel("Teams, Zoom, Discord, Slack и др.", 20, 74, Theme.FontSmall, Theme.Muted);
             pauseCard.Controls.Add(callSub);
             _callSwitch = new JellySwitch();
-            _callSwitch.Location = new Point(372, 58);
+            _callSwitch.Location = new Point(402, 58);
             pauseCard.Controls.Add(_callSwitch);
 
             Label batteryTitle = MakeLabel("Питание от батареи", 20, 88, Theme.FontCardTitle, Theme.Text);
@@ -447,7 +447,7 @@ namespace Okna
             Label batterySub = MakeLabel("Не тратить заряд на эффекты", 20, 108, Theme.FontSmall, Theme.Muted);
             pauseCard.Controls.Add(batterySub);
             _batterySwitch = new JellySwitch();
-            _batterySwitch.Location = new Point(372, 92);
+            _batterySwitch.Location = new Point(402, 92);
             pauseCard.Controls.Add(_batterySwitch);
 
             Label motionTitle = MakeLabel("Уважать уменьшение движения", 20, 122, Theme.FontCardTitle, Theme.Text);
@@ -455,7 +455,7 @@ namespace Okna
             Label motionSub = MakeLabel("Если анимации выключены в Windows", 20, 142, Theme.FontSmall, Theme.Muted);
             pauseCard.Controls.Add(motionSub);
             _motionSwitch = new JellySwitch();
-            _motionSwitch.Location = new Point(372, 126);
+            _motionSwitch.Location = new Point(402, 126);
             pauseCard.Controls.Add(_motionSwitch);
 
             CardPanel excludeCard = new CardPanel();
@@ -470,7 +470,7 @@ namespace Okna
 
             _excludeList = new ListBox();
             _excludeList.Location = new Point(20, 54);
-            _excludeList.Size = new Size(260, 88);
+            _excludeList.Size = new Size(280, 88);
             _excludeList.DrawMode = DrawMode.OwnerDrawFixed;
             _excludeList.ItemHeight = 20;
             _excludeList.BorderStyle = BorderStyle.None;
@@ -483,7 +483,7 @@ namespace Okna
 
             JellyButton excludeAdd = new JellyButton();
             excludeAdd.Text = "Добавить файл…";
-            excludeAdd.Location = new Point(292, 54);
+            excludeAdd.Location = new Point(312, 54);
             excludeAdd.Size = new Size(128, 28);
             excludeAdd.Font = Theme.FontSmall;
             excludeAdd.Click += delegate { AddExclusions(); };
@@ -491,7 +491,7 @@ namespace Okna
 
             JellyButton excludeRunning = new JellyButton();
             excludeRunning.Text = "Из запущенных…";
-            excludeRunning.Location = new Point(292, 86);
+            excludeRunning.Location = new Point(312, 86);
             excludeRunning.Size = new Size(128, 28);
             excludeRunning.Font = Theme.FontSmall;
             excludeRunning.Click += delegate { PickRunning(); };
@@ -499,7 +499,7 @@ namespace Okna
 
             JellyButton excludeRemove = new JellyButton();
             excludeRemove.Text = "Убрать";
-            excludeRemove.Location = new Point(292, 118);
+            excludeRemove.Location = new Point(312, 118);
             excludeRemove.Size = new Size(128, 28);
             excludeRemove.Font = Theme.FontSmall;
             excludeRemove.Click += delegate { RemoveSelectedExclusion(); };
@@ -510,7 +510,7 @@ namespace Okna
 
             _excludeMask = new TextBox();
             _excludeMask.Location = new Point(20, 172);
-            _excludeMask.Size = new Size(260, 26);
+            _excludeMask.Size = new Size(280, 26);
             _excludeMask.BorderStyle = BorderStyle.FixedSingle;
             _excludeMask.BackColor = Theme.CardAlt;
             _excludeMask.ForeColor = Theme.Text;
@@ -519,7 +519,7 @@ namespace Okna
 
             JellyButton addMask = new JellyButton();
             addMask.Text = "Добавить маску";
-            addMask.Location = new Point(292, 172);
+            addMask.Location = new Point(312, 172);
             addMask.Size = new Size(128, 26);
             addMask.Font = Theme.FontSmall;
             addMask.Click += delegate { AddMask(); };
@@ -537,7 +537,7 @@ namespace Okna
 
             _overrideList = new ListBox();
             _overrideList.Location = new Point(20, 52);
-            _overrideList.Size = new Size(260, 48);
+            _overrideList.Size = new Size(280, 48);
             _overrideList.DrawMode = DrawMode.OwnerDrawFixed;
             _overrideList.ItemHeight = 20;
             _overrideList.BorderStyle = BorderStyle.None;
@@ -550,7 +550,7 @@ namespace Okna
 
             JellyButton overrideAdd = new JellyButton();
             overrideAdd.Text = "Для программы…";
-            overrideAdd.Location = new Point(292, 52);
+            overrideAdd.Location = new Point(312, 52);
             overrideAdd.Size = new Size(128, 28);
             overrideAdd.Font = Theme.FontSmall;
             overrideAdd.Click += delegate { AddOverride(); };
@@ -558,7 +558,7 @@ namespace Okna
 
             JellyButton overrideRemove = new JellyButton();
             overrideRemove.Text = "Убрать";
-            overrideRemove.Location = new Point(292, 84);
+            overrideRemove.Location = new Point(312, 84);
             overrideRemove.Size = new Size(128, 28);
             overrideRemove.Font = Theme.FontSmall;
             overrideRemove.Click += delegate { RemoveOverride(); };
@@ -575,12 +575,12 @@ namespace Okna
             miscCard.Controls.Add(portableSub);
 
             _portableSwitch = new JellySwitch();
-            _portableSwitch.Location = new Point(372, 14);
+            _portableSwitch.Location = new Point(402, 14);
             miscCard.Controls.Add(_portableSwitch);
 
             _portableLabel = MakeLabel("", 20, 50, Theme.FontTiny, Theme.Faint);
             _portableLabel.AutoSize = false;
-            _portableLabel.Size = new Size(400, 16);
+            _portableLabel.Size = new Size(420, 16);
             miscCard.Controls.Add(_portableLabel);
 
             JellyButton export = new JellyButton();
@@ -665,29 +665,28 @@ namespace Okna
             Label themeSub = MakeLabel("Тёмная тема настроек", 20, 162, Theme.FontSmall, Theme.Muted);
             miscCard.Controls.Add(themeSub);
 
-            // Hint line above the bottom strip — kept short so it does not
-            // collide with the Done button on the right.
-            _hintLabel = MakeLabel("", 20, 716, Theme.FontSmall, Theme.Faint);
+            // Bottom strip — separate rows so nothing overlaps
+            _hintLabel = MakeLabel("", 20, 770, Theme.FontSmall, Theme.Faint);
             _hintLabel.AutoSize = false;
-            _hintLabel.Size = new Size(400, 16);
+            _hintLabel.Size = new Size(440, 16);
             Controls.Add(_hintLabel);
 
-            _versionLabel = MakeLabel("", 20, 744, Theme.FontTiny, Theme.Faint);
+            _versionLabel = MakeLabel("", 20, 790, Theme.FontTiny, Theme.Faint);
             _versionLabel.AutoSize = false;
-            _versionLabel.Size = new Size(260, 16);
+            _versionLabel.Size = new Size(280, 16);
             UpdateVersionLabel();
             Controls.Add(_versionLabel);
 
-            Label copyrightLabel = MakeLabel("© Сергей", ClientSize.Width - 50, 744, Theme.FontTiny, Theme.Faint);
+            Label copyrightLabel = MakeLabel("© Сергей", ClientSize.Width - 60, 790, Theme.FontTiny, Theme.Faint);
             copyrightLabel.AutoSize = false;
-            copyrightLabel.Size = new Size(50, 16);
+            copyrightLabel.Size = new Size(60, 16);
             copyrightLabel.TextAlign = ContentAlignment.MiddleRight;
             Controls.Add(copyrightLabel);
 
             LinkLabel telegramLink = new LinkLabel();
             telegramLink.Text = "Обратная связь: @Link_Ser";
-            telegramLink.Location = new Point(20, 770);
-            telegramLink.Size = new Size(200, 18);
+            telegramLink.Location = new Point(20, 810);
+            telegramLink.Size = new Size(220, 18);
             telegramLink.Font = Theme.FontTiny;
             telegramLink.LinkColor = Theme.Accent;
             telegramLink.ActiveLinkColor = Theme.Accent;
@@ -701,7 +700,7 @@ namespace Okna
             JellyButton done = new JellyButton();
             done.Text = "Готово";
             done.Accent = true;
-            done.Location = new Point(ClientSize.Width - 112, 716);
+            done.Location = new Point(ClientSize.Width - 112, 770);
             done.Size = new Size(96, 36);
             done.Click += delegate { Hide(); };
             Controls.Add(done);
