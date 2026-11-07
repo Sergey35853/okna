@@ -391,17 +391,17 @@ namespace Okna
         private void LayoutPages()
         {
             if (_pages == null || _contentHost == null) return;
-            int pageW = Math.Max(320, _contentHost.ClientSize.Width - (SystemInformation.VerticalScrollBarWidth + 8));
             for (int p = 0; p < _pages.Length; p++)
             {
                 Panel page = _pages[p];
                 if (page == null) continue;
-                int y = 0;
+                int pageW = Math.Max(300, page.ClientSize.Width - 8);
+                int y = 8;
                 int gap = 12;
                 foreach (Control c in page.Controls)
                 {
                     c.Left = 0;
-                    c.Width = pageW;
+                    c.Width = Math.Max(200, pageW);
                     if (c is CardPanel)
                     {
                         c.Top = y;
@@ -410,6 +410,8 @@ namespace Okna
                         y = c.Bottom + gap;
                     }
                 }
+                // ensure scroll range
+                Panel pad = null;
             }
         }
 
@@ -420,14 +422,32 @@ namespace Okna
             {
                 if (!c.Visible) continue;
                 int b = c.Bottom;
-                if (c is Label && c.AutoSize == false)
+                if (c is Label)
                 {
-                    // use preferred height for wrapped/ellipsized labels where reasonable
-                    try { int ph = ((Label)c).PreferredHeight; if (ph > 0 && ph < 140) b = c.Top + Math.Max(c.Height, ph); } catch { }
+                    Label l = (Label)c;
+                    if (l.AutoSize) b = l.Bottom;
+                    else
+                    {
+                        try
+                        {
+                            if (l.Height >= 28 && l.Width > 60)
+                            {
+                                Size ps = TextRenderer.MeasureText(l.Text ?? "", l.Font, new Size(Math.Max(20, l.Width), 0),
+                                    TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl);
+                                if (ps.Height > l.Height && ps.Height < 240) { l.Height = ps.Height + 2; b = l.Bottom; }
+                            }
+                            else
+                            {
+                                l.AutoEllipsis = true;
+                            }
+                        }
+                        catch { }
+                    }
                 }
                 if (b > bottom) bottom = b;
             }
-            card.Height = Math.Max(48, bottom + 14);
+            // Never shrink below current height (preserve RelayoutCard's special sizing) unless clearly tiny
+            card.Height = Math.Max(card.Height, Math.Max(48, bottom + 14));
         }
 
         private void RelayoutCard(CardPanel card)
@@ -1588,6 +1608,7 @@ namespace Okna
                 else if (c is Label && !(c is JellyButton))
                 {
                     Label l = (Label)c;
+                    if (l.AutoSize == false) l.AutoEllipsis = true;
                     if (l == _pauseStatusLabel || l == _updateStatusLabel || l == _hotkeyStatus ||
                         l == _valueLabel || l == _resumeDelayValueLabel) { }
                     else if (l.Font == Theme.FontTiny) l.ForeColor = Theme.Faint;
