@@ -36,6 +36,7 @@ namespace Okna
         private volatile bool _maxShake = true;
         private volatile bool _shatter = true;
         private volatile bool _burn = false;
+        private volatile bool _fade = false;
         private volatile bool _roll = true;
         private volatile int _rollDirection = (int)RollDirection.Auto;
         private volatile bool _autoUpdate = true;
@@ -50,6 +51,13 @@ namespace Okna
         private volatile string _skippedVersion = "";
         private volatile int _language = 0;
         private volatile bool _autoStartElevated = false;
+        private volatile bool _darkTheme = false;
+        /// <summary>Dark theme for the settings window.</summary>
+        public bool DarkTheme
+        {
+            get { return _darkTheme; }
+            set { _darkTheme = value; }
+        }
         private bool _portable;
         private string _portablePath;
 
@@ -119,6 +127,28 @@ namespace Okna
         {
             get { return _burn; }
             set { _burn = value; }
+        }
+
+        /// <summary>Fade the window out on close instead of shards or fire.</summary>
+        public bool Fade
+        {
+            get { return _fade; }
+            set { _fade = value; }
+        }
+
+        /// <summary>
+        /// Global close effect: 0 = none, 1 = shards, 2 = fire, 3 = fade.
+        /// Per-program profiles can override via CloseOverrides.
+        /// </summary>
+        public int CloseEffect
+        {
+            get
+            {
+                if (_fade) return 3;
+                if (_burn) return 2;
+                if (_shatter) return 1;
+                return 0;
+            }
         }
 
         public bool Roll
@@ -255,14 +285,16 @@ namespace Okna
 
         /// <summary>
         /// Which ready-made preset the current values look like: 0 calm,
-        /// 1 balance, 2 jelly, 3 economy. Shared by the settings window and
-        /// the tray menu so both show the same check mark.
+        /// 1 balance, 2 jelly, 3 economy, 4 vivid, 5 minimal. Shared by the
+        /// settings window and the tray menu so both show the same check mark.
         /// </summary>
         public int CurrentPresetIndex
         {
             get
             {
                 if (_economy) return 3;
+                if (!_bend && !_maxShake) return 5;
+                if (_jelly >= 200 && _bend && _maxShake) return 4;
                 if (_jelly < 42) return 0;
                 if (_jelly < 100) return 1;
                 return 2;
@@ -535,7 +567,7 @@ namespace Okna
             if (!int.TryParse(parts[0].Trim(), NumberStyles.Integer,
                     CultureInfo.InvariantCulture, out value))
                 return false;
-            effect = value < 0 ? 0 : (value > 2 ? 2 : value);
+            effect = value < 0 ? 0 : (value > 3 ? 3 : value);
 
             bool[] flags = new bool[] { true, true, true };
             for (int i = 0; i < flags.Length; i++)
@@ -677,24 +709,59 @@ namespace Okna
 
         /// <summary>
         /// Ready-made strength presets: 0 = calm, 1 = balance, 2 = jelly,
-        /// 3 = economy. They set the effect switches as well as the value, so
-        /// choosing one always leaves a working effect. Choosing "Желе" right
-        /// after "Экономно" used to keep bend and shake off, and the window
-        /// stayed rigid while the slider claimed maximum viscosity.
+        /// 3 = economy, 4 = vivid, 5 = minimal. They set the effect switches
+        /// as well as the value, so choosing one always leaves a working
+        /// effect.
         /// </summary>
         public void ApplyPreset(int index)
         {
-            if (index >= 3)
-            {
-                ApplyEconomyPreset();
-                return;
-            }
-
             _economy = false;
             _bend = true;
             _maxShake = true;
-            _releaseWobble = index == 2;
-            _jelly = index == 0 ? 18 : (index == 1 ? 70 : 130);
+            _releaseWobble = false;
+            _fade = false;
+            _shatter = false;
+            _burn = false;
+
+            switch (index)
+            {
+                case 0: // Calm
+                    _jelly = 18;
+                    _releaseWobble = false;
+                    break;
+                case 1: // Balanced
+                    _jelly = 70;
+                    _releaseWobble = false;
+                    break;
+                case 2: // Jelly
+                    _jelly = 130;
+                    _releaseWobble = true;
+                    break;
+                case 3: // Economy
+                    _economy = true;
+                    _releaseWobble = false;
+                    _maxShake = false;
+                    _bend = false;
+                    _jelly = 40;
+                    break;
+                case 4: // Vivid
+                    _jelly = 200;
+                    _releaseWobble = true;
+                    _bend = true;
+                    _maxShake = true;
+                    _shatter = true;
+                    break;
+                case 5: // Minimal
+                    _jelly = 0;
+                    _bend = false;
+                    _maxShake = false;
+                    _releaseWobble = false;
+                    break;
+                default:
+                    _jelly = 70;
+                    _releaseWobble = true;
+                    break;
+            }
         }
 
         /// <summary>
@@ -734,6 +801,8 @@ namespace Okna
             _skippedVersion = "";
             _language = 0;
             _autoStartElevated = false;
+            _fade = false;
+            _darkTheme = false;
         }
 
         public static AppSettings Load()
@@ -817,6 +886,10 @@ namespace Okna
                         s.FirstRun = v == null || Convert.ToInt32(v) != 0;
                         v = key.GetValue("AutoStartElevated");
                         if (v != null) s.AutoStartElevated = Convert.ToInt32(v) != 0;
+                        v = key.GetValue("Fade");
+                        if (v != null) s.Fade = Convert.ToInt32(v) != 0;
+                        v = key.GetValue("DarkTheme");
+                        if (v != null) s.DarkTheme = Convert.ToInt32(v) != 0;
                     }
                 }
 
@@ -907,6 +980,8 @@ namespace Okna
             SkippedVersion = GetString(map, "SkippedVersion", "");
             Language = GetInt(map, "Language", 0);
             AutoStartElevated = GetBool(map, "AutoStartElevated", false);
+            Fade = GetBool(map, "Fade", false);
+            DarkTheme = GetBool(map, "DarkTheme", false);
             Economy = GetBool(map, "Economy", false);
             PauseOnBattery = GetBool(map, "PauseOnBattery", false);
             PauseOnCall = GetBool(map, "PauseOnCall", true);
@@ -1064,6 +1139,8 @@ namespace Okna
                     key.SetValue("CloseOverrides", _closeOverrides, RegistryValueKind.MultiString);
                     key.SetValue("FirstRun", 0, RegistryValueKind.DWord);
                     key.SetValue("AutoStartElevated", _autoStartElevated ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue("Fade", _fade ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue("DarkTheme", _darkTheme ? 1 : 0, RegistryValueKind.DWord);
                 }
                 WriteBackup(BackupPath);
             }
@@ -1119,6 +1196,9 @@ namespace Okna
             AutoUpdate = GetBool(map, "AutoUpdate", AutoUpdate);
             SkippedVersion = GetString(map, "SkippedVersion", SkippedVersion);
             Language = GetInt(map, "Language", Language);
+            AutoStartElevated = GetBool(map, "AutoStartElevated", AutoStartElevated);
+            Fade = GetBool(map, "Fade", Fade);
+            DarkTheme = GetBool(map, "DarkTheme", DarkTheme);
             Economy = GetBool(map, "Economy", Economy);
             PauseOnBattery = GetBool(map, "PauseOnBattery", PauseOnBattery);
             PauseOnCall = GetBool(map, "PauseOnCall", PauseOnCall);
@@ -1166,6 +1246,8 @@ namespace Okna
                 sb.AppendLine("SkippedVersion=" + (_skippedVersion ?? ""));
                 sb.AppendLine("Language=" + _language);
                 sb.AppendLine("AutoStartElevated=" + (_autoStartElevated ? 1 : 0));
+                sb.AppendLine("Fade=" + (_fade ? 1 : 0));
+                sb.AppendLine("DarkTheme=" + (_darkTheme ? 1 : 0));
                 sb.AppendLine("Economy=" + (_economy ? 1 : 0));
                 sb.AppendLine("PauseOnBattery=" + (_pauseOnBattery ? 1 : 0));
                 sb.AppendLine("PauseOnCall=" + (_pauseOnCall ? 1 : 0));

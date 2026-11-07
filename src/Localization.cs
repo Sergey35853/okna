@@ -207,6 +207,8 @@ namespace Okna
                 { "Новая версия: ", "New version: " },
                 { "Безопасный режим", "Safe mode" },
                 { "Программа уже работает в трее.", "The program is already running in the tray." },
+                { "Исключение", "Excluded" },
+                { "Диагностика", "Diagnostics" },
 
                 // Dialogs.
                 { "Что открыто сейчас", "What is open now" },

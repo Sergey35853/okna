@@ -21,6 +21,7 @@ namespace Okna
         private JellyButton _closeNone;
         private JellyButton _closeShatter;
         private JellyButton _closeBurn;
+        private JellyButton _closeFade;
         private JellySwitch _rollSwitch;
         private JellyButton[] _directionButtons;
         private JellySwitch _startupSwitch;
@@ -44,6 +45,7 @@ namespace Okna
         private Label _hintLabel;
         private StatusPill _statusPill;
         private JellyButton[] _presets;
+        private JellySwitch _darkThemeSwitch;
         private bool _syncing;
         private Timer _statusTimer;
         private Timer _saveTimer;
@@ -246,9 +248,9 @@ namespace Okna
             _slider.Size = new Size(472, 26);
             moveCard.Controls.Add(_slider);
 
-            _presets = new JellyButton[4];
-            string[] names = new string[] { "Спокойно", "Баланс", "Желе", "Экономно" };
-            for (int i = 0; i < 4; i++)
+            _presets = new JellyButton[6];
+            string[] names = new string[] { "Спокойно", "Баланс", "Желе", "Экономно", "Яркий", "Минимальный" };
+            for (int i = 0; i < 6; i++)
             {
                 JellyButton b = new JellyButton();
                 b.Text = names[i];
@@ -358,6 +360,13 @@ namespace Okna
             _closeBurn.Size = new Size(152, 28);
             _closeBurn.Font = Theme.FontSmall;
             closeCard.Controls.Add(_closeBurn);
+
+            _closeFade = new JellyButton();
+            _closeFade.Text = "Затухание";
+            _closeFade.Location = new Point(500, 54);
+            _closeFade.Size = new Size(152, 28);
+            _closeFade.Font = Theme.FontSmall;
+            closeCard.Controls.Add(_closeFade);
 
             Panel divider5 = new Panel();
             divider5.Location = new Point(20, 92);
@@ -557,7 +566,7 @@ namespace Okna
 
             CardPanel miscCard = new CardPanel();
             miscCard.Location = new Point(rightX, topY + 192 + gap + 240 + gap + 140 + gap);
-            miscCard.Size = new Size(colW, 172);
+            miscCard.Size = new Size(colW, 200);
             Controls.Add(miscCard);
 
             Label portableTitle = MakeLabel("Настройки рядом с программой", 20, 12, Theme.FontCardTitle, Theme.Text);
@@ -640,6 +649,22 @@ namespace Okna
             _languageEn.Click += delegate { SetLanguage((int)UiLanguage.English); };
             miscCard.Controls.Add(_languageEn);
 
+            Label themeLabel = MakeLabel("Тема оформления", 20, 146, Theme.FontLabel, Theme.Text);
+            miscCard.Controls.Add(themeLabel);
+
+            _darkThemeSwitch = new JellySwitch();
+            _darkThemeSwitch.Location = new Point(100, 150);
+            _darkThemeSwitch.CheckedChanged += delegate
+            {
+                _settings.DarkTheme = _darkThemeSwitch.Checked;
+                ApplyTheme();
+                SaveSoon();
+            };
+            miscCard.Controls.Add(_darkThemeSwitch);
+
+            Label themeSub = MakeLabel("Тёмная тема окна настроек", 20, 172, Theme.FontSmall, Theme.Muted);
+            miscCard.Controls.Add(themeSub);
+
             _hintLabel = MakeLabel("", 24, 896, Theme.FontSmall, Theme.Faint);
             Controls.Add(_hintLabel);
 
@@ -664,6 +689,7 @@ namespace Okna
             tip.SetToolTip(_closeNone, "Закрывать окна без эффекта");
             tip.SetToolTip(_closeShatter, "Окно рассыпается осколками, когда закрывается кнопкой или по Alt+F4; если программа остаётся в трее, окно скатывается в трубочку и уезжает в трей");
             tip.SetToolTip(_closeBurn, "Окно прогорает снизу вверх: огонь, обугленный край, угли и дым; если программа остаётся в трее, окно скатывается в трубочку и уезжает в трей");
+            tip.SetToolTip(_closeFade, "Окно плавно растворяется при закрытии; если программа остаётся в трее, окно скатывается в трубочку и уезжает в трей");
             tip.SetToolTip(_rollSwitch, "При сворачивании окно скатывается в трубочку и уезжает в панель задач");
             tip.SetToolTip(_hotkeyButton, "Нажмите и введите сочетание, например Ctrl+Alt+K");
             tip.SetToolTip(_portableSwitch, "Хранить настройки в okna.ini рядом с Okna.exe");
@@ -718,6 +744,7 @@ namespace Okna
             _closeNone.Click += delegate { SetCloseEffect(0); };
             _closeShatter.Click += delegate { SetCloseEffect(1); };
             _closeBurn.Click += delegate { SetCloseEffect(2); };
+            _closeFade.Click += delegate { SetCloseEffect(3); };
 
             _rollSwitch.CheckedChanged += delegate
             {
@@ -846,7 +873,7 @@ namespace Okna
             }
         }
 
-        private void ApplyHotkey()
+        internal void ApplyHotkey()
         {
             Persist();
             bool ok = _tray == null || _tray.ApplyHotkey(true);
@@ -872,6 +899,7 @@ namespace Okna
                 UpdateDirectionStyles();
                 _startupSwitch.Checked = _settings.StartWithWindows;
                 _autoStartElevatedSwitch.Checked = _settings.AutoStartElevated;
+                _darkThemeSwitch.Checked = _settings.DarkTheme;
                 _callSwitch.Checked = _settings.PauseOnCall;
                 _batterySwitch.Checked = _settings.PauseOnBattery;
                 _motionSwitch.Checked = _settings.RespectReduceMotion;
@@ -922,22 +950,40 @@ namespace Okna
             _valueLabel.Text = _settings.Jelly + "  ·  " + _settings.JellyLabel;
         }
 
+        /// <summary>Applies the dark theme to the settings window controls.</summary>
+        internal void ApplyTheme()
+        {
+            if (_settings.DarkTheme)
+            {
+                BackColor = Color.FromArgb(32, 32, 36);
+                ForeColor = Color.FromArgb(224, 224, 224);
+            }
+            else
+            {
+                BackColor = Theme.Bg;
+                ForeColor = Theme.Text;
+            }
+            // Repaint all child containers so the new colors take effect.
+            foreach (Control c in Controls) c.Invalidate();
+        }
+
         /// <summary>
-        /// 0 = no effect, 1 = shards, 2 = fire. The two effects are
+        /// 0 = no effect, 1 = shards, 2 = fire, 3 = fade. The effects are
         /// alternatives, never both on.
         /// </summary>
         private void SetCloseEffect(int effect)
         {
             _settings.Shatter = effect == 1;
             _settings.Burn = effect == 2;
+            _settings.Fade = effect == 3;
             UpdateCloseStyles();
             SaveSoon();
         }
 
         private void UpdateCloseStyles()
         {
-            int selected = _settings.Burn ? 2 : (_settings.Shatter ? 1 : 0);
-            JellyButton[] buttons = new JellyButton[] { _closeNone, _closeShatter, _closeBurn };
+            int selected = _settings.Burn ? 2 : (_settings.Shatter ? 1 : (_settings.Fade ? 3 : 0));
+            JellyButton[] buttons = new JellyButton[] { _closeNone, _closeShatter, _closeBurn, _closeFade };
             for (int i = 0; i < buttons.Length; i++)
             {
                 bool accent = i == selected;

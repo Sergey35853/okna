@@ -29,7 +29,7 @@ namespace Okna
                 }
 
                 int state = !enabled ? 3
-                    : (reason == null ? 0 : (reason.StartsWith("Исключение", StringComparison.Ordinal) ? 2 : 1));
+                    : (reason == null ? 0 : (reason.StartsWith(Loc.T("Исключение"), StringComparison.Ordinal) ? 2 : 1));
 
                 switch (state)
                 {

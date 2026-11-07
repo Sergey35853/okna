@@ -33,9 +33,14 @@ namespace Okna
                         // existed; it cannot be read after it is gone.
                         int effect = _settings.GetCloseEffect(_closeExe);
                         if (effect < 0)
-                            effect = _settings.Burn ? 2 : (_settings.Shatter ? 1 : 0);
+                            effect = _settings.CloseEffect;
 
-                        if (effect == 2)
+                        if (effect == 3)
+                        {
+                            Log.Debug("Fade " + gone.ToInt64() + " '" + Native.GetWindowTitle(gone) + "'");
+                            FadeOverlay.Play(shot, _closeFrame);
+                        }
+                        else if (effect == 2)
                         {
                             Log.Debug("Burn " + gone.ToInt64() + " '" + Native.GetWindowTitle(gone) + "'");
                             BurnOverlay.Play(shot, _closeFrame);

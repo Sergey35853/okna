@@ -548,7 +548,7 @@ namespace Okna
 
                 bool closeOn = _appCloseEffect >= 0
                     ? _appCloseEffect != 0
-                    : (_settings.Shatter || _settings.Burn);
+                    : (_settings.Shatter || _settings.Burn || _settings.Fade);
                 if (Active && closeOn)
                     WatchClose(foreground, now);
                 else

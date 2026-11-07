@@ -381,7 +381,7 @@ namespace Okna.Tests
             Check(!bend && shake && roll, "missing flags should default to allowed");
 
             Check(AppSettings.ParseProfile("x=9", out mask, out effect,
-                    out bend, out shake, out roll) && effect == 2, "effect should clamp to 2");
+                    out bend, out shake, out roll) && effect == 3, "effect should clamp to 3");
             Check(AppSettings.ParseProfile("x=-3", out mask, out effect,
                     out bend, out shake, out roll) && effect == 0, "negative effect should clamp to 0");
 

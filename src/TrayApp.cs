@@ -39,6 +39,8 @@ namespace Okna
         private ToolStripMenuItem _checkItem;
         private ToolStripMenuItem _autoUpdateItem;
         private ToolStripMenuItem _autoStartElevatedItem;
+        private ToolStripMenuItem _darkThemeItem;
+        private ToolStripMenuItem _hotkeyChangeItem;
         private Timer _updateTimer;
         private Timer _firstCheck;
         private Timer _applyTimer;
@@ -176,6 +178,30 @@ namespace Okna
                 SyncForm();
             };
             _menu.Items.Add(_autoStartElevatedItem);
+
+            _darkThemeItem = NewItem("Тёмная тема");
+            _darkThemeItem.Click += delegate
+            {
+                bool enable = !_settings.DarkTheme;
+                _settings.DarkTheme = enable;
+                Persist();
+                if (_form != null && !_form.IsDisposed)
+                    _form.ApplyTheme();
+                UpdateMenu();
+                SyncForm();
+            };
+            _menu.Items.Add(_darkThemeItem);
+
+            _hotkeyChangeItem = NewItem("Изменить горячую клавишу…");
+            _hotkeyChangeItem.Click += delegate
+            {
+                if (_form != null && !_form.IsDisposed)
+                {
+                    _form.Show();
+                    _form.ApplyHotkey();
+                }
+            };
+            _menu.Items.Add(_hotkeyChangeItem);
 
             _menu.Items.Add(new ToolStripSeparator());
 
@@ -383,6 +409,14 @@ namespace Okna
                 _autoStartElevatedItem.Text = elevated
                     ? Loc.T("Запуск от имени администратора: вкл")
                     : Loc.T("Запуск от имени администратора: выкл");
+            }
+
+            if (_darkThemeItem != null)
+            {
+                _darkThemeItem.Checked = _settings.DarkTheme;
+                _darkThemeItem.Text = _settings.DarkTheme
+                    ? Loc.T("Тёмная тема: вкл")
+                    : Loc.T("Тёмная тема: выкл");
             }
 
             if (_jellyItem != null)
