@@ -43,11 +43,13 @@ namespace Okna
             if (pid == Native.GetCurrentProcessId() && !ownTarget) return;
 
             // An elevated target (e.g. Rufus run as administrator) cannot be
-            // driven by a non-elevated Okna due to UIPI: SendMessageTimeout and
-            // capture calls will simply fail and the effect stays off. The
-            // explicit rejection here is unnecessary — UIPI already blocks the
-            // calls that matter — so an elevated window is still a candidate;
-            // the overlay draws on top regardless.
+            // moved by a non-elevated Okna due to Windows UIPI: SetWindowPos
+            // returns false and the jelly drag cannot drive the window. Skip it
+            // with a clear debug message; the user can run Okna as administrator
+            // to get jelly on elevated windows too.
+            bool targetElevated;
+            Native.IsProcessElevated(pid, out targetElevated);
+            if (targetElevated && !ownTarget) return;
             UIntPtr hit = (UIntPtr)Native.HTCAPTION;
             IntPtr ok = Native.SendMessageTimeout(root, Native.WM_NCHITTEST, IntPtr.Zero,
                 Native.MakeLParam(p.X, p.Y), Native.SMTO_BLOCK | Native.SMTO_ABORTIFHUNG, 60, out hit);
@@ -80,8 +82,6 @@ namespace Okna
             _canResize = (Native.GetWindowLongPtr(root, Native.GWL_STYLE) & Native.WS_THICKFRAME) != 0;
             _mode = Mode.Candidate;
             _followTicks = 0;
-            bool targetElevated;
-            Native.IsProcessElevated(pid, out targetElevated);
             Log.Debug("Candidate " + root.ToInt64() + " '" + Native.GetWindowTitle(root) + "' rect=" +
                 rect.Left + "," + rect.Top + " " + rect.Width + "x" + rect.Height +
                 " hit=" + hit.ToUInt64() + " pid=" + pid + " elevated=" + targetElevated);
