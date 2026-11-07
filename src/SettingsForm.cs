@@ -665,21 +665,25 @@ namespace Okna
             Label themeSub = MakeLabel("Тёмная тема настроек", 20, 162, Theme.FontSmall, Theme.Muted);
             miscCard.Controls.Add(themeSub);
 
-            _hintLabel = MakeLabel("", 20, 740, Theme.FontSmall, Theme.Faint);
+            // Hint line above the bottom strip — kept short so it does not
+            // collide with the Done button on the right.
+            _hintLabel = MakeLabel("", 20, 728, Theme.FontSmall, Theme.Faint);
+            _hintLabel.AutoSize = false;
+            _hintLabel.Size = new Size(440, 16);
             Controls.Add(_hintLabel);
 
-            _versionLabel = MakeLabel("", 20, 760, Theme.FontTiny, Theme.Faint);
+            _versionLabel = MakeLabel("", 20, 756, Theme.FontTiny, Theme.Faint);
             UpdateVersionLabel();
             Controls.Add(_versionLabel);
 
-            Label copyrightLabel = MakeLabel("© Сергей", ClientSize.Width - 100, 760, Theme.FontTiny, Theme.Faint);
+            Label copyrightLabel = MakeLabel("© Сергей", ClientSize.Width - 90, 756, Theme.FontTiny, Theme.Faint);
             copyrightLabel.TextAlign = ContentAlignment.MiddleRight;
             Controls.Add(copyrightLabel);
 
             LinkLabel telegramLink = new LinkLabel();
             telegramLink.Text = "Обратная связь: @Link_Ser";
-            telegramLink.Location = new Point(ClientSize.Width - 190, 778);
-            telegramLink.Size = new Size(170, 18);
+            telegramLink.Location = new Point(ClientSize.Width - 200, 776);
+            telegramLink.Size = new Size(180, 18);
             telegramLink.Font = Theme.FontTiny;
             telegramLink.LinkColor = Theme.Accent;
             telegramLink.ActiveLinkColor = Theme.Accent;
@@ -693,7 +697,7 @@ namespace Okna
             JellyButton done = new JellyButton();
             done.Text = "Готово";
             done.Accent = true;
-            done.Location = new Point(ClientSize.Width - 112, 740);
+            done.Location = new Point(ClientSize.Width - 108, 728);
             done.Size = new Size(96, 36);
             done.Click += delegate { Hide(); };
             Controls.Add(done);
