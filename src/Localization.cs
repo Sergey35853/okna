@@ -367,7 +367,16 @@ namespace Okna
                 { "Обратная связь: @Link_Ser (Telegram)", "Feedback: @Link_Ser (Telegram)" },
                 { "Доп. приложения для звонков/экрана", "Extra apps for calls/screen sharing" },
                 { "Добавляются к встроенному списку (Teams, Zoom, Discord…)", "Added to the built-in list (Teams, Zoom, Discord…)" },
-                { "Программы для автопаузы (звонки/экран)", "Apps for auto-pause (calls/screen)" }
+                { "Программы для автопаузы (звонки/экран)", "Apps for auto-pause (calls/screen)" },
+                { "Трубочка и направление", "Roll and direction" },
+                { "Изгиб и тряска", "Bend and shake" },
+                { "Сворачивание в трубочку", "Roll into a tube" },
+                { "Направление сворачивания", "Roll direction" },
+                { "Авто - к краю экрана с панелью задач", "Auto - toward the taskbar edge" },
+                { "Показать направление", "Show direction" },
+                { "Демонстрация показывает, как окно скатывается в выбранном направлении.", "Demo shows how the window rolls in the selected direction." },
+                { "Направление: ", "Direction: " },
+                { "Если программа прячется в трей при закрытии - окно тоже скатывается в трубочку.", "If an app hides to tray on close, its window also rolls into a tube." }
             };
 
         private static bool _english;

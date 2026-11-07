@@ -23,6 +23,7 @@ namespace Okna
         private JellyButton _closeBurn;
         private JellyButton _closeFade;
         private JellyButton _closeDemo;
+        private JellyButton _rollDemo;
         private JellySwitch _rollSwitch;
         private JellyButton[] _directionButtons;
         private JellySwitch _startupSwitch;
@@ -216,10 +217,10 @@ namespace Okna
             Controls.Add(_contentHost);
 
             string[] names = new string[] {
-                "Эффект", "Движение", "Закрытие", "Пауза", "Исключения и правила", "Язык и тема", "Система"
+                "Эффект", "Движение", "Сворачивание", "Закрытие", "Пауза", "Исключения и правила", "Язык и тема", "Система"
             };
             string[] hints = new string[] {
-                "Желейность и режимы", "Изгиб, тряска, трубочка", "Что при закрытии", "Когда уступать место", "Программы и правила", "Язык, тема, о программе", "Запуск, клавиша, обновления"
+                "Желейность и режимы", "Изгиб и тряска", "Трубочка и направление", "Что при закрытии", "Когда уступать место", "Программы и правила", "Язык, тема, о программе", "Запуск, клавиша, обновления"
             };
             _navItems = new CategoryNavItem[names.Length];
             _pages = new Panel[names.Length];
@@ -250,11 +251,12 @@ namespace Okna
             LayoutChrome();
             BuildEffectPage(_pages[0]);
             BuildMotionPage(_pages[1]);
-            BuildClosePage(_pages[2]);
-            BuildPausePage(_pages[3]);
-            BuildExcludePage(_pages[4]);
-            BuildAppearancePage(_pages[5]);
-            BuildSystemPage(_pages[6]);
+            BuildRollPage(_pages[2]);
+            BuildClosePage(_pages[3]);
+            BuildPausePage(_pages[4]);
+            BuildExcludePage(_pages[5]);
+            BuildAppearancePage(_pages[6]);
+            BuildSystemPage(_pages[7]);
             LayoutPages();
 
             _hintLabel = MakeLabel("", 20, 0, Theme.FontSmall, Theme.Faint);
@@ -633,19 +635,24 @@ namespace Okna
 
         private void BuildMotionPage(Panel page)
         {
-            int y = 0;
-            CardPanel card = AddCard(page, "Поведение окон", 0, y, _contentHost.Width - 8, 258); y += 266;
+            CardPanel card = AddCard(page, "Поведение окон", 0, 0, _contentHost.Width - 8, 206);
             int ry = 14;
             ry = AddSwitchRow(card, "Покачивание при отпускании", "Боковое качание после движения", ry, out _wobbleSwitch);
             AddDivider(card, 18, ry, card.Width - 36); ry += 10;
             ry = AddSwitchRow(card, "Гнуть окна по инерции", "Края изгибаются при разгоне и торможении", ry, out _bendSwitch);
             AddDivider(card, 18, ry, card.Width - 36); ry += 10;
-            ry = AddSwitchRow(card, "Тряска при разворачивании", "Качается при развороте, восстановлении", ry, out _maxShakeSwitch);
-            AddDivider(card, 18, ry, card.Width - 36); ry += 10;
-            AddSwitchRow(card, "Сворачивать в трубочку", "Окно скатывается в панель задач", ry, out _rollSwitch);
+            AddSwitchRow(card, "Тряска при разворачивании", "Качается при развороте, восстановлении", ry, out _maxShakeSwitch);
+        }
 
-            CardPanel dirCard = AddCard(page, "Куда скатывать", 0, y, _contentHost.Width - 8, 104);
-            AddLabel(dirCard, "Авто — к панели задач", 18, 12, Theme.FontSmall, Theme.Muted);
+        private void BuildRollPage(Panel page)
+        {
+            int y = 0;
+            CardPanel rollCard = AddCard(page, "Сворачивание в трубочку", 0, y, _contentHost.Width - 8, 118); y += 126;
+            int ry = AddSwitchRow(rollCard, "Сворачивать в трубочку", "При сворачивании окно скатывается в панель задач", 14, out _rollSwitch);
+            AddLabel(rollCard, "Если программа прячется в трей при закрытии - окно тоже скатывается в трубочку.", 18, ry + 2, Theme.FontTiny, Theme.Faint);
+
+            CardPanel dirCard = AddCard(page, "Направление сворачивания", 0, y, _contentHost.Width - 8, 148);
+            AddLabel(dirCard, "Авто - к краю экрана с панелью задач", 18, 12, Theme.FontSmall, Theme.Muted);
             _directionButtons = new JellyButton[5];
             string[] directionNames = new string[] { "Авто", "Вниз", "Вверх", "Влево", "Вправо" };
             int dw = (dirCard.Width - 36 - 16) / 5;
@@ -660,6 +667,11 @@ namespace Okna
                 _directionButtons[i] = b;
                 dirCard.Controls.Add(b);
             }
+            _rollDemo = MakeSmallButton(dirCard, "Показать направление", 18, 76, 170);
+            _rollDemo.Name = "rollDemoButton";
+            _rollDemo.Click += delegate { DemoRollDirection(); };
+            Label hint = AddLabel(dirCard, "Демонстрация показывает, как окно скатывается в выбранном направлении.", 18, 112, Theme.FontTiny, Theme.Faint);
+            hint.AutoSize = false; hint.Name = "rollDemoHint"; hint.Size = new Size(Math.Max(100, dirCard.Width - 36), 14);
         }
 
         private void BuildClosePage(Panel page)
@@ -1400,6 +1412,53 @@ namespace Okna
             }
         }
 
+        private void DemoRollDirection()
+        {
+            if (SmokeMode) return;
+            try
+            {
+                Rectangle area = Screen.FromControl(this).WorkingArea;
+                int w = Math.Min(340, Math.Max(220, area.Width / 4));
+                int h = Math.Min(210, Math.Max(130, area.Height / 5));
+                int left = area.Left + (area.Width - w) / 2;
+                int top = area.Top + (area.Height - h) / 2 - 20;
+                if (top < area.Top + 10) top = area.Top + 10;
+                Native.RECT frame = new Native.RECT();
+                frame.Left = left; frame.Top = top; frame.Right = left + w; frame.Bottom = top + h;
+
+                Bitmap shot = new Bitmap(w, h);
+                using (Graphics g = Graphics.FromImage(shot))
+                {
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+                    using (LinearGradientBrush bg = new LinearGradientBrush(new Rectangle(0, 0, w, h),
+                        Color.FromArgb(244, 248, 252), Color.FromArgb(228, 236, 246), LinearGradientMode.Vertical))
+                        g.FillRectangle(bg, 0, 0, w, h);
+                    using (SolidBrush title = new SolidBrush(Color.FromArgb(52, 108, 156)))
+                        g.FillRectangle(title, 0, 0, w, 34);
+                    using (Pen border = new Pen(Color.FromArgb(120, 150, 180), 1f))
+                        g.DrawRectangle(border, 0, 0, w - 1, h - 1);
+                    using (Font f = new Font("Segoe UI", 11f, FontStyle.Bold))
+                        TextRenderer.DrawText(g, Loc.T("Сворачивание"), f, new Rectangle(12, 6, w - 24, 24),
+                            Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+                    string dir = _settings.RollDirection == RollDirection.Auto ? Loc.T("Авто")
+                        : _settings.RollDirection == RollDirection.Up ? Loc.T("Вверх")
+                        : _settings.RollDirection == RollDirection.Left ? Loc.T("Влево")
+                        : _settings.RollDirection == RollDirection.Right ? Loc.T("Вправо")
+                        : Loc.T("Вниз");
+                    using (Font f = new Font("Segoe UI", 10f))
+                        TextRenderer.DrawText(g, Loc.T("Направление: ") + dir, f,
+                            new Rectangle(18, 52, w - 36, h - 70), Color.FromArgb(50, 60, 74),
+                            TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak);
+                }
+
+                RollOverlay.Play(shot, frame, IntPtr.Zero, _settings.RollDirection);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Roll demo failed: " + ex.Message);
+            }
+        }
+
         private void UpdateCloseStyles()
         {
             int selected = _settings.Burn ? 2 : (_settings.Shatter ? 1 : (_settings.Fade ? 3 : 0));
@@ -1651,26 +1710,29 @@ namespace Okna
 
                 SelectPage(1); Application.DoEvents();
                 bool bend = _settings.Bend; _bendSwitch.Checked = !bend; Application.DoEvents(); check("the bend switch changes the setting", _settings.Bend == !bend); _bendSwitch.Checked = bend;
-                bool roll = _settings.Roll; _rollSwitch.Checked = !roll; Application.DoEvents(); check("the roll switch changes the setting", _settings.Roll == !roll); _rollSwitch.Checked = roll;
-                for (int i = 0; i < _directionButtons.Length; i++) { _directionButtons[i].PerformClick(); Application.DoEvents(); check("roll direction " + i + " applies", (int)_settings.RollDirection == i); }
 
                 SelectPage(2); Application.DoEvents();
+                bool roll = _settings.Roll; _rollSwitch.Checked = !roll; Application.DoEvents(); check("the roll switch changes the setting", _settings.Roll == !roll); _rollSwitch.Checked = roll;
+                for (int i = 0; i < _directionButtons.Length; i++) { _directionButtons[i].PerformClick(); Application.DoEvents(); check("roll direction " + i + " applies", (int)_settings.RollDirection == i); }
+                check("roll demo button exists", _rollDemo != null);
+
+                SelectPage(3); Application.DoEvents();
                 check("close demo button exists", _closeDemo != null);
                 _closeBurn.PerformClick(); Application.DoEvents(); check("burn is chosen alone", _settings.Burn && !_settings.Shatter);
                 _closeShatter.PerformClick(); Application.DoEvents(); check("shards are chosen alone", _settings.Shatter && !_settings.Burn);
                 _closeNone.PerformClick(); Application.DoEvents(); check("no close effect can be chosen", !_settings.Shatter && !_settings.Burn);
 
-                SelectPage(3); Application.DoEvents();
+                SelectPage(4); Application.DoEvents();
                 check("pause controls exist", _fullscreenSwitch != null && _resumeDelaySlider != null && _timedPauseButton != null);
                 _resumeDelaySlider.Value = 5; Application.DoEvents(); check("resume delay setting applies", _settings.AutoPauseResumeDelaySeconds == 5);
                 _settings.AddCallApp("smoke-call.exe"); RefreshCallAppsList(); check("call app list shows a custom app", _callAppsList != null && _callAppsList.Items.Count > 0);
                 _settings.RemoveCallApp("smoke-call.exe"); RefreshCallAppsList();
 
-                SelectPage(4); Application.DoEvents();
+                SelectPage(5); Application.DoEvents();
                 _settings.AddExclude("smoke-test.exe"); RefreshExcludeList(); check("the exclusion list shows a new mask", _excludeList.Items.Count > 0); _settings.RemoveExclude("smoke-test.exe"); RefreshExcludeList();
                 _settings.SetAppProfile("smoke-test.exe", 2, true, false, false); RefreshOverrideList(); check("the program list shows a new rule", _overrideList.Items.Count > 0); _settings.RemoveCloseOverride("smoke-test.exe"); RefreshOverrideList();
 
-                SelectPage(5); Application.DoEvents();
+                SelectPage(6); Application.DoEvents();
                 int originalLanguage = _settings.Language;
                 _languageEn.PerformClick(); Application.DoEvents();
                 check("English changes the language", _settings.Language == (int)UiLanguage.English);
@@ -1679,7 +1741,7 @@ namespace Okna
                 check("Russian comes back", _settings.Language == (int)UiLanguage.Russian && _presets[0].Text == "Спокойно");
                 _settings.Language = originalLanguage; Loc.Configure(originalLanguage); Loc.Apply(this); SyncFromSettings();
 
-                SelectPage(6); Application.DoEvents();
+                SelectPage(7); Application.DoEvents();
                 check("system page is last with updates", _autoUpdateSwitch != null && _checkUpdateButton != null && _skipResetUpdateButton != null);
                 SelectPage(0);
 
