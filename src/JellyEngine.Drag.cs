@@ -44,12 +44,12 @@ namespace Okna
 
             // An elevated target (e.g. Rufus run as administrator) cannot be
             // moved by a non-elevated Okna due to Windows UIPI: SetWindowPos
-            // returns false and the jelly drag cannot drive the window. Skip it
-            // with a clear debug message; the user can run Okna as administrator
-            // to get jelly on elevated windows too.
+            // returns false and the jelly drag cannot drive the window. When
+            // Okna itself runs elevated there is no UIPI barrier, so elevated
+            // targets work fine. Skip only when there is a privilege mismatch.
             bool targetElevated;
             Native.IsProcessElevated(pid, out targetElevated);
-            if (targetElevated && !ownTarget) return;
+            if (targetElevated && !_ownElevated && !ownTarget) return;
             UIntPtr hit = (UIntPtr)Native.HTCAPTION;
             IntPtr ok = Native.SendMessageTimeout(root, Native.WM_NCHITTEST, IntPtr.Zero,
                 Native.MakeLParam(p.X, p.Y), Native.SMTO_BLOCK | Native.SMTO_ABORTIFHUNG, 60, out hit);
