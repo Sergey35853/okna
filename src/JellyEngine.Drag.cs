@@ -41,17 +41,24 @@ namespace Okna
             uint pid;
             Native.GetWindowThreadProcessId(root, out pid);
             if (pid == Native.GetCurrentProcessId() && !ownTarget) return;
-            if (!_ownElevated)
-            {
-                bool targetElevated;
-                if (!Native.IsProcessElevated(pid, out targetElevated)) return;
-                if (targetElevated) return;
-            }
 
-            UIntPtr hit;
+            // An elevated target (e.g. Rufus run as administrator) cannot be
+            // driven by a non-elevated Okna due to UIPI: SendMessageTimeout and
+            // capture calls will simply fail and the effect stays off. The
+            // explicit rejection here is unnecessary — UIPI already blocks the
+            // calls that matter — so an elevated window is still a candidate;
+            // the overlay draws on top regardless.
+            UIntPtr hit = (UIntPtr)Native.HTCAPTION;
             IntPtr ok = Native.SendMessageTimeout(root, Native.WM_NCHITTEST, IntPtr.Zero,
                 Native.MakeLParam(p.X, p.Y), Native.SMTO_BLOCK | Native.SMTO_ABORTIFHUNG, 60, out hit);
-            if (ok == IntPtr.Zero) return;
+            if (ok == IntPtr.Zero)
+            {
+                // UIPI blocks the call for elevated targets (e.g. Rufus as
+                // administrator): we cannot query the hit test, so assume the
+                // title bar and let the position-based zone check below filter
+                // clicks outside it.
+                hit = (UIntPtr)Native.HTCAPTION;
+            }
 
             // Classic windows report HTCAPTION for their title bar. Browsers, Electron
             // and UWP apps draw their own header and report HTCLIENT, so accept a press
@@ -87,8 +94,10 @@ namespace Okna
                 Native.SMTO_BLOCK | Native.SMTO_ABORTIFHUNG, 80, out result);
             if (ok == IntPtr.Zero)
             {
-                Log.Debug("WM_CANCELMODE failed for " + _target.ToInt64());
-                return false;
+                // UIPI blocks the call for elevated targets: cannot cancel the
+                // target's modal state, but proceed anyway — the overlay draws
+                // on top regardless.
+                Log.Debug("WM_CANCELMODE failed for " + _target.ToInt64() + " (elevated target?)");
             }
 
             // Continue from where the window actually is: the native drag may have

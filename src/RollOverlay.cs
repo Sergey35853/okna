@@ -250,8 +250,15 @@ namespace Okna
                     cy = (frame.Top + frame.Bottom) * 0.5;
                 }
 
-                Condition buttons = new PropertyCondition(
-                    AutomationElement.ControlTypeProperty, ControlType.Button);
+                // On Windows 11 the taskbar is XAML: its buttons are not always
+                // exposed as ControlType.Button, so accept several control
+                // types and let Score pick the best match.
+                Condition buttons = new OrCondition(
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Custom),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Pane),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Group));
                 int bestScore = 0;
                 double bestDistance = double.MaxValue;
                 Native.RECT best = new Native.RECT();
