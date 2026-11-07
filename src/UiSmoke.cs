@@ -52,6 +52,9 @@ namespace Okna
             {
                 using (SettingsForm form = new SettingsForm(settings, engine, icon, null))
                 {
+                    // Mark the window before any timer or close handler can
+                    // run, so the smoke values never reach the registry.
+                    form.SmokeMode = true;
                     form.Show();
                     Application.DoEvents();
                     string settingsReport = form.RunSmokeTest();
@@ -72,6 +75,7 @@ namespace Okna
             try
             {
                 TrayApp tray = new TrayApp(settings, engine, icon, false);
+                tray.SmokeMode = true;
                 string trayReport = tray.RunSmokeTest();
                 report.AppendLine(trayReport);
                 failed += CountFailures(trayReport);

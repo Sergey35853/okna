@@ -1287,7 +1287,9 @@ namespace Okna
             }
             finally
             {
-                SmokeMode = false;
+                // Keep smoke mode on: the form is disposed right after the
+                // check, and OnFormClosing must not write the test values.
+                SmokeMode = true;
             }
 
             lines.Add("");
