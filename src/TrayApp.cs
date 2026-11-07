@@ -46,6 +46,7 @@ namespace Okna
         private Timer _applyTimer;
         private UpdateInfo _ready;
         private bool _checking;
+        private bool _downloading;
         private int _applyAttempts;
         private string _hotkeyStatus = "не проверена";
 
@@ -649,46 +650,69 @@ namespace Okna
 
         internal void CheckUpdates(bool manual)
         {
-            if (_checking) return;
+            if (_checking || _downloading) return;
             _checking = true;
+            _downloading = false;
             if (_checkItem != null) _checkItem.Enabled = false;
+            SyncForm();
+            UpdateMenu();
 
             ThreadPool.QueueUserWorkItem(delegate
             {
                 UpdateInfo found = null;
                 string error = null;
+                bool downloaded = false;
                 try
                 {
                     found = Updater.Check();
-                    if (found != null) Updater.Download(found);
+                    if (found != null)
+                    {
+                        Post(delegate
+                        {
+                            if (_exiting) return;
+                            _checking = false;
+                            _downloading = true;
+                            if (_checkItem != null) _checkItem.Enabled = false;
+                            SyncForm();
+                            UpdateMenu();
+                        });
+                        Updater.Download(found);
+                        downloaded = true;
+                    }
                 }
                 catch (Exception ex)
                 {
-                    found = null;
+                    if (!downloaded) found = null;
                     error = ex.Message;
-                    Log.Debug("Update check failed: " + ex);
+                    Log.Debug("Update check/download failed: " + ex);
                 }
 
-                Post(delegate { OnUpdateChecked(manual, found, error); });
+                Post(delegate { OnUpdateChecked(manual, found, error, downloaded); });
             });
         }
 
-        private void OnUpdateChecked(bool manual, UpdateInfo found, string error)
+        private void OnUpdateChecked(bool manual, UpdateInfo found, string error, bool downloaded)
         {
             if (_exiting) return;
             _checking = false;
+            _downloading = false;
             if (_checkItem != null) _checkItem.Enabled = true;
+            SyncForm();
 
             if (error != null)
             {
-                if (manual) Balloon("Не удалось проверить обновления", error);
+                // Keep a previously ready update if we only failed a re-check; discard partial new state.
+                if (found != null && !downloaded) Updater.Discard();
+                UpdateMenu();
+                if (manual) Balloon(Loc.T("Не удалось обновить/проверить"), error);
                 return;
             }
 
             if (found == null)
             {
                 Log.Debug("Update check: no newer release");
-                if (manual) Balloon("Обновлений нет",
+                UpdateMenu();
+                if (manual) Balloon(Loc.T("Обновлений нет"),
                     Loc.T("У вас последняя версия — ") + Updater.CurrentLabel + ".");
                 return;
             }
@@ -708,12 +732,17 @@ namespace Okna
             if (_settings.AutoUpdate && !skipped)
             {
                 ScheduleApply();
+                if (!manual)
+                    Balloon(Loc.T("Доступно обновление v") + Updater.Format(found.Version),
+                            Loc.T("Обновление загружено и будет установлено автоматически."));
+                else
+                    ShowUpdateDialog();
             }
             else
             {
                 if (!skipped)
                     Balloon(Loc.T("Доступно обновление v") + Updater.Format(found.Version),
-                            "Нажмите, чтобы посмотреть, что нового.");
+                            Loc.T("Обновление загружено. Нажмите «Установить», когда удобно."));
                 if (manual) ShowUpdateDialog();
             }
         }
@@ -800,9 +829,17 @@ namespace Okna
                 return;
             }
 
-            _ready = null;
+            // Keep pending/ready state when possible so the user can retry from within the app.
+            if (!Updater.HasPending) _ready = null;
+            else if (_ready == null)
+            {
+                Version pv = Updater.PendingVersion();
+                if (pv != null) { _ready = new UpdateInfo(); _ready.Version = pv; }
+            }
             UpdateMenu();
-            Balloon("Не удалось обновить", "Подробности в журнале. Новую версию можно скачать с GitHub вручную.");
+            SyncForm();
+            Balloon(Loc.T("Не удалось установить обновление"),
+                Loc.T("Файлы обновления сохранены. Можно попробовать ещё раз из «Система → Обновления»."));
         }
 
         /// <summary>Writes the settings unless the menu is only being smoke-tested.</summary>
@@ -826,6 +863,11 @@ namespace Okna
             get { return _checking; }
         }
 
+        internal bool IsDownloadingUpdate
+        {
+            get { return _downloading; }
+        }
+
         internal bool TimedPauseActive
         {
             get { return _pauseTimer != null; }
@@ -846,6 +888,12 @@ namespace Okna
             _settings.SkippedVersion = "";
             Persist();
             UpdateMenu();
+        }
+
+        internal void ApplyAutoUpdateSetting()
+        {
+            UpdateMenu();
+            if (_settings.AutoUpdate && _ready != null) ScheduleApply();
         }
 
         internal string RunSmokeTest()

@@ -268,19 +268,9 @@ namespace Okna
             UpdateVersionLabel();
             Controls.Add(_versionLabel);
 
-            LinkLabel telegramLink = new LinkLabel();
-            telegramLink.Text = "Обратная связь: @Link_Ser";
-            telegramLink.AutoSize = true;
-            telegramLink.Font = Theme.FontTiny;
-            telegramLink.LinkColor = Theme.Accent;
-            telegramLink.ActiveLinkColor = Theme.Accent;
-            telegramLink.LinkBehavior = LinkBehavior.HoverUnderline;
-            telegramLink.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
-            telegramLink.Click += delegate
-            {
-                try { System.Diagnostics.Process.Start("https://t.me/Link_Ser"); } catch { }
-            };
+            Control telegramLink = CreateTelegramIconLink();
             telegramLink.Name = "telegramLink";
+            telegramLink.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
             Controls.Add(telegramLink);
 
             JellyButton done = new JellyButton();
@@ -562,6 +552,40 @@ namespace Okna
             return false;
         }
 
+        private Control CreateTelegramIconLink()
+        {
+            PictureBox pb = new PictureBox();
+            pb.Size = new Size(22, 22);
+            pb.BackColor = Color.Transparent;
+            pb.Cursor = Cursors.Hand;
+            pb.TabStop = false;
+            Bitmap bmp = new Bitmap(22, 22);
+            using (Graphics g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                using (SolidBrush bg = new SolidBrush(Color.FromArgb(42, 171, 238)))
+                    g.FillEllipse(bg, 0, 0, 21, 21);
+                PointF[] plane = new PointF[] {
+                    new PointF(6f, 11f), new PointF(16f, 5.5f), new PointF(13.5f, 16f),
+                    new PointF(10.5f, 12.8f), new PointF(9f, 14.5f), new PointF(9.2f, 11.8f)
+                };
+                using (SolidBrush fg = new SolidBrush(Color.White))
+                {
+                    g.FillPolygon(fg, new PointF[] { plane[0], plane[1], plane[3], plane[5] });
+                    g.FillPolygon(fg, new PointF[] { plane[3], plane[1], plane[2] });
+                    g.FillPolygon(fg, new PointF[] { plane[3], plane[4], plane[5] });
+                }
+            }
+            pb.Image = bmp;
+            ToolTip tip = new ToolTip();
+            tip.SetToolTip(pb, Loc.T("Обратная связь: @Link_Ser (Telegram)"));
+            pb.Click += delegate
+            {
+                try { System.Diagnostics.Process.Start("https://t.me/Link_Ser"); } catch { }
+            };
+            return pb;
+        }
+
         private void SelectPage(int index)
         {
             if (index < 0 || index >= _pages.Length) return;
@@ -798,16 +822,23 @@ namespace Okna
             if (_updateStatusLabel == null || _updateStatusLabel.IsDisposed) return;
             string status = Loc.T("Текущая версия: ") + Updater.CurrentLabel;
             bool checking = _tray != null && _tray.IsCheckingUpdates;
+            bool downloading = _tray != null && _tray.IsDownloadingUpdate;
             bool ready = _tray != null && _tray.ReadyUpdate != null && _tray.ReadyUpdate.Version != null;
             bool skipped = _settings != null && !string.IsNullOrEmpty(_settings.SkippedVersion);
+            bool busy = checking || downloading;
             if (checking)
             {
-                status += "  ·  " + Loc.T("проверка…");
+                status += "  ·  " + Loc.T("проверка обновлений…");
                 _updateStatusLabel.ForeColor = Theme.Muted;
+            }
+            else if (downloading)
+            {
+                status += "  ·  " + Loc.T("скачивание обновления…");
+                _updateStatusLabel.ForeColor = Theme.Accent;
             }
             else if (ready)
             {
-                status += "  ·  " + Loc.T("доступна v") + Updater.Format(_tray.ReadyUpdate.Version);
+                status += "  ·  " + Loc.T("загружена v") + Updater.Format(_tray.ReadyUpdate.Version) + Loc.T(", можно установить");
                 _updateStatusLabel.ForeColor = Theme.Accent;
             }
             else if (skipped)
@@ -817,13 +848,18 @@ namespace Okna
             }
             else
             {
+                status += "  ·  " + Loc.T("обновлений не найдено");
                 _updateStatusLabel.ForeColor = Theme.Muted;
             }
             _updateStatusLabel.Text = status;
-            if (_checkUpdateButton != null) _checkUpdateButton.Enabled = !checking;
-            if (_skipResetUpdateButton != null) _skipResetUpdateButton.Enabled = skipped && !checking;
-            if (_installUpdateButton != null) _installUpdateButton.Enabled = ready && !checking;
-            if (_whatsNewButton != null) _whatsNewButton.Enabled = ready && !checking;
+            if (_checkUpdateButton != null)
+            {
+                _checkUpdateButton.Enabled = !busy;
+                _checkUpdateButton.Text = Loc.T("Проверить и скачать");
+            }
+            if (_skipResetUpdateButton != null) _skipResetUpdateButton.Enabled = skipped && !busy;
+            if (_installUpdateButton != null) _installUpdateButton.Enabled = ready && !busy;
+            if (_whatsNewButton != null) _whatsNewButton.Enabled = ready && !busy;
         }
 
         private void BuildExcludePage(Panel page)
@@ -913,9 +949,9 @@ namespace Okna
             _updateStatusLabel = MakeLabel("", 18, ry + 10, Theme.FontSmall, Theme.Muted);
             _updateStatusLabel.AutoSize = false;
             _updateStatusLabel.Name = "updateStatusLabel";
-            _updateStatusLabel.Size = new Size(updCard.Width - 170, 18);
+            _updateStatusLabel.Size = new Size(updCard.Width - 200, 18);
             updCard.Controls.Add(_updateStatusLabel);
-            _checkUpdateButton = MakeSmallButton(updCard, "Проверить сейчас", updCard.Width - 138, ry + 6, 120);
+            _checkUpdateButton = MakeSmallButton(updCard, "Проверить и скачать", updCard.Width - 168, ry + 6, 150);
             _checkUpdateButton.Name = "checkUpdateButton";
             _checkUpdateButton.Click += delegate
             {
@@ -988,7 +1024,7 @@ namespace Okna
             CardPanel aboutCard = AddCard(page, "Окна", 0, y, _contentHost.Width - 8, 90);
             AddLabel(aboutCard, "Инерционные окна для Windows", 18, 14, Theme.FontSmall, Theme.Muted);
             AddLabel(aboutCard, "Окно настроек тоже желейное — потяните за заголовок, чтобы проверить.", 18, 36, Theme.FontSmall, Theme.Text);
-            AddLabel(aboutCard, "© Сергей  ·  " + Updater.CurrentLabel, 18, 58, Theme.FontTiny, Theme.Faint);
+            AddLabel(aboutCard, "© Серый  ·  " + Updater.CurrentLabel, 18, 58, Theme.FontTiny, Theme.Faint);
         }
 
         private static CardPanel AddCard(Panel page, string title, int x, int y, int w, int h)
@@ -1132,7 +1168,7 @@ namespace Okna
                 {
                     if (_syncing) return;
                     _settings.AutoUpdate = _autoUpdateSwitch.Checked;
-                    if (_tray != null) _tray.UpdateMenu();
+                    if (_tray != null) _tray.ApplyAutoUpdateSetting();
                     SaveSoon();
                     UpdateUpdateStatusLabel();
                 };
