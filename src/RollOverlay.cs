@@ -210,7 +210,9 @@ namespace Okna
             }
 
             Native.RECT found;
-            if (!Find(title, exe, hwnd, out found) && !FindWin32(title, exe, hwnd, out found)) return false;
+            if (!Find(title, exe, hwnd, out found) &&
+                !FindWin32(title, exe, hwnd, out found) &&
+                !FindWin32Children(title, exe, hwnd, out found)) return false;
 
             lock (Sync)
             {
@@ -374,6 +376,50 @@ namespace Okna
                         // Continue to the next button.
                     }
                     finally { Marshal.FreeHGlobal(textBuf); }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Second Win32 fallback: enumerates every child window of the taskbar
+        /// bar and matches by visible text or executable name. Used on
+        /// Windows 11 where the taskbar is XAML and exposes neither
+        /// ToolbarWindow32 nor reliable UI Automation buttons.
+        /// </summary>
+        private static bool FindWin32Children(string title, string exe, IntPtr hwnd, out Native.RECT rect)
+        {
+            rect = new Native.RECT();
+            string exeBase = BaseName(exe);
+            IntPtr after = IntPtr.Zero;
+            for (int barIndex = 0; barIndex < 8; barIndex++)
+            {
+                IntPtr bar = barIndex == 0
+                    ? Native.FindWindow("Shell_TrayWnd", null)
+                    : Native.FindWindowEx(IntPtr.Zero, after, "Shell_SecondaryTrayWnd", null);
+                if (bar == IntPtr.Zero) break;
+                after = bar;
+
+                IntPtr child = IntPtr.Zero;
+                while ((child = Native.FindWindowEx(bar, child, null, null)) != IntPtr.Zero)
+                {
+                    if (!Native.IsWindowVisible(child)) continue;
+                    Native.RECT r;
+                    if (!Native.GetWindowRect(child, out r)) continue;
+                    // Taskbar buttons are small: 24–200 px wide and tall.
+                    if (r.Width < 24 || r.Width > 200 || r.Height < 24 || r.Height > 200) continue;
+
+                    var sb = new System.Text.StringBuilder(256);
+                    Native.GetWindowText(child, sb, sb.Capacity);
+                    string text = sb.ToString();
+
+                    int score = Score(title, exeBase, exe, null, text, null);
+                    if (score <= 0) continue;
+
+                    rect = r;
+                    Log.Debug("Taskbar button (Win32 child): text='" + text +
+                        "' -> " + r.Left + "," + r.Top + " " + r.Width + "x" + r.Height);
+                    return true;
                 }
             }
             return false;

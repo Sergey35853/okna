@@ -141,6 +141,7 @@ namespace Okna
             IntPtr old = IntPtr.Zero;
             IntPtr bits = IntPtr.Zero;
             Bitmap canvas = null;
+            Graphics g = null;
             IntPtr hwnd = IntPtr.Zero;
             Stopwatch clock = Stopwatch.StartNew();
             int frames = 0;
@@ -193,7 +194,10 @@ namespace Okna
                 // heights follow a slow noise field so they clump into
                 // sheets of fire with low flames between them. That is what
                 // keeps the front from reading as a row of candles.
-                int flameCount = Math.Max(14, Math.Min(180, fw / 16));
+                // Large windows need fewer flames: the per-frame GDI+ cost is
+                // the main source of stutter, so cap the count well below the
+                // old limit.
+                int flameCount = Math.Max(10, Math.Min(70, fw / 24));
                 float cellW = fw / (float)flameCount;
                 float[] flameX = new float[flameCount];
                 float[] flameHeight = new float[flameCount];
@@ -225,6 +229,14 @@ namespace Okna
                 }
 
                 double last = 0;
+                // Reuse one Graphics object for every frame instead of creating
+                // and throwing away a new one each time: GDI+ allocation is a
+                // measurable part of the per-frame cost on large canvases.
+                g = Graphics.FromImage(canvas);
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.CompositingMode = CompositingMode.SourceOver;
+                g.CompositingQuality = CompositingQuality.HighSpeed;
+                g.PixelOffsetMode = PixelOffsetMode.Half;
                 while (true)
                 {
                     double t = clock.Elapsed.TotalSeconds;
@@ -242,8 +254,8 @@ namespace Okna
                     double q = u * u * (3 - 2 * u);
                     float frontBase = (float)(fh + 6 - q * (fh + 42));
                     float amp = 9f + 4f * (float)Math.Sin(t * 2.7);
-                    int cols = Math.Max(10, fw / 5);
-                    if (cols > 900) cols = 900;
+                    int cols = Math.Max(8, fw / 12);
+                    if (cols > 400) cols = 400;
                     PointF[] front = new PointF[cols + 1];
                     float stepX = fw / (float)cols;
                     for (int i = 0; i <= cols; i++)
@@ -304,16 +316,10 @@ namespace Okna
                     if (t > fadeFrom) fade = Math.Max(0, 1 - (t - fadeFrom) / (duration - fadeFrom));
                     blend.SourceConstantAlpha = (byte)Math.Round(255 * fade);
 
-                    using (Graphics g = Graphics.FromImage(canvas))
-                    {
-                        g.Clear(Color.Transparent);
-                        g.SmoothingMode = SmoothingMode.AntiAlias;
-                        g.CompositingMode = CompositingMode.SourceOver;
-                        g.CompositingQuality = CompositingQuality.HighSpeed;
-                        g.InterpolationMode = InterpolationMode.HighQualityBilinear;
-                        g.PixelOffsetMode = PixelOffsetMode.Half;
+                    g.Clear(Color.Transparent);
+                    g.InterpolationMode = InterpolationMode.HighQualityBilinear;
 
-                        if (frontBase < fh + 8)
+                    if (frontBase < fh + 8)
                         {
                             using (GraphicsPath path = RemainingPath(front, fw, originX, originY))
                             {
@@ -570,50 +576,52 @@ namespace Okna
                             g.DrawImage(sprites.Ember[which],
                                 new RectangleF(originX + ex - sz * 0.5f, originY + ey - sz * 0.5f, sz, sz));
                         }
-                    }
 
-                    BitmapData data = canvas.LockBits(new Rectangle(0, 0, w, h),
-                        ImageLockMode.ReadOnly, PixelFormat.Format32bppPArgb);
-                    try
-                    {
-                        int rowBytes = w * 4;
-                        // A single block copy is far faster than one CopyMemory
-                        // call per scanline; fall back row by row only if the
-                        // DIB stride is padded and does not match the bitmap row.
-                        if (data.Stride == rowBytes)
+                        BitmapData data = canvas.LockBits(new Rectangle(0, 0, w, h),
+                            ImageLockMode.ReadOnly, PixelFormat.Format32bppPArgb);
+                        try
                         {
-                            Native.CopyMemory(bits, data.Scan0,
-                                (IntPtr)(rowBytes * h));
-                        }
-                        else
-                        {
-                            for (int y = 0; y < h; y++)
+                            int rowBytes = w * 4;
+                            // A single block copy is far faster than one CopyMemory
+                            // call per scanline; fall back row by row only if the
+                            // DIB stride is padded and does not match the bitmap row.
+                            if (data.Stride == rowBytes)
                             {
-                                Native.CopyMemory(IntPtr.Add(bits, y * rowBytes),
-                                    IntPtr.Add(data.Scan0, y * data.Stride),
-                                    (IntPtr)rowBytes);
+                                Native.CopyMemory(bits, data.Scan0,
+                                    (IntPtr)(rowBytes * h));
+                            }
+                            else
+                            {
+                                for (int y = 0; y < h; y++)
+                                {
+                                    Native.CopyMemory(IntPtr.Add(bits, y * rowBytes),
+                                        IntPtr.Add(data.Scan0, y * data.Stride),
+                                        (IntPtr)rowBytes);
+                                }
                             }
                         }
-                    }
-                    finally
-                    {
-                        canvas.UnlockBits(data);
-                    }
+                        finally
+                        {
+                            canvas.UnlockBits(data);
+                        }
 
-                    Native.UpdateLayeredWindow(hwnd, IntPtr.Zero, ref dst, ref size, dc, ref src, 0,
-                        ref blend, Native.ULW_ALPHA);
-                    frames++;
+                        Native.UpdateLayeredWindow(hwnd, IntPtr.Zero, ref dst, ref size, dc, ref src, 0,
+                            ref blend, Native.ULW_ALPHA);
+                        frames++;
 
-                    Native.MSG msg;
-                    while (Native.PeekMessage(out msg, IntPtr.Zero, 0, 0, Native.PM_REMOVE))
-                    {
-                        Native.TranslateMessage(ref msg);
-                        Native.DispatchMessage(ref msg);
+                        Native.MSG msg;
+                        while (Native.PeekMessage(out msg, IntPtr.Zero, 0, 0, Native.PM_REMOVE))
+                        {
+                            Native.TranslateMessage(ref msg);
+                            Native.DispatchMessage(ref msg);
+                        }
+
+                        // Cap the frame rate (~40 fps): the old code ran as fast as
+                        // possible (sleep 1 ms), which burned CPU on large canvases
+                        // and caused visible stutters. The animation still looks
+                        // smooth at this rate.
+                        Thread.Sleep(25);
                     }
-
-                    int sleep = dt < 0.012 ? 8 : 1;
-                    Thread.Sleep(sleep);
-                }
             }
             finally
             {
@@ -626,6 +634,7 @@ namespace Okna
                 if (bmp != IntPtr.Zero) Native.DeleteObject(bmp);
                 if (dc != IntPtr.Zero) Native.DeleteDC(dc);
                 Native.ReleaseDC(IntPtr.Zero, screen);
+                if (g != null) g.Dispose();
                 if (canvas != null) canvas.Dispose();
                 if (shot != null) shot.Dispose();
                 sprites.Dispose();
