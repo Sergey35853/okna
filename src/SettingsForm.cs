@@ -28,6 +28,7 @@ namespace Okna
         private JellyButton[] _directionButtons;
         private JellySwitch _startupSwitch;
         private JellySwitch _autoStartElevatedSwitch;
+        private JellySwitch _quietNotificationsSwitch;
         private JellySwitch _callSwitch;
         private JellySwitch _batterySwitch;
         private JellySwitch _motionSwitch;
@@ -845,7 +846,11 @@ namespace Okna
             }
             else if (downloading)
             {
-                status += "  ·  " + Loc.T("скачивание обновления…");
+                int p = _tray == null ? 0 : _tray.DownloadProgress;
+                if (p > 0 && p < 100)
+                    status += "  ·  " + Loc.T("скачивание обновления…") + " " + p + "%";
+                else
+                    status += "  ·  " + Loc.T("скачивание обновления…");
                 _updateStatusLabel.ForeColor = Theme.Accent;
             }
             else if (ready)
@@ -936,11 +941,13 @@ namespace Okna
         private void BuildSystemPage(Panel page)
         {
             int y = 0;
-            CardPanel startCard = AddCard(page, "Запуск", 0, y, _contentHost.Width - 8, 106); y += 114;
+            CardPanel startCard = AddCard(page, "Запуск и уведомления", 0, y, _contentHost.Width - 8, 154); y += 162;
             int ry = 14;
             ry = AddSwitchRow(startCard, "Запускать с Windows", "Тихо стартовать с системой", ry, out _startupSwitch);
             AddDivider(startCard, 18, ry, startCard.Width - 36); ry += 10;
-            AddSwitchRow(startCard, "Запуск от имени администратора", "С правами администратора при входе", ry, out _autoStartElevatedSwitch);
+            ry = AddSwitchRow(startCard, "Запуск от имени администратора", "С правами администратора при входе", ry, out _autoStartElevatedSwitch);
+            AddDivider(startCard, 18, ry, startCard.Width - 36); ry += 10;
+            AddSwitchRow(startCard, "Меньше уведомлений", "Показывать только важные сообщения в трее", ry, out _quietNotificationsSwitch);
 
             CardPanel hkCard = AddCard(page, "Горячая клавиша", 0, y, _contentHost.Width - 8, 110); y += 118;
             AddLabel(hkCard, "Нажмите поле и введите сочетание; Backspace — выключить", 18, 14, Theme.FontSmall, Theme.Muted);
@@ -1159,6 +1166,15 @@ namespace Okna
                 AppSettings.SetAutoStartElevated(_autoStartElevatedSwitch.Checked, Application.ExecutablePath);
                 SaveSoon();
             };
+            if (_quietNotificationsSwitch != null)
+            {
+                _quietNotificationsSwitch.CheckedChanged += delegate
+                {
+                    if (_syncing) return;
+                    _settings.QuietNotifications = _quietNotificationsSwitch.Checked;
+                    SaveSoon();
+                };
+            }
 
             _callSwitch.CheckedChanged += delegate { _settings.PauseOnCall = _callSwitch.Checked; SaveSoon(); };
             _batterySwitch.CheckedChanged += delegate { _settings.PauseOnBattery = _batterySwitch.Checked; SaveSoon(); };
@@ -1271,6 +1287,7 @@ namespace Okna
                 UpdateDirectionStyles();
                 _startupSwitch.Checked = _settings.StartWithWindows;
                 _autoStartElevatedSwitch.Checked = _settings.AutoStartElevated;
+                if (_quietNotificationsSwitch != null) _quietNotificationsSwitch.Checked = _settings.QuietNotifications;
                 _darkThemeSwitch.Checked = _settings.DarkTheme;
                 _callSwitch.Checked = _settings.PauseOnCall;
                 _batterySwitch.Checked = _settings.PauseOnBattery;

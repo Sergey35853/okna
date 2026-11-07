@@ -47,6 +47,7 @@ namespace Okna
         private UpdateInfo _ready;
         private bool _checking;
         private bool _downloading;
+        private int _downloadProgress;
         private int _applyAttempts;
         private string _hotkeyStatus = "не проверена";
 
@@ -278,7 +279,7 @@ namespace Okna
             if (StartupGuard.SafeMode)
             {
                 Balloon(Loc.T("Безопасный режим"),
-                    Loc.T("Прошлые запуски завершились неудачно, поэтому эффекты выключены. Включите их в трее, когда всё будет в порядке."));
+                    Loc.T("Прошлые запуски завершились неудачно, поэтому эффекты выключены. Включите их в трее, когда всё будет в порядке."), true);
             }
 
             if (_showOnStart)
@@ -353,7 +354,7 @@ namespace Okna
             }
             catch (Exception ex)
             {
-                Balloon("Не удалось открыть журнал", ex.Message);
+                Balloon("Не удалось открыть журнал", ex.Message, true);
             }
         }
 
@@ -527,7 +528,7 @@ namespace Okna
                 Log.Error("Hotkey: " + error);
                 if (notify || _showOnStart)
                     Balloon("Горячая клавиша занята", error +
-                        Loc.T(". Выберите другую в настройках или закройте программу, которая её использует."));
+                        Loc.T(". Выберите другую в настройках или закройте программу, которая её использует."), true);
             }
             UpdateMenu();
             return ok;
@@ -556,7 +557,7 @@ namespace Okna
                         _settings.Enabled
                             ? "Эффекты снова работают."
                             : Loc.T("Нажмите ") + _settings.HotkeyLabel +
-                              Loc.T(" или выберите «Эффект выключен» в трее, чтобы вернуть."));
+                              Loc.T(" или выберите «Эффект выключен» в трее, чтобы вернуть."), true);
         }
 
         /// <summary>
@@ -575,7 +576,7 @@ namespace Okna
                 ClearTimedPause();
                 UpdateMenu();
                 SyncForm();
-                if (notify) Balloon("Окна включены", "Пауза снята.");
+                if (notify) Balloon("Окна включены", "Пауза снята.", true);
                 return;
             }
 
@@ -589,12 +590,12 @@ namespace Okna
                 ClearTimedPause();
                 UpdateMenu();
                 SyncForm();
-                if (notify) Balloon("Окна включены", "Пауза на 30 минут закончилась.");
+                if (notify) Balloon("Окна включены", "Пауза на 30 минут закончилась.", true);
             };
             _pauseTimer.Start();
             UpdateMenu();
             SyncForm();
-            if (notify) Balloon("Окна на паузе", "Эффекты вернутся через 30 минут.");
+            if (notify) Balloon("Окна на паузе", "Эффекты вернутся через 30 минут.", true);
         }
 
         private void ClearTimedPause()
@@ -623,8 +624,12 @@ namespace Okna
                     }
                     else
                     {
-                        _ready = new UpdateInfo();
-                        _ready.Version = pending;
+                        _ready = Updater.LoadPendingInfo();
+                        if (_ready == null || _ready.Version == null)
+                        {
+                            _ready = new UpdateInfo();
+                            _ready.Version = pending;
+                        }
                         UpdateMenu();
                         if (_settings.AutoUpdate) ScheduleApply();
                     }
@@ -653,6 +658,7 @@ namespace Okna
             if (_checking || _downloading) return;
             _checking = true;
             _downloading = false;
+            _downloadProgress = 0;
             if (_checkItem != null) _checkItem.Enabled = false;
             SyncForm();
             UpdateMenu();
@@ -672,11 +678,20 @@ namespace Okna
                             if (_exiting) return;
                             _checking = false;
                             _downloading = true;
+                            _downloadProgress = 0;
                             if (_checkItem != null) _checkItem.Enabled = false;
                             SyncForm();
                             UpdateMenu();
                         });
-                        Updater.Download(found);
+                        Updater.Download(found, delegate(int p)
+                        {
+                            Post(delegate
+                            {
+                                if (_exiting) return;
+                                _downloadProgress = p;
+                                SyncForm();
+                            });
+                        });
                         downloaded = true;
                     }
                 }
@@ -696,6 +711,7 @@ namespace Okna
             if (_exiting) return;
             _checking = false;
             _downloading = false;
+            _downloadProgress = 0;
             if (_checkItem != null) _checkItem.Enabled = true;
             SyncForm();
 
@@ -704,7 +720,7 @@ namespace Okna
                 // Keep a previously ready update if we only failed a re-check; discard partial new state.
                 if (found != null && !downloaded) Updater.Discard();
                 UpdateMenu();
-                if (manual) Balloon(Loc.T("Не удалось обновить/проверить"), error);
+                if (manual) Balloon(Loc.T("Не удалось обновить/проверить"), error, true);
                 return;
             }
 
@@ -713,7 +729,7 @@ namespace Okna
                 Log.Debug("Update check: no newer release");
                 UpdateMenu();
                 if (manual) Balloon(Loc.T("Обновлений нет"),
-                    Loc.T("У вас последняя версия — ") + Updater.CurrentLabel + ".");
+                    Loc.T("У вас последняя версия — ") + Updater.CurrentLabel + ".", true);
                 return;
             }
 
@@ -868,6 +884,11 @@ namespace Okna
             get { return _downloading; }
         }
 
+        internal int DownloadProgress
+        {
+            get { return _downloadProgress; }
+        }
+
         internal bool TimedPauseActive
         {
             get { return _pauseTimer != null; }
@@ -995,11 +1016,17 @@ namespace Okna
 
         internal void Balloon(string title, string text)
         {
+            Balloon(title, text, false);
+        }
+
+        internal void Balloon(string title, string text, bool force)
+        {
             if (_notify == null) return;
+            if (!force && _settings != null && _settings.QuietNotifications) return;
             _notify.BalloonTipTitle = Loc.T(title);
             _notify.BalloonTipText = Loc.T(text);
             _notify.BalloonTipIcon = ToolTipIcon.Info;
-            _notify.ShowBalloonTip(6000);
+            _notify.ShowBalloonTip(force ? 6000 : 4500);
         }
 
         private void Post(MethodInvoker action)
@@ -1153,7 +1180,7 @@ namespace Okna
             {
                 if (Tray != null)
                     Tray.Balloon(Loc.T("Окна уже запущены"),
-                        Loc.T("Программа уже работает в трее."));
+                        Loc.T("Программа уже работает в трее."), true);
                 return;
             }
             if (m.Msg == Native.WM_HOTKEY && m.WParam.ToInt32() == HotkeyId)

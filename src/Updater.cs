@@ -96,6 +96,11 @@ namespace Okna
             get { return Path.Combine(UpdateDir, "pending.txt"); }
         }
 
+        public static string PendingInfoFile
+        {
+            get { return Path.Combine(UpdateDir, "pending.info"); }
+        }
+
         public static string HealthFile
         {
             get { return Path.Combine(UpdateDir, "health.txt"); }
@@ -186,15 +191,43 @@ namespace Okna
         /// </summary>
         public static void Download(UpdateInfo info)
         {
+            Download(info, null);
+        }
+
+        public static void Download(UpdateInfo info, Action<int> progress)
+        {
+            if (info == null) throw new ArgumentNullException("info");
             Directory.CreateDirectory(UpdateDir);
             string temp = StagedExe + ".part";
             try { if (File.Exists(temp)) File.Delete(temp); } catch { }
 
+            Exception downloadError = null;
             using (WebClient client = new WebClient())
+            using (System.Threading.AutoResetEvent done = new System.Threading.AutoResetEvent(false))
             {
                 client.Headers[HttpRequestHeader.UserAgent] = UserAgent;
-                client.DownloadFile(info.DownloadUrl, temp);
+                if (progress != null)
+                {
+                    client.DownloadProgressChanged += delegate(object sender, DownloadProgressChangedEventArgs e)
+                    {
+                        try
+                        {
+                            int p = e.ProgressPercentage;
+                            if (p < 0) p = 0; if (p > 100) p = 100;
+                            progress(p);
+                        }
+                        catch { }
+                    };
+                }
+                client.DownloadFileCompleted += delegate(object sender, System.ComponentModel.AsyncCompletedEventArgs e)
+                {
+                    downloadError = e.Error;
+                    try { done.Set(); } catch { }
+                };
+                client.DownloadFileAsync(new Uri(info.DownloadUrl), temp);
+                done.WaitOne();
             }
+            if (downloadError != null) throw downloadError;
 
             string expected = ReadChecksum(info.Sha256Url);
             string actual = Sha256(temp);
@@ -207,6 +240,67 @@ namespace Okna
             if (File.Exists(StagedExe)) File.Delete(StagedExe);
             File.Move(temp, StagedExe);
             File.WriteAllText(PendingFile, Format(info.Version), Encoding.ASCII);
+            SavePendingInfo(info);
+            if (progress != null) try { progress(100); } catch { }
+        }
+
+        internal static void SavePendingInfo(UpdateInfo info)
+        {
+            SavePendingInfo(info, PendingInfoFile);
+        }
+
+        internal static void SavePendingInfo(UpdateInfo info, string path)
+        {
+            try
+            {
+                if (info == null || string.IsNullOrEmpty(path)) return;
+                StringBuilder sb = new StringBuilder();
+                sb.AppendLine("Version=" + Format(info.Version));
+                sb.AppendLine("PageUrl=" + (info.PageUrl ?? ""));
+                string notes = info.Notes ?? "";
+                notes = notes.Replace("\r", "").Replace("\n", "\\n");
+                sb.AppendLine("Notes=" + notes);
+                string dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Pending info save failed: " + ex.Message);
+            }
+        }
+
+        internal static UpdateInfo LoadPendingInfo()
+        {
+            return LoadPendingInfo(PendingInfoFile);
+        }
+
+        internal static UpdateInfo LoadPendingInfo(string path)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
+                string ver = null, url = null, notes = null;
+                foreach (string raw in File.ReadAllLines(path, Encoding.UTF8))
+                {
+                    int eq = raw.IndexOf('=');
+                    if (eq <= 0) continue;
+                    string k = raw.Substring(0, eq).Trim();
+                    string v = raw.Substring(eq + 1);
+                    if (string.Equals(k, "Version", StringComparison.OrdinalIgnoreCase)) ver = v.Trim();
+                    else if (string.Equals(k, "PageUrl", StringComparison.OrdinalIgnoreCase)) url = v.Trim();
+                    else if (string.Equals(k, "Notes", StringComparison.OrdinalIgnoreCase)) notes = v.Replace("\\n", "\n");
+                }
+                if (string.IsNullOrEmpty(ver)) return null;
+                Version pv;
+                if (!Version.TryParse(ver, out pv)) return null;
+                UpdateInfo info = new UpdateInfo();
+                info.Version = pv;
+                info.PageUrl = url;
+                info.Notes = notes;
+                return info;
+            }
+            catch { return null; }
         }
 
         /// <summary>
@@ -238,6 +332,7 @@ namespace Okna
         public static void Discard()
         {
             try { if (File.Exists(PendingFile)) File.Delete(PendingFile); } catch { }
+            try { if (File.Exists(PendingInfoFile)) File.Delete(PendingInfoFile); } catch { }
             try { if (File.Exists(StagedExe)) File.Delete(StagedExe); } catch { }
             try { if (File.Exists(StagedExe + ".part")) File.Delete(StagedExe + ".part"); } catch { }
         }
@@ -303,6 +398,7 @@ namespace Okna
             StartWatchdog(target, backup, expected, started == null ? 0 : started.Id);
 
             try { File.Delete(PendingFile); } catch { }
+            try { if (File.Exists(PendingInfoFile)) File.Delete(PendingInfoFile); } catch { }
             try { File.Delete(StagedExe); } catch { }
             Log.Info("Update applied, restarting");
             return true;
@@ -494,6 +590,8 @@ namespace Okna
                 if (!File.Exists(PendingFile) && File.Exists(StagedExe)) File.Delete(StagedExe);
                 if (!File.Exists(PendingFile) && File.Exists(StagedExe + ".part"))
                     File.Delete(StagedExe + ".part");
+                if (!File.Exists(PendingFile) && File.Exists(PendingInfoFile))
+                    File.Delete(PendingInfoFile);
                 if (File.Exists(HealthFile) &&
                     DateTime.UtcNow - File.GetLastWriteTimeUtc(HealthFile) > TimeSpan.FromDays(1))
                     File.Delete(HealthFile);

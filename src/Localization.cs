@@ -376,7 +376,11 @@ namespace Okna
                 { "Показать направление", "Show direction" },
                 { "Демонстрация показывает, как окно скатывается в выбранном направлении.", "Demo shows how the window rolls in the selected direction." },
                 { "Направление: ", "Direction: " },
-                { "Если программа прячется в трей при закрытии - окно тоже скатывается в трубочку.", "If an app hides to tray on close, its window also rolls into a tube." }
+                { "Если программа прячется в трей при закрытии - окно тоже скатывается в трубочку.", "If an app hides to tray on close, its window also rolls into a tube." },
+                { "Запуск и уведомления", "Startup and notifications" },
+                { "Меньше уведомлений", "Fewer notifications" },
+                { "Показывать только важные сообщения в трее", "Show only important tray messages" },
+                { "Производительность:", "Performance:" }
             };
 
         private static bool _english;

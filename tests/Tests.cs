@@ -60,6 +60,8 @@ namespace Okna.Tests
             Run("adaptive quality reduces and restores strip detail", AdaptiveQualityLevels);
             Run("snapshot buffers are reused", SnapshotPoolReuse);
             Run("update skip and language survive an INI round-trip", UpdateAndLanguageRoundTrip);
+            Run("quiet mode, call apps and pause delay survive an INI round-trip", QuietCallAppsAndPauseDelayRoundTrip);
+            Run("pending update info round-trips", PendingUpdateInfoRoundTrip);
             Run("settings backup path follows the store", BackupPathLayout);
 
             Console.WriteLine();
@@ -919,6 +921,55 @@ namespace Okna.Tests
                 Check(b.Import(path), "import rejected a file written by export");
                 Check(b.SkippedVersion == "1.8.0", "the skipped version round-trips");
                 Check(b.Language == (int)UiLanguage.English, "the language round-trips");
+            }
+            finally
+            {
+                try { File.Delete(path); } catch { }
+            }
+        }
+
+        private static void QuietCallAppsAndPauseDelayRoundTrip()
+        {
+            string path = Path.Combine(TempDir, "okna-test-" + Guid.NewGuid().ToString("N") + ".ini");
+            try
+            {
+                AppSettings a = new AppSettings();
+                a.QuietNotifications = true;
+                a.AutoPauseResumeDelaySeconds = 7;
+                a.SetCallApps(new string[] { "MyMeeting.exe", "custom-call.exe", "MyMeeting.exe" });
+                a.AddCallApp("Another.exe");
+                a.Export(path);
+
+                AppSettings b = new AppSettings();
+                Check(b.Import(path), "import rejected a file written by export");
+                Check(b.QuietNotifications, "quiet notifications round-trip");
+                Check(b.AutoPauseResumeDelaySeconds == 7, "auto-pause resume delay round-trip");
+                Check(b.CallApps != null && b.CallApps.Length == 3, "call apps deduplicated/round-trip count");
+                Check(Array.IndexOf(b.CallApps, "MyMeeting.exe") >= 0, "custom call app preserved");
+                Check(Array.IndexOf(b.CallApps, "Another.exe") >= 0, "added call app preserved");
+            }
+            finally
+            {
+                try { File.Delete(path); } catch { }
+            }
+        }
+
+        private static void PendingUpdateInfoRoundTrip()
+        {
+            string path = Path.Combine(TempDir, "pending-" + Guid.NewGuid().ToString("N") + ".info");
+            try
+            {
+                UpdateInfo info = new UpdateInfo();
+                info.Version = new Version(1, 8, 99);
+                info.PageUrl = "https://github.com/Sergey35853/okna/releases/tag/v1.8.99";
+                info.Notes = "Line1\nLine2\r\nLine3";
+                Updater.SavePendingInfo(info, path);
+
+                UpdateInfo loaded = Updater.LoadPendingInfo(path);
+                Check(loaded != null, "pending info should load");
+                Check(loaded.Version != null && loaded.Version.ToString().StartsWith("1.8.99"), "pending version");
+                Check(loaded.PageUrl == info.PageUrl, "pending page url");
+                Check(loaded.Notes != null && loaded.Notes.Contains("Line1") && loaded.Notes.Contains("Line3"), "pending notes preserved");
             }
             finally
             {

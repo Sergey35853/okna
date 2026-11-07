@@ -61,6 +61,13 @@ namespace Okna
             get { return _darkTheme; }
             set { _darkTheme = value; }
         }
+        private volatile bool _quietNotifications = false;
+        /// <summary>Show fewer tray balloons (non-critical/background events).</summary>
+        public bool QuietNotifications
+        {
+            get { return _quietNotifications; }
+            set { _quietNotifications = value; }
+        }
         private bool _portable;
         private string _portablePath;
 
@@ -840,6 +847,7 @@ namespace Okna
             _autoStartElevated = false;
             _fade = false;
             _darkTheme = false;
+            _quietNotifications = false;
         }
 
         public static AppSettings Load()
@@ -933,6 +941,8 @@ namespace Okna
                         if (v != null) s.Fade = Convert.ToInt32(v) != 0;
                         v = key.GetValue("DarkTheme");
                         if (v != null) s.DarkTheme = Convert.ToInt32(v) != 0;
+                        v = key.GetValue("QuietNotifications");
+                        if (v != null) s.QuietNotifications = Convert.ToInt32(v) != 0;
                     }
                 }
 
@@ -1062,6 +1072,7 @@ namespace Okna
             AutoStartElevated = GetBool(map, "AutoStartElevated", false);
             Fade = GetBool(map, "Fade", false);
             DarkTheme = GetBool(map, "DarkTheme", false);
+            QuietNotifications = GetBool(map, "QuietNotifications", false);
             Economy = GetBool(map, "Economy", false);
             PauseOnBattery = GetBool(map, "PauseOnBattery", false);
             PauseOnCall = GetBool(map, "PauseOnCall", true);
@@ -1230,6 +1241,7 @@ namespace Okna
                     key.SetValue("AutoStartElevated", _autoStartElevated ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("Fade", _fade ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("DarkTheme", _darkTheme ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue("QuietNotifications", _quietNotifications ? 1 : 0, RegistryValueKind.DWord);
                 }
                 WriteBackup(BackupPath);
             }
@@ -1288,6 +1300,7 @@ namespace Okna
             AutoStartElevated = GetBool(map, "AutoStartElevated", AutoStartElevated);
             Fade = GetBool(map, "Fade", Fade);
             DarkTheme = GetBool(map, "DarkTheme", DarkTheme);
+            QuietNotifications = GetBool(map, "QuietNotifications", QuietNotifications);
             Economy = GetBool(map, "Economy", Economy);
             PauseOnBattery = GetBool(map, "PauseOnBattery", PauseOnBattery);
             PauseOnCall = GetBool(map, "PauseOnCall", PauseOnCall);
@@ -1344,6 +1357,7 @@ namespace Okna
                 sb.AppendLine("AutoStartElevated=" + (_autoStartElevated ? 1 : 0));
                 sb.AppendLine("Fade=" + (_fade ? 1 : 0));
                 sb.AppendLine("DarkTheme=" + (_darkTheme ? 1 : 0));
+                sb.AppendLine("QuietNotifications=" + (_quietNotifications ? 1 : 0));
                 sb.AppendLine("Economy=" + (_economy ? 1 : 0));
                 sb.AppendLine("PauseOnBattery=" + (_pauseOnBattery ? 1 : 0));
                 sb.AppendLine("PauseOnCall=" + (_pauseOnCall ? 1 : 0));

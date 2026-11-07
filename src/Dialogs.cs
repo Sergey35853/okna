@@ -493,9 +493,16 @@ namespace Okna
             sb.AppendLine("  Economy=" + settings.Economy + " PauseOnBattery=" + settings.PauseOnBattery +
                           " PauseOnCall=" + settings.PauseOnCall +
                           " RespectReduceMotion=" + settings.RespectReduceMotion);
-            sb.AppendLine("  Hotkey=" + settings.HotkeyLabel + " AutoUpdate=" + settings.AutoUpdate);
+            sb.AppendLine("  Hotkey=" + settings.HotkeyLabel + " AutoUpdate=" + settings.AutoUpdate +
+                          " QuietNotifications=" + settings.QuietNotifications);
             sb.AppendLine("  Exclude=" + string.Join(", ", settings.Exclude));
             sb.AppendLine("  CloseOverrides=" + string.Join(", ", settings.CloseOverrides));
+            sb.AppendLine("  CallApps=" + string.Join(", ", settings.CallApps));
+            sb.AppendLine();
+            sb.AppendLine(Loc.T("Производительность:"));
+            sb.AppendLine("  AdaptiveQuality=" + AdaptiveQuality.Level + " avgMs=" + AdaptiveQuality.AverageMs.ToString("0.0"));
+            if (engine != null)
+                sb.AppendLine("  Drag=" + engine.DragPerfSummary + " resizeWaves=" + engine.ResizeWaves);
             sb.AppendLine();
 
             sb.AppendLine(Loc.T("Экраны:"));

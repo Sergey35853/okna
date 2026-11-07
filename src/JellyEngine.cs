@@ -139,6 +139,13 @@ namespace Okna
         private double _resizePendingSpeed;
         private int _resizeWaves;
 
+        // Drag performance counters (debug/diagnostics). Helps tune throttling.
+        private int _dragMoveAttempts;
+        private int _dragMovesThrottled;
+        private int _dragMovesApplied;
+        private int _dragMoveFailures;
+        private DateTime _dragPerfLogAt;
+
         private Native.RECT _shakeRect;
         private DateTime _shakeStart;
         private bool _shakeZoomed;
@@ -236,6 +243,16 @@ namespace Okna
         public int ResizeWaves
         {
             get { return _resizeWaves; }
+        }
+
+        public string DragPerfSummary
+        {
+            get
+            {
+                return "attempts=" + _dragMoveAttempts + " throttled=" + _dragMovesThrottled +
+                       " applied=" + _dragMovesApplied + " failed=" + _dragMoveFailures +
+                       " aq=" + AdaptiveQuality.Level + " avgMs=" + AdaptiveQuality.AverageMs.ToString("0.0");
+            }
         }
 
         /// <summary>

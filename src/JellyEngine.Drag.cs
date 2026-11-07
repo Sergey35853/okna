@@ -427,11 +427,20 @@ namespace Okna
                 return;
 
             // Throttle rigid moves to avoid SetWindowPos storms (a major source of
-            // stutter/freezes during jelly drag). Settling still animates smoothly.
+            // stutter/freezes during jelly drag). Adaptive: back off when frames are slow.
+            System.Threading.Interlocked.Increment(ref _dragMoveAttempts);
             DateTime utcNow = DateTime.UtcNow;
             double minMs = settling ? 8.0 : 7.0;
+            int aq = AdaptiveQuality.Level;
+            if (aq >= AdaptiveQuality.Reduced) minMs += 2.0;
+            if (aq >= AdaptiveQuality.Lowest) minMs += 3.0;
+            double avg = AdaptiveQuality.AverageMs;
+            if (avg > 18.0) minMs += Math.Min(6.0, (avg - 18.0) * 0.25);
             if (_lastMoveAt != DateTime.MinValue && (utcNow - _lastMoveAt).TotalMilliseconds < minMs)
+            {
+                System.Threading.Interlocked.Increment(ref _dragMovesThrottled);
                 return;
+            }
 
             _lastMoveAt = utcNow;
             _lastRequestedX = nx;
@@ -447,8 +456,22 @@ namespace Okna
 
             bool moved = Native.SetWindowPos(_target, IntPtr.Zero, nx, ny, nw, nh, flags);
             _frame++;
-            if (!moved && _frame % 10 == 1)
-                Log.Debug("Drag SetWindowPos failed (elevated target?) target=" + _target.ToInt64());
+            if (moved)
+                System.Threading.Interlocked.Increment(ref _dragMovesApplied);
+            else
+            {
+                System.Threading.Interlocked.Increment(ref _dragMoveFailures);
+                if (_frame % 10 == 1)
+                    Log.Debug("Drag SetWindowPos failed (elevated target?) target=" + _target.ToInt64());
+            }
+            if (_dragMoveAttempts > 0 && _dragMoveAttempts % 240 == 0)
+            {
+                if (_dragPerfLogAt == DateTime.MinValue || (utcNow - _dragPerfLogAt).TotalSeconds >= 5)
+                {
+                    _dragPerfLogAt = utcNow;
+                    Log.Debug("Drag perf " + DragPerfSummary);
+                }
+            }
         }
 
         private void ActivateOverlay(Native.POINT cursor)
