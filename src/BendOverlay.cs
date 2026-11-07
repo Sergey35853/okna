@@ -19,13 +19,15 @@ namespace Okna
         // the strongest bends). Pixel rows keep every step at one pixel, which
         // reads as a smooth bend. The cap only bounds the arrays for very tall
         // windows.
-        private const int StripTarget = 2400;
+        private const int StripTarget = 3200;
         // Work budget for one composed bend frame. The headroom keeps a
         // 1920-wide window up to 1200 pixels tall on one strip per pixel row;
-        // only larger windows grow to two or more pixels per strip.
+        // a 4K window still lands at two-pixel strips instead of four, so the
+        // bend stays smooth on large screens. Adaptive quality reduces the
+        // strip count further when frames slow down.
         private const long PixelBudget = 1200000L;
         private const int PixelHeadroom = 2;
-        private const int MaxStripHeight = 4;
+        private const int MaxStripHeight = 2;
 
         private static readonly string _dumpDir = Environment.GetEnvironmentVariable("OKNA_DUMP");
         private int _dumpIndex;

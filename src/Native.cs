@@ -11,6 +11,7 @@ namespace Okna
         public const int WM_CANCELMODE = 0x001F;
         public const int WM_APP = 0x8000;
         public const int WM_APP_SHOW = WM_APP + 1;
+        public const int WM_APP_ALREADY_RUNNING = WM_APP + 2;
 
         public const int HTCAPTION = 2;
         public const int HTMINBUTTON = 8;

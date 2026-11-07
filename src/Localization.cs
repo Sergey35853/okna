@@ -187,6 +187,8 @@ namespace Okna
                 { " уже занята другой программой", " is already used by another program" },
                 { ". Выберите другую в настройках или закройте программу, которая её использует.", ". Choose another one in the settings or close the program that uses it." },
                 { "Не удалось открыть журнал", "Could not open the log" },
+                { "Прошлые запуски завершились неудачно, поэтому эффекты выключены. Включите их в трее, когда всё будет в порядке.", "Previous starts failed, so the effects are turned off. Turn them on in the tray when everything is in order." },
+                { "Окна уже запущены", "Okna is already running" },
                 { "Окна столкнулись с ошибкой.", "Okna ran into a problem." },
                 { "Неизвестная ошибка.", "Unknown error." },
                 { "Подробности записаны в ", "Details were written to " },
@@ -200,7 +202,7 @@ namespace Okna
                 { "Текущая версия: ", "Current version: " },
                 { "Новая версия: ", "New version: " },
                 { "Безопасный режим", "Safe mode" },
-                { "Прошлые запуски завершились неудачно, поэтому эффекты выключены. Включите их в трее, когда всё будет в порядке.", "Previous runs did not finish cleanly, so the effects are off. Turn them on in the tray when everything is fine." },
+                { "Программа уже работает в трее.", "The program is already running in the tray." },
 
                 // Dialogs.
                 { "Что открыто сейчас", "What is open now" },

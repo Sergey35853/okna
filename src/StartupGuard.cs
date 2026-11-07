@@ -17,6 +17,8 @@ namespace Okna
 
         private static int _failures;
         private static bool _safeMode;
+        private static int _healthyStarts;
+        private const int AutoClearLimit = 3;
 
         public static bool SafeMode
         {
@@ -74,9 +76,24 @@ namespace Okna
         /// </summary>
         public static void MarkHealthy()
         {
-            if (_safeMode) return;
             _failures = 0;
             Write(0);
+            if (_safeMode)
+            {
+                // Several healthy starts in a row clear safe mode automatically
+                // so the user is not stuck until they manually re-enables effects.
+                _healthyStarts++;
+                if (_healthyStarts >= AutoClearLimit)
+                {
+                    _safeMode = false;
+                    _healthyStarts = 0;
+                    Log.Info("Startup guard: safe mode auto-cleared after " + AutoClearLimit + " healthy starts");
+                }
+            }
+            else
+            {
+                _healthyStarts = 0;
+            }
         }
 
         /// <summary>The user turned the effects on: leave safe mode for good.</summary>

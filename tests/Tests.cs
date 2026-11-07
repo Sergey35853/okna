@@ -591,8 +591,8 @@ namespace Okna.Tests
                 "a 1920x1200 window should keep the pixel-perfect bend");
             Check(BendOverlay.ComputeStripHeight(2560, 1440) == 2,
                 "a 2560x1440 window should use two-pixel strips");
-            Check(BendOverlay.ComputeStripHeight(3840, 2160) == 4,
-                "a 4K window should use four-pixel strips");
+            Check(BendOverlay.ComputeStripHeight(3840, 2160) == 2,
+                "a 4K window should use two-pixel strips");
             Check(BendOverlay.ComputeStripHeight(7680, 4320) <= 4,
                 "an 8K window should stay inside the strip cap");
             Check(BendOverlay.ComputeStripHeight(800, 600) == 1,

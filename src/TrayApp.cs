@@ -242,9 +242,8 @@ namespace Okna
 
             if (StartupGuard.SafeMode)
             {
-                Balloon("Безопасный режим",
-                    "Прошлые запуски завершились неудачно, поэтому эффекты выключены. " +
-                    "Включите их в трее, когда всё будет в порядке.");
+                Balloon(Loc.T("Безопасный режим"),
+                    Loc.T("Прошлые запуски завершились неудачно, поэтому эффекты выключены. Включите их в трее, когда всё будет в порядке."));
             }
 
             if (_showOnStart)
@@ -861,7 +860,7 @@ namespace Okna
             try { _menu.Dispose(); } catch { }
         }
 
-        private void Balloon(string title, string text)
+        internal void Balloon(string title, string text)
         {
             if (_notify == null) return;
             _notify.BalloonTipTitle = Loc.T(title);
@@ -1015,6 +1014,13 @@ namespace Okna
             if (m.Msg == Native.WM_APP_SHOW)
             {
                 if (Tray != null) Tray.ShowSettings();
+                return;
+            }
+            if (m.Msg == Native.WM_APP_ALREADY_RUNNING)
+            {
+                if (Tray != null)
+                    Tray.Balloon(Loc.T("Окна уже запущены"),
+                        Loc.T("Программа уже работает в трее."));
                 return;
             }
             if (m.Msg == Native.WM_HOTKEY && m.WParam.ToInt32() == HotkeyId)

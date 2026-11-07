@@ -176,6 +176,9 @@ namespace Okna
                 if (hwnd != IntPtr.Zero)
                 {
                     Native.PostMessage(hwnd, Native.WM_APP_SHOW, IntPtr.Zero, IntPtr.Zero);
+                    // Tell the running instance to show a "already running"
+                    // balloon so the second launch is not a silent no-op.
+                    Native.PostMessage(hwnd, Native.WM_APP_ALREADY_RUNNING, IntPtr.Zero, IntPtr.Zero);
                     return;
                 }
                 Thread.Sleep(100);

@@ -71,7 +71,17 @@ namespace Okna
                     {
                         string old = OldPathFor(path);
                         try { if (File.Exists(old)) File.Delete(old); } catch { }
-                        try { File.Move(path, old); } catch { }
+                        try
+                        {
+                            File.Move(path, old);
+                        }
+                        catch
+                        {
+                            // The rotated target is locked by another process:
+                            // truncate the current file instead of losing the
+                            // line, and keep appending.
+                            try { File.WriteAllText(path, string.Empty); } catch { }
+                        }
                         // A build before 1.7.4 used "okna.log.old".
                         string legacy = path + ".old";
                         try { if (File.Exists(legacy)) File.Delete(legacy); } catch { }
