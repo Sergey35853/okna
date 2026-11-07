@@ -24,6 +24,7 @@ namespace Okna
         private JellySwitch _rollSwitch;
         private JellyButton[] _directionButtons;
         private JellySwitch _startupSwitch;
+        private JellySwitch _autoStartElevatedSwitch;
         private JellySwitch _callSwitch;
         private JellySwitch _batterySwitch;
         private JellySwitch _motionSwitch;
@@ -261,7 +262,7 @@ namespace Okna
 
             CardPanel behaviorCard = new CardPanel();
             behaviorCard.Location = new Point(leftX, topY + 184 + gap);
-            behaviorCard.Size = new Size(colW, 204);
+            behaviorCard.Size = new Size(colW, 280);
             Controls.Add(behaviorCard);
 
             Label wobbleTitle = MakeLabel("Покачивание при отпускании", 20, 12, Theme.FontCardTitle, Theme.Text);
@@ -318,8 +319,17 @@ namespace Okna
             _startupSwitch.Location = new Point(432, 172);
             behaviorCard.Controls.Add(_startupSwitch);
 
+            Label elevatedTitle = MakeLabel("Запуск от имени администратора", 20, 208, Theme.FontCardTitle, Theme.Text);
+            behaviorCard.Controls.Add(elevatedTitle);
+            Label elevatedSub = MakeLabel("Запускать с правами администратора при входе в Windows", 20, 230, Theme.FontSmall, Theme.Muted);
+            behaviorCard.Controls.Add(elevatedSub);
+
+            _autoStartElevatedSwitch = new JellySwitch();
+            _autoStartElevatedSwitch.Location = new Point(432, 212);
+            behaviorCard.Controls.Add(_autoStartElevatedSwitch);
+
             CardPanel closeCard = new CardPanel();
-            closeCard.Location = new Point(leftX, topY + 184 + gap + 204 + gap);
+            closeCard.Location = new Point(leftX, topY + 184 + gap + 280 + gap);
             closeCard.Size = new Size(colW, 220);
             Controls.Add(closeCard);
 
@@ -384,7 +394,7 @@ namespace Okna
             }
 
             CardPanel hotkeyCard = new CardPanel();
-            hotkeyCard.Location = new Point(leftX, topY + 184 + gap + 204 + gap + 220 + gap);
+            hotkeyCard.Location = new Point(leftX, topY + 184 + gap + 280 + gap + 220 + gap);
             hotkeyCard.Size = new Size(colW, 112);
             Controls.Add(hotkeyCard);
 
@@ -733,6 +743,13 @@ namespace Okna
                 SaveSoon();
             };
 
+            _autoStartElevatedSwitch.CheckedChanged += delegate
+            {
+                _settings.AutoStartElevated = _autoStartElevatedSwitch.Checked;
+                AppSettings.SetAutoStartElevated(_autoStartElevatedSwitch.Checked, Application.ExecutablePath);
+                SaveSoon();
+            };
+
             _callSwitch.CheckedChanged += delegate
             {
                 _settings.PauseOnCall = _callSwitch.Checked;
@@ -854,6 +871,7 @@ namespace Okna
                 _rollSwitch.Checked = _settings.Roll;
                 UpdateDirectionStyles();
                 _startupSwitch.Checked = _settings.StartWithWindows;
+                _autoStartElevatedSwitch.Checked = _settings.AutoStartElevated;
                 _callSwitch.Checked = _settings.PauseOnCall;
                 _batterySwitch.Checked = _settings.PauseOnBattery;
                 _motionSwitch.Checked = _settings.RespectReduceMotion;

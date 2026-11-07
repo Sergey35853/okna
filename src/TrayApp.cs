@@ -38,6 +38,7 @@ namespace Okna
         private ToolStripMenuItem _skipItem;
         private ToolStripMenuItem _checkItem;
         private ToolStripMenuItem _autoUpdateItem;
+        private ToolStripMenuItem _autoStartElevatedItem;
         private Timer _updateTimer;
         private Timer _firstCheck;
         private Timer _applyTimer;
@@ -163,6 +164,18 @@ namespace Okna
                 SyncForm();
             };
             _menu.Items.Add(_startupItem);
+
+            _autoStartElevatedItem = NewItem("Запуск от имени администратора");
+            _autoStartElevatedItem.Click += delegate
+            {
+                bool enable = !AppSettings.IsAutoStartElevatedEnabled();
+                AppSettings.SetAutoStartElevated(enable, Application.ExecutablePath);
+                _settings.AutoStartElevated = enable;
+                Persist();
+                UpdateMenu();
+                SyncForm();
+            };
+            _menu.Items.Add(_autoStartElevatedItem);
 
             _menu.Items.Add(new ToolStripSeparator());
 
@@ -362,6 +375,15 @@ namespace Okna
             }
 
             SetText(_startupItem, _settings.StartWithWindows ? "Автозапуск включён" : "Автозапуск выключен");
+
+            if (_autoStartElevatedItem != null)
+            {
+                bool elevated = AppSettings.IsAutoStartElevatedEnabled();
+                _autoStartElevatedItem.Checked = elevated;
+                _autoStartElevatedItem.Text = elevated
+                    ? Loc.T("Запуск от имени администратора: вкл")
+                    : Loc.T("Запуск от имени администратора: выкл");
+            }
 
             if (_jellyItem != null)
             {

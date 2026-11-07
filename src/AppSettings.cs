@@ -49,8 +49,16 @@ namespace Okna
         private volatile string[] _closeOverrides = new string[0];
         private volatile string _skippedVersion = "";
         private volatile int _language = 0;
+        private volatile bool _autoStartElevated = false;
         private bool _portable;
         private string _portablePath;
+
+        /// <summary>Starts Okna with highest privileges (as administrator) at Windows logon via a scheduled task.</summary>
+        public bool AutoStartElevated
+        {
+            get { return _autoStartElevated; }
+            set { _autoStartElevated = value; }
+        }
 
         public bool Enabled
         {
@@ -725,6 +733,7 @@ namespace Okna
             _closeOverrides = new string[0];
             _skippedVersion = "";
             _language = 0;
+            _autoStartElevated = false;
         }
 
         public static AppSettings Load()
@@ -806,6 +815,8 @@ namespace Okna
                             s.SetCloseOverrides((string[])v);
                         v = key.GetValue("FirstRun");
                         s.FirstRun = v == null || Convert.ToInt32(v) != 0;
+                        v = key.GetValue("AutoStartElevated");
+                        if (v != null) s.AutoStartElevated = Convert.ToInt32(v) != 0;
                     }
                 }
 
@@ -895,6 +906,7 @@ namespace Okna
             AutoUpdate = GetBool(map, "AutoUpdate", true);
             SkippedVersion = GetString(map, "SkippedVersion", "");
             Language = GetInt(map, "Language", 0);
+            AutoStartElevated = GetBool(map, "AutoStartElevated", false);
             Economy = GetBool(map, "Economy", false);
             PauseOnBattery = GetBool(map, "PauseOnBattery", false);
             PauseOnCall = GetBool(map, "PauseOnCall", true);
@@ -1051,6 +1063,7 @@ namespace Okna
                     key.SetValue("Exclude", _exclude, RegistryValueKind.MultiString);
                     key.SetValue("CloseOverrides", _closeOverrides, RegistryValueKind.MultiString);
                     key.SetValue("FirstRun", 0, RegistryValueKind.DWord);
+                    key.SetValue("AutoStartElevated", _autoStartElevated ? 1 : 0, RegistryValueKind.DWord);
                 }
                 WriteBackup(BackupPath);
             }
@@ -1152,6 +1165,7 @@ namespace Okna
                 sb.AppendLine("AutoUpdate=" + (_autoUpdate ? 1 : 0));
                 sb.AppendLine("SkippedVersion=" + (_skippedVersion ?? ""));
                 sb.AppendLine("Language=" + _language);
+                sb.AppendLine("AutoStartElevated=" + (_autoStartElevated ? 1 : 0));
                 sb.AppendLine("Economy=" + (_economy ? 1 : 0));
                 sb.AppendLine("PauseOnBattery=" + (_pauseOnBattery ? 1 : 0));
                 sb.AppendLine("PauseOnCall=" + (_pauseOnCall ? 1 : 0));
@@ -1202,10 +1216,122 @@ namespace Okna
                     else
                         key.DeleteValue(RunValue, false);
                 }
+                // When starting via the normal Run key, remove the elevated
+                // scheduled task so Okna does not start twice.
+                if (enabled)
+                {
+                    try
+                    {
+                        using (var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = "schtasks.exe",
+                            Arguments = "/Delete /TN \"" + TaskName + "\" /F",
+                            UseShellExecute = false,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            CreateNoWindow = true
+                        }))
+                        {
+                            proc.WaitForExit(5000);
+                        }
+                    }
+                    catch { }
+                }
             }
             catch (Exception ex)
             {
                 Log.Error("Autostart update failed: " + ex.Message);
+            }
+        }
+
+        private const string TaskName = "Okna";
+
+        /// <summary>True when a scheduled task starts Okna elevated at logon.</summary>
+        public static bool IsAutoStartElevatedEnabled()
+        {
+            try
+            {
+                using (var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "schtasks.exe",
+                    Arguments = "/Query /TN \"" + TaskName + "\" /FO LIST",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                }))
+                {
+                    string output = proc.StandardOutput.ReadToEnd();
+                    proc.WaitForExit(5000);
+                    return output.Contains("Okna") && output.Contains("Highest Available");
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Creates a scheduled task that starts Okna with --silent at logon
+        /// using the highest available privilege level (administrator).
+        /// Removes any previous registry Run entry to avoid double start.
+        /// </summary>
+        public static void SetAutoStartElevated(bool enabled, string executablePath)
+        {
+            try
+            {
+                if (enabled)
+                {
+                    // Remove the plain registry Run entry so Okna does not start twice.
+                    try
+                    {
+                        using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RunKey, true))
+                        {
+                            if (key != null) key.DeleteValue(RunValue, false);
+                        }
+                    }
+                    catch { }
+
+                    string args = "/Create /TN \"" + TaskName + "\" /TR \"" +
+                        executablePath + " --silent\" /SC ONLOGON /RL HIGHEST /F";
+                    using (var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "schtasks.exe",
+                        Arguments = args,
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    }))
+                    {
+                        proc.WaitForExit(10000);
+                        string err = proc.StandardError.ReadToEnd();
+                        if (proc.ExitCode != 0)
+                            Log.Error("Elevated autostart task failed: " + err);
+                        else
+                            Log.Info("Elevated autostart task created");
+                    }
+                }
+                else
+                {
+                    using (var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "schtasks.exe",
+                        Arguments = "/Delete /TN \"" + TaskName + "\" /F",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    }))
+                    {
+                        proc.WaitForExit(5000);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Elevated autostart update failed: " + ex.Message);
             }
         }
 
