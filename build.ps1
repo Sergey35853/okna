@@ -40,4 +40,9 @@ if ($LASTEXITCODE -ne 0) {
     throw "Compilation failed with exit code $LASTEXITCODE"
 }
 
+$sign = Join-Path $PSScriptRoot "sign.ps1"
+if (Test-Path $sign) {
+    & $sign -Path (Join-Path $OutputDir "Okna.exe")
+}
+
 Write-Output "Built $OutputDir\Okna.exe"

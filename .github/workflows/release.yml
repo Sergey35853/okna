@@ -16,6 +16,11 @@ jobs:
 
       - name: Build
         shell: pwsh
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+          SIGN_CERT_SHA1: ${{ secrets.SIGN_CERT_SHA1 }}
+          SIGN_TIMESTAMP: ${{ secrets.SIGN_TIMESTAMP }}
         run: .\build.ps1
 
       - name: Test
@@ -26,19 +31,40 @@ jobs:
         shell: pwsh
         run: .\ui-smoke.ps1
 
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Installer
+        shell: pwsh
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+          SIGN_CERT_SHA1: ${{ secrets.SIGN_CERT_SHA1 }}
+          SIGN_TIMESTAMP: ${{ secrets.SIGN_TIMESTAMP }}
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          .\installer.ps1 -Version $version
+
       - name: Checksum
         shell: pwsh
         run: |
           $hash = (Get-FileHash dist\Okna.exe -Algorithm SHA256).Hash.ToLower()
           "$hash  Okna.exe" | Out-File -FilePath dist\Okna.exe.sha256 -Encoding ascii
+          $setup = Get-ChildItem dist\Okna-Setup-*.exe | Select-Object -First 1
+          $setupHash = (Get-FileHash $setup.FullName -Algorithm SHA256).Hash.ToLower()
+          "$setupHash  $($setup.Name)" | Out-File -FilePath "$($setup.FullName).sha256" -Encoding ascii
           Get-Content dist\Okna.exe.sha256
+          Get-Content "$($setup.FullName).sha256"
 
       - name: Publish release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $setup = Get-ChildItem dist\Okna-Setup-*.exe | Select-Object -First 1
           gh release create "${{ github.ref_name }}" `
             "dist\Okna.exe" "dist\Okna.exe.sha256" `
+            $setup.FullName "$($setup.FullName).sha256" `
             --title "Окна ${{ github.ref_name }}" `
             --generate-notes

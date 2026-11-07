@@ -47,7 +47,7 @@ namespace Okna
                         }
                         else
                         {
-                            shot.Dispose();
+                            ShotPool.Return(shot);
                         }
                     }
                     return;
@@ -76,7 +76,7 @@ namespace Okna
                         if (RollAllowed(_closeExe))
                             RollOverlay.PlayToTray(hiddenShot, _closeFrame, _settings.RollDirection);
                         else
-                            hiddenShot.Dispose();
+                            ShotPool.Return(hiddenShot);
                     }
                     return;
                 }
@@ -165,7 +165,8 @@ namespace Okna
             Bitmap shot = null;
             try
             {
-                shot = new Bitmap(ext.Width, ext.Height, System.Drawing.Imaging.PixelFormat.Format32bppRgb);
+                shot = ShotPool.Rent(ext.Width, ext.Height,
+                    System.Drawing.Imaging.PixelFormat.Format32bppRgb);
                 using (Graphics g = Graphics.FromImage(shot))
                 {
                     g.CopyFromScreen(ext.Left, ext.Top, 0, 0,
@@ -175,11 +176,11 @@ namespace Okna
             catch (Exception ex)
             {
                 Log.Debug("Close snapshot failed: " + ex.GetType().Name + ": " + ex.Message);
-                if (shot != null) shot.Dispose();
+                if (shot != null) ShotPool.Return(shot);
                 return;
             }
 
-            if (_closeShot != null) _closeShot.Dispose();
+            if (_closeShot != null) ShotPool.Return(_closeShot);
             _closeShot = shot;
             _closeFrame = ext;
             _closePoint = point;
@@ -195,7 +196,7 @@ namespace Okna
             _closeExe = null;
             if (_closeShot != null)
             {
-                _closeShot.Dispose();
+                ShotPool.Return(_closeShot);
                 _closeShot = null;
             }
         }
@@ -241,7 +242,7 @@ namespace Okna
                     if (RollAllowed(Native.GetWindowProcessName(target)))
                         RollOverlay.Play(shot, frame, target, _settings.RollDirection);
                     else if (shot != null)
-                        shot.Dispose();
+                        ShotPool.Return(shot);
                     return;
                 }
 
@@ -416,7 +417,7 @@ namespace Okna
             Bitmap shot = null;
             try
             {
-                shot = new Bitmap(ext.Width, ext.Height,
+                shot = ShotPool.Rent(ext.Width, ext.Height,
                     System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
                 using (Graphics g = Graphics.FromImage(shot))
                 {
@@ -427,7 +428,7 @@ namespace Okna
             catch (Exception ex)
             {
                 Log.Debug("Minimize snapshot failed: " + ex.GetType().Name + ": " + ex.Message);
-                if (shot != null) shot.Dispose();
+                if (shot != null) ShotPool.Return(shot);
                 return;
             }
 
@@ -443,7 +444,7 @@ namespace Okna
                 after.Right != frame.Right || after.Bottom != frame.Bottom)
             {
                 Log.Debug("Minimize snapshot dropped: window vanished or moved");
-                shot.Dispose();
+                ShotPool.Return(shot);
                 return;
             }
 
@@ -458,7 +459,7 @@ namespace Okna
                 _minimizeTransitionAt = now;
             }
 
-            if (_minimizeShot != null) _minimizeShot.Dispose();
+            if (_minimizeShot != null) ShotPool.Return(_minimizeShot);
             _minimizeShot = shot;
             _minimizeFrame = ext;
             _minimizeShotAt = now;
@@ -482,7 +483,7 @@ namespace Okna
             _minimizeWatch = IntPtr.Zero;
             if (_minimizeShot != null)
             {
-                _minimizeShot.Dispose();
+                ShotPool.Return(_minimizeShot);
                 _minimizeShot = null;
             }
         }

@@ -340,6 +340,7 @@ namespace Okna
             _thread.IsBackground = true;
             _thread.Priority = ThreadPriority.AboveNormal;
             _thread.Name = "Okna.Engine";
+            AdaptiveQuality.Reset();
             _thread.Start();
             Log.Info("Engine started. elevated=" + _ownElevated);
         }
@@ -440,6 +441,7 @@ namespace Okna
 
                     double now = clock.Elapsed.TotalSeconds;
                     double dt = now - last;
+                    double frameMs = dt * 1000.0;
                     last = now;
                     if (dt < 0.001)
                     {
@@ -447,6 +449,7 @@ namespace Okna
                         continue;
                     }
                     if (dt > 0.05) dt = 0.05;
+                    AdaptiveQuality.Sample(frameMs, now);
 
                     try
                     {
@@ -505,6 +508,7 @@ namespace Okna
                     if (!_shotBusy) _shot.Dispose();
                     ClearCloseWatch();
                     ClearMinimizeWatch();
+                    ShotPool.Clear();
                 }
                 catch (Exception ex)
                 {
@@ -777,7 +781,7 @@ namespace Okna
                     _targetX = _pressRect.Left;
                     _targetY = _pressRect.Top;
                     BeginSettle(now, false);
-                    SetStatus("Отмена");
+                    SetStatus("Отменено");
                     return;
                 }
 

@@ -425,6 +425,7 @@ namespace Okna
             string text = _status;
             if (text == "Готово") text = "Активно";
             if (text == "Удержание") text = "Активно";
+            text = Loc.Status(text);
 
             RectangleF rect = new RectangleF(0, 0, Width - 1, Height - 1);
             using (SolidBrush fill = new SolidBrush(Color.FromArgb(150, Theme.CardAlt)))

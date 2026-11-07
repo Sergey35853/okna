@@ -233,6 +233,16 @@ namespace Okna
         }
 
         /// <summary>
+        /// Throws away a staged release that the user decided not to install.
+        /// </summary>
+        public static void Discard()
+        {
+            try { if (File.Exists(PendingFile)) File.Delete(PendingFile); } catch { }
+            try { if (File.Exists(StagedExe)) File.Delete(StagedExe); } catch { }
+            try { if (File.Exists(StagedExe + ".part")) File.Delete(StagedExe + ".part"); } catch { }
+        }
+
+        /// <summary>
         /// Puts the staged build in place and starts it. The running image is
         /// renamed first, which Windows allows; the new copy then takes its
         /// place. Returns true when the new process was started.

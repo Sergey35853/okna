@@ -77,6 +77,11 @@ namespace Okna
                 return;
             }
 
+            // Count this start. Two starts that never reached the healthy
+            // marker put this run into safe mode: the effects stay off in
+            // memory until the user turns them on again.
+            bool safeMode = StartupGuard.Begin();
+
             try
             {
                 Updater.Cleanup();
@@ -95,7 +100,15 @@ namespace Okna
                 AppDomain.CurrentDomain.UnhandledException += OnDomainException;
 
                 AppSettings settings = AppSettings.Load();
+                Loc.Configure(settings.Language);
                 AppSettings.RefreshAutoStartPath(Application.ExecutablePath);
+                if (safeMode)
+                {
+                    // Memory only: the stored value is left alone so the
+                    // effects come back as soon as the user asks for them.
+                    settings.Enabled = false;
+                    Log.Info("Safe mode: effects disabled for this run");
+                }
 
                 Icon icon = LoadIcon();
                 JellyEngine engine = new JellyEngine(settings);
@@ -121,6 +134,7 @@ namespace Okna
                     _healthTimer.Dispose();
                     _healthTimer = null;
                     Updater.MarkHealthy();
+                    StartupGuard.MarkHealthy();
                 };
                 _healthTimer.Start();
 
@@ -199,10 +213,11 @@ namespace Okna
             try
             {
                 MessageBox.Show(
-                    "Окна столкнулись с ошибкой.\n\n" +
-                    (ex == null ? "Неизвестная ошибка." : ex.Message) +
-                    "\n\nПодробности записаны в %LOCALAPPDATA%\\Okna\\okna.log",
-                    "Окна", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    Loc.T("Окна столкнулись с ошибкой.") + "\n\n" +
+                    (ex == null ? Loc.T("Неизвестная ошибка.") : ex.Message) +
+                    "\n\n" + Loc.T("Подробности записаны в ") +
+                    "%LOCALAPPDATA%\\Okna\\okna.log",
+                    Loc.T("Окна"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             catch { }
         }

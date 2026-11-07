@@ -272,7 +272,8 @@ namespace Okna
             if (_wgcCapable && live)
             {
                 int bytes = w * h * 4;
-                _baseFrame = new byte[bytes];
+                if (_baseFrame == null || _baseFrame.Length != bytes)
+                    _baseFrame = new byte[bytes];
                 Marshal.Copy(_srcBits, _baseFrame, 0, bytes);
             }
             else
@@ -569,7 +570,8 @@ namespace Okna
 
             Native.PatBlt(_memDc, 0, 0, _ow, _oh, Native.BLACKNESS);
 
-            int sh = ComputeStripHeight(_w, _h);
+            int sh = AdaptiveQuality.StripHeight(
+                ComputeStripHeight(_w, _h), AdaptiveQuality.Level);
             int count = (_h + sh - 1) / sh;
             if (count + 1 > _srcRows.Length) count = _srcRows.Length - 1;
             for (int i = 0; i <= count; i++)

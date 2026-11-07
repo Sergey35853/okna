@@ -19,6 +19,8 @@ namespace Okna
     {
         private const uint LeftDown = 0x0002;
         private const uint LeftUp = 0x0004;
+        private static readonly IntPtr HwndTopmost = new IntPtr(-1);
+        private static readonly IntPtr HwndNotTopmost = new IntPtr(-2);
         private const int WmNcHitTest = 0x0084;
 
         private static readonly List<string> Lines = new List<string>();
@@ -70,7 +72,7 @@ namespace Okna
             ResizeProbe form = new ResizeProbe();
             form.Show();
             engine.AllowOwnWindow(form.Handle);
-            Native.SetForegroundWindow(form.Handle);
+            BringToFront(form.Handle);
 
             ManualResetEvent done = new ManualResetEvent(false);
             Thread driver = new Thread(new ThreadStart(delegate
@@ -122,8 +124,22 @@ namespace Okna
         {
             Thread.Sleep(500);
             Check("the engine is running", engine.IsRunning);
+            for (int i = 0; i < 20 && Native.GetForegroundWindow() != form.Handle; i++)
+            {
+                BringToFront(form.Handle);
+                Thread.Sleep(50);
+            }
+            Native.RECT hitRect;
+            Native.POINT hitPoint = new Native.POINT();
+            if (Native.GetWindowRect(form.Handle, out hitRect))
+            {
+                hitPoint.X = (hitRect.Left + hitRect.Right) / 2;
+                hitPoint.Y = (hitRect.Top + hitRect.Bottom) / 2;
+            }
+            IntPtr hit = Native.WindowFromPoint(hitPoint);
+            if (hit != IntPtr.Zero) hit = Native.GetAncestor(hit, Native.GA_ROOT);
             Check("the test window is in front",
-                Native.GetForegroundWindow() == form.Handle);
+                hit == form.Handle || Native.GetForegroundWindow() == form.Handle);
 
             TestEdge(engine, form, "right", 120, 16);
             TestEdge(engine, form, "bottom", 100, 16);
@@ -242,9 +258,25 @@ namespace Okna
             Native.SetWindowPos(form.Handle, IntPtr.Zero, 320, 240, 820, 620,
                 Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
             Thread.Sleep(250);
-            Native.SetForegroundWindow(form.Handle);
+            BringToFront(form.Handle);
             Thread.Sleep(150);
             return Native.GetWindowRect(form.Handle, out rect);
+        }
+
+        /// <summary>
+        /// Raises the test window above normal windows and asks for the
+        /// foreground. The terminal that launched the test can be always on
+        /// top, and Windows refuses SetForegroundWindow to a process that did
+        /// not receive the last input, so the temporary topmost pass is what
+        /// makes the automated drag land on the test window.
+        /// </summary>
+        private static void BringToFront(IntPtr hwnd)
+        {
+            Native.SetWindowPos(hwnd, HwndTopmost, 0, 0, 0, 0,
+                Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+            Native.SetWindowPos(hwnd, HwndNotTopmost, 0, 0, 0, 0,
+                Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+            Native.SetForegroundWindow(hwnd);
         }
 
         private static bool Drag(IntPtr hwnd, Native.RECT rect, string edge,

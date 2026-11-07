@@ -88,6 +88,7 @@ namespace Okna
             Controls.Add(cancel);
 
             Load += delegate { Fill(); };
+            Loc.Apply(this);
         }
 
         public static void ShowPicker(IWin32Window owner, AppSettings settings)
@@ -305,6 +306,7 @@ namespace Okna
             }
             UpdateEffectStyles();
             UpdateSwitchStyles();
+            Loc.Apply(this);
         }
 
         private JellySwitch MakeSwitch(int x, int y)
@@ -462,24 +464,27 @@ namespace Okna
         public static string BuildReport(AppSettings settings, JellyEngine engine, string hotkeyStatus)
         {
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("Окна " + Updater.CurrentLabel);
-            sb.AppendLine("Исполняемый файл: " + Updater.ExePath);
-            sb.AppendLine("Версия сборки: " + typeof(Diagnostics).Assembly.GetName().Version);
+            sb.AppendLine(Loc.T("Окна ") + Updater.CurrentLabel);
+            sb.AppendLine(Loc.T("Исполняемый файл: ") + Updater.ExePath);
+            sb.AppendLine(Loc.T("Версия сборки: ") + typeof(Diagnostics).Assembly.GetName().Version);
             sb.AppendLine("Windows: " + Environment.OSVersion.VersionString +
                           " (" + (Environment.Is64BitOperatingSystem ? "64" : "32") + "-bit)");
-            sb.AppendLine("Среда: .NET " + Environment.Version);
-            sb.AppendLine("Портативный режим: " + (settings.IsPortable ? settings.PortablePath : "нет"));
-            sb.AppendLine("Уменьшение движения: " +
-                          (Native.ClientAreaAnimationEnabled() ? "выключено" : "включено"));
-            sb.AppendLine("Питание: " + (Native.IsOnBattery() ? "батарея" : "сеть") +
-                          ", экономия: " + (Native.IsBatterySaverOn() ? "да" : "нет"));
-            sb.AppendLine("Удалённый сеанс: " + (Native.IsRemoteSession() ? "да" : "нет"));
-            sb.AppendLine("Горячая клавиша: " + hotkeyStatus);
-            sb.AppendLine("Статус: " + (engine == null ? "нет" : (engine.PauseReason ?? engine.Status)));
-            sb.AppendLine("Автозапуск: " + AutoStartDescription());
+            sb.AppendLine(Loc.T("Среда: .NET ") + Environment.Version);
+            sb.AppendLine(Loc.T("Портативный режим: ") +
+                          (settings.IsPortable ? settings.PortablePath : Loc.T("нет")));
+            sb.AppendLine(Loc.T("Уменьшение движения: ") +
+                          Loc.T(Native.ClientAreaAnimationEnabled() ? "выключено" : "включено"));
+            sb.AppendLine(Loc.T("Питание: ") + Loc.T(Native.IsOnBattery() ? "батарея" : "сеть") +
+                          Loc.T(", экономия: ") + Loc.T(Native.IsBatterySaverOn() ? "да" : "нет"));
+            sb.AppendLine(Loc.T("Удалённый сеанс: ") + Loc.T(Native.IsRemoteSession() ? "да" : "нет"));
+            sb.AppendLine(Loc.T("Горячая клавиша: ") + Loc.HotkeyStatus(hotkeyStatus));
+            sb.AppendLine(Loc.T("Статус: ") + (engine == null
+                ? Loc.T("нет")
+                : Loc.Status(engine.PauseReason ?? engine.Status)));
+            sb.AppendLine(Loc.T("Автозапуск: ") + AutoStartDescription());
             sb.AppendLine();
 
-            sb.AppendLine("Настройки:");
+            sb.AppendLine(Loc.T("Настройки:"));
             sb.AppendLine("  Enabled=" + settings.Enabled + " Jelly=" + settings.Jelly +
                           " ReleaseWobble=" + settings.ReleaseWobble +
                           " Bend=" + settings.Bend + " MaxShake=" + settings.MaxShake);
@@ -493,7 +498,7 @@ namespace Okna
             sb.AppendLine("  CloseOverrides=" + string.Join(", ", settings.CloseOverrides));
             sb.AppendLine();
 
-            sb.AppendLine("Экраны:");
+            sb.AppendLine(Loc.T("Экраны:"));
             Screen[] screens = Screen.AllScreens;
             for (int i = 0; i < screens.Length; i++)
             {
@@ -504,14 +509,14 @@ namespace Okna
             }
 
             sb.AppendLine();
-            sb.AppendLine("Панель задач:");
+            sb.AppendLine(Loc.T("Панель задач:"));
             Native.RECT[] bars = TaskbarFinder.Rects();
             for (int i = 0; i < bars.Length; i++)
                 sb.AppendLine("  " + bars[i].Left + "," + bars[i].Top + " " +
                               bars[i].Width + "x" + bars[i].Height);
 
             sb.AppendLine();
-            sb.AppendLine("Журнал (" + Log.LogPath + "):");
+            sb.AppendLine(Loc.T("Журнал (") + Log.LogPath + "):");
             sb.AppendLine(LogTail(250));
             return sb.ToString();
         }
@@ -522,11 +527,11 @@ namespace Okna
             {
                 object value = Registry.GetValue(
                     @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run", "Okna", null);
-                return value == null ? "выключен" : value.ToString();
+                return value == null ? Loc.T("выключен") : value.ToString();
             }
             catch
             {
-                return "неизвестно";
+                return Loc.T("неизвестно");
             }
         }
 
@@ -534,7 +539,7 @@ namespace Okna
         {
             try
             {
-                if (!File.Exists(Log.LogPath)) return "  (файла нет)";
+                if (!File.Exists(Log.LogPath)) return "  " + Loc.T("(файла нет)");
                 string[] all = File.ReadAllLines(Log.LogPath);
                 int start = Math.Max(0, all.Length - lines);
                 StringBuilder sb = new StringBuilder();
@@ -544,7 +549,7 @@ namespace Okna
             }
             catch (Exception ex)
             {
-                return "  (не удалось прочитать: " + ex.Message + ")";
+                return "  " + Loc.T("(не удалось прочитать: ") + ex.Message + ")";
             }
         }
 
@@ -615,19 +620,120 @@ namespace Okna
             close.Font = Theme.FontSmall;
             close.Click += delegate { Close(); };
             Controls.Add(close);
+
+            Loc.Apply(this);
         }
 
         private void SaveReport()
         {
             using (SaveFileDialog dialog = new SaveFileDialog())
             {
-                dialog.Title = "Сохранить диагностику";
-                dialog.Filter = "Текстовый файл (*.txt)|*.txt";
+                dialog.Title = Loc.T("Сохранить диагностику");
+                dialog.Filter = Loc.T("Текстовый файл (*.txt)|*.txt");
                 dialog.FileName = "okna-diagnostics.txt";
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 try { File.WriteAllText(dialog.FileName, _text.Text, Encoding.UTF8); }
                 catch (Exception ex) { MessageBox.Show(this, ex.Message, "Окна"); }
             }
+        }
+    }
+
+    /// <summary>
+    /// Release notes with the three choices that matter: install now, look
+    /// again later, or stop being offered this exact version.
+    /// </summary>
+    internal sealed class UpdateDialog : Form
+    {
+        public bool Install;
+        public bool Skip;
+        public bool OpenPage;
+
+        public UpdateDialog(UpdateInfo info)
+        {
+            Text = Loc.T("Доступно обновление");
+            ClientSize = new Size(620, 480);
+            StartPosition = FormStartPosition.CenterParent;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = false;
+            BackColor = Theme.Bg;
+            ForeColor = Theme.Text;
+            Font = Theme.FontBody;
+            DoubleBuffered = true;
+
+            Label title = MakeLabel(
+                Loc.T("Доступно обновление") + " v" + Updater.Format(info.Version),
+                20, 18, Theme.FontCardTitle, Theme.Text);
+            Controls.Add(title);
+
+            Label current = MakeLabel(
+                Loc.T("Текущая версия: ") + Updater.CurrentLabel,
+                20, 48, Theme.FontSmall, Theme.Muted);
+            Controls.Add(current);
+
+            Label notesLabel = MakeLabel("Заметки к выпуску", 20, 80, Theme.FontLabel, Theme.Text);
+            Controls.Add(notesLabel);
+
+            TextBox notes = new TextBox();
+            notes.Multiline = true;
+            notes.ReadOnly = true;
+            notes.ScrollBars = ScrollBars.Vertical;
+            notes.WordWrap = true;
+            notes.Location = new Point(20, 104);
+            notes.Size = new Size(580, 296);
+            notes.BackColor = Theme.CardAlt;
+            notes.ForeColor = Theme.Text;
+            notes.Font = Theme.FontSmall;
+            notes.Text = string.IsNullOrEmpty(info.Notes) ? "" : info.Notes;
+            Controls.Add(notes);
+
+            JellyButton install = new JellyButton();
+            install.Text = "Обновить";
+            install.Accent = true;
+            install.Location = new Point(20, 420);
+            install.Size = new Size(130, 38);
+            install.Font = Theme.FontSmall;
+            install.Click += delegate { Install = true; Close(); };
+            Controls.Add(install);
+
+            JellyButton later = new JellyButton();
+            later.Text = "Позже";
+            later.Location = new Point(158, 420);
+            later.Size = new Size(110, 38);
+            later.Font = Theme.FontSmall;
+            later.Click += delegate { Close(); };
+            Controls.Add(later);
+
+            JellyButton skip = new JellyButton();
+            skip.Text = "Пропустить эту версию";
+            skip.Location = new Point(276, 420);
+            skip.Size = new Size(190, 38);
+            skip.Font = Theme.FontSmall;
+            skip.Click += delegate { Skip = true; Close(); };
+            Controls.Add(skip);
+
+            JellyButton page = new JellyButton();
+            page.Text = "Открыть на GitHub";
+            page.Location = new Point(474, 420);
+            page.Size = new Size(126, 38);
+            page.Font = Theme.FontSmall;
+            page.Click += delegate { OpenPage = true; Close(); };
+            Controls.Add(page);
+
+            Loc.Apply(this);
+        }
+
+        private static Label MakeLabel(string text, int x, int y, Font font, Color color)
+        {
+            Label label = new Label();
+            label.Text = text;
+            label.Location = new Point(x, y);
+            label.AutoSize = true;
+            label.Font = font;
+            label.ForeColor = color;
+            label.BackColor = Color.Transparent;
+            return label;
         }
     }
 }

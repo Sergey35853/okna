@@ -1,6 +1,8 @@
 using System;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
+using System.Windows.Forms;
 
 namespace Okna.Tests
 {
@@ -53,6 +55,12 @@ namespace Okna.Tests
             Run("settings survive an INI round-trip", IniRoundTrip);
             Run("broken INI is rejected", IniRejectsGarbage);
             Run("diagnostics report has the important sections", DiagnosticsReport);
+            Run("safe mode starts after two failed starts", SafeModeDecision);
+            Run("localization switches between Russian and English", LocalizationSwitch);
+            Run("adaptive quality reduces and restores strip detail", AdaptiveQualityLevels);
+            Run("snapshot buffers are reused", SnapshotPoolReuse);
+            Run("update skip and language survive an INI round-trip", UpdateAndLanguageRoundTrip);
+            Run("settings backup path follows the store", BackupPathLayout);
 
             Console.WriteLine();
             Console.WriteLine(_failed == 0
@@ -818,6 +826,113 @@ namespace Okna.Tests
             Check(report.Contains("Панель задач:"), "the report should list the taskbars");
             Check(report.Contains("Журнал"), "the report should include the log tail");
             Check(report.Contains("Ctrl+Alt+J — тест"), "the report should include the hotkey status");
+        }
+
+        private static void SafeModeDecision()
+        {
+            Check(!StartupGuard.Decide(0), "a clean start is not safe mode");
+            Check(!StartupGuard.Decide(1), "one failed start is not enough");
+            Check(StartupGuard.Decide(2), "two failed starts enter safe mode");
+            Check(StartupGuard.Decide(9), "more failures stay in safe mode");
+        }
+
+        private static void LocalizationSwitch()
+        {
+            Loc.Configure((int)UiLanguage.Russian);
+            Check(Loc.T("Готово") == "Готово", "Russian keeps the source text");
+            Check(Loc.T("Желеобразные окна: вкл") == "Желеобразные окна: вкл",
+                "Russian keeps the tray text");
+
+            Loc.Configure((int)UiLanguage.English);
+            Check(Loc.T("Готово") == "Done", "button text is translated");
+            Check(Loc.T("Активно") == "Active", "status text is translated");
+            Check(Loc.T("Желеобразные окна: вкл") == "Jelly windows: on",
+                "tray text is translated");
+            Check(Loc.Status("Исключение: steam.exe") == "Excluded: steam.exe",
+                "the exclusion prefix is translated");
+            Check(Loc.T("Неизвестная строка") == "Неизвестная строка",
+                "unknown text stays readable instead of disappearing");
+
+            using (Label label = new Label())
+            {
+                label.Text = "Готово";
+                Loc.Apply(label);
+                Check(label.Text == "Done", "a control tree is translated");
+                Loc.Configure((int)UiLanguage.Russian);
+                Loc.Apply(label);
+                Check(label.Text == "Готово", "the original text comes back");
+            }
+            Loc.Configure((int)UiLanguage.Russian);
+        }
+
+        private static void AdaptiveQualityLevels()
+        {
+            AdaptiveQuality.Reset();
+            Check(AdaptiveQuality.Level == AdaptiveQuality.Best, "quality starts at best");
+            Check(AdaptiveQuality.StripHeight(1, AdaptiveQuality.Best) == 1,
+                "the best level keeps the base strip");
+            Check(AdaptiveQuality.StripHeight(1, AdaptiveQuality.Reduced) == 2,
+                "the reduced level doubles the strip");
+            Check(AdaptiveQuality.StripHeight(1, AdaptiveQuality.Lowest) == 4,
+                "the lowest level uses four rows");
+            Check(AdaptiveQuality.StripHeight(4, AdaptiveQuality.Lowest) == 12,
+                "the strip never grows past the hard limit");
+
+            for (int i = 0; i < 30; i++) AdaptiveQuality.Sample(40, i * 0.1);
+            Check(AdaptiveQuality.Level == AdaptiveQuality.Lowest,
+                "sustained slow frames drop to the lowest level");
+
+            for (int i = 0; i < 90; i++) AdaptiveQuality.Sample(5, 3.0 + i * 0.1);
+            Check(AdaptiveQuality.Level == AdaptiveQuality.Best,
+                "fast frames restore the best level");
+            AdaptiveQuality.Reset();
+        }
+
+        private static void SnapshotPoolReuse()
+        {
+            ShotPool.Clear();
+            Bitmap first = ShotPool.Rent(64, 48, PixelFormat.Format32bppRgb);
+            Check(first.Width == 64 && first.Height == 48, "the rented bitmap has the requested size");
+            ShotPool.Return(first);
+
+            Bitmap second = ShotPool.Rent(64, 48, PixelFormat.Format32bppRgb);
+            Check(ReferenceEquals(first, second), "a returned buffer is reused");
+            Bitmap other = ShotPool.Rent(32, 32, PixelFormat.Format32bppRgb);
+            Check(!ReferenceEquals(second, other), "a different size gets a fresh buffer");
+
+            ShotPool.Return(second);
+            ShotPool.Return(other);
+            ShotPool.Clear();
+        }
+
+        private static void UpdateAndLanguageRoundTrip()
+        {
+            string path = Path.Combine(TempDir, "okna-test-" + Guid.NewGuid().ToString("N") + ".ini");
+            try
+            {
+                AppSettings a = new AppSettings();
+                a.SkippedVersion = "1.8.0";
+                a.Language = (int)UiLanguage.English;
+                a.Export(path);
+
+                AppSettings b = new AppSettings();
+                Check(b.Import(path), "import rejected a file written by export");
+                Check(b.SkippedVersion == "1.8.0", "the skipped version round-trips");
+                Check(b.Language == (int)UiLanguage.English, "the language round-trips");
+            }
+            finally
+            {
+                try { File.Delete(path); } catch { }
+            }
+        }
+
+        private static void BackupPathLayout()
+        {
+            Check(AppSettings.BackupPathFor(null) == AppSettings.BackupPath,
+                "without a store the global backup path is used");
+            string portable = Path.Combine(TempDir, "okna.ini");
+            Check(AppSettings.BackupPathFor(portable) == Path.Combine(TempDir, "okna.bak.ini"),
+                "a portable store keeps its backup next to the INI");
         }
     }
 }

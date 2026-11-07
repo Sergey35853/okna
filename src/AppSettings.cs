@@ -47,6 +47,8 @@ namespace Okna
         private volatile int _hotkeyKey = Native.VK_J;
         private volatile string[] _exclude = new string[0];
         private volatile string[] _closeOverrides = new string[0];
+        private volatile string _skippedVersion = "";
+        private volatile int _language = 0;
         private bool _portable;
         private string _portablePath;
 
@@ -143,6 +145,25 @@ namespace Okna
         {
             get { return _autoUpdate; }
             set { _autoUpdate = value; }
+        }
+
+        /// <summary>
+        /// A release the user asked not to be offered again. Empty means no
+        /// version is skipped. The value is "1.8.0", without the leading v.
+        /// </summary>
+        public string SkippedVersion
+        {
+            get { return _skippedVersion; }
+            set { _skippedVersion = value == null ? "" : value.Trim(); }
+        }
+
+        /// <summary>
+        /// 0 = follow Windows, 1 = Russian, 2 = English. See UiLanguage.
+        /// </summary>
+        public int Language
+        {
+            get { return _language; }
+            set { _language = value < 0 ? 0 : (value > 2 ? 2 : value); }
         }
 
         /// <summary>
@@ -248,6 +269,38 @@ namespace Okna
         public string PortablePath
         {
             get { return _portablePath; }
+        }
+
+        /// <summary>
+        /// Where the last good settings are kept. The registry is the primary
+        /// store; this INI is written after every successful save and read
+        /// only when the primary store cannot be parsed.
+        /// </summary>
+        public static string BackupPath
+        {
+            get
+            {
+                string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (string.IsNullOrEmpty(local)) local = Path.GetTempPath();
+                return Path.Combine(Path.Combine(local, "Okna"), "settings.bak.ini");
+            }
+        }
+
+        /// <summary>Path of the backup next to a portable okna.ini.</summary>
+        internal static string BackupPathFor(string settingsPath)
+        {
+            if (string.IsNullOrEmpty(settingsPath)) return BackupPath;
+            try
+            {
+                string folder = Path.GetDirectoryName(settingsPath);
+                return string.IsNullOrEmpty(folder)
+                    ? BackupPath
+                    : Path.Combine(folder, "okna.bak.ini");
+            }
+            catch
+            {
+                return BackupPath;
+            }
         }
 
         /// <summary>
@@ -564,16 +617,16 @@ namespace Okna
         {
             get
             {
-                if (_jelly < 35) return "Сдержанно";
-                if (_jelly < 78) return "Упруго";
-                if (_jelly < 130) return "Очень желейно";
-                return "Максимально вязко";
+                if (_jelly < 35) return Loc.T("Сдержанно");
+                if (_jelly < 78) return Loc.T("Упруго");
+                if (_jelly < 130) return Loc.T("Очень желейно");
+                return Loc.T("Максимально вязко");
             }
         }
 
         public static string FormatHotkey(int modifiers, int key)
         {
-            if (key == 0 || modifiers == 0) return "Нет";
+            if (key == 0 || modifiers == 0) return Loc.T("Нет");
             StringBuilder sb = new StringBuilder();
             if ((modifiers & Native.MOD_CONTROL) != 0) sb.Append("Ctrl+");
             if ((modifiers & Native.MOD_ALT) != 0) sb.Append("Alt+");
@@ -670,6 +723,8 @@ namespace Okna
             _hotkeyKey = Native.VK_J;
             _exclude = new string[0];
             _closeOverrides = new string[0];
+            _skippedVersion = "";
+            _language = 0;
         }
 
         public static AppSettings Load()
@@ -682,7 +737,8 @@ namespace Okna
                 {
                     s._portable = true;
                     s._portablePath = portable;
-                    s.LoadPortable(portable);
+                    if (!s.LoadPortable(portable))
+                        s.TryRestoreBackup(BackupPathFor(portable));
                     s.StartWithWindows = IsAutoStartEnabled();
                     return s;
                 }
@@ -722,6 +778,10 @@ namespace Okna
                         }
                         v = key.GetValue("AutoUpdate");
                         if (v != null) s.AutoUpdate = Convert.ToInt32(v) != 0;
+                        v = key.GetValue("SkippedVersion");
+                        if (v != null) s.SkippedVersion = Convert.ToString(v);
+                        v = key.GetValue("Language");
+                        if (v != null) s.Language = Convert.ToInt32(v);
                         v = key.GetValue("Economy");
                         if (v != null) s.Economy = Convert.ToInt32(v) != 0;
                         v = key.GetValue("PauseOnBattery");
@@ -759,8 +819,29 @@ namespace Okna
             catch (Exception ex)
             {
                 Log.Error("Settings load failed: " + ex.Message);
+                s.TryRestoreBackup(BackupPath);
             }
             return s;
+        }
+
+        /// <summary>
+        /// Reads the last good INI when the registry or the portable file
+        /// cannot be parsed. Returns true when the backup was applied.
+        /// </summary>
+        private bool TryRestoreBackup(string path)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path) || !File.Exists(path)) return false;
+                if (!Import(path)) return false;
+                Log.Info("Settings restored from " + path);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Settings restore failed: " + ex.Message);
+                return false;
+            }
         }
 
         private void SetCloseOverrides(string[] values)
@@ -797,10 +878,10 @@ namespace Okna
             catch { return null; }
         }
 
-        private void LoadPortable(string path)
+        private bool LoadPortable(string path)
         {
             Dictionary<string, string> map = ReadIni(path);
-            if (map.Count == 0) return;
+            if (map.Count == 0) return false;
 
             Enabled = GetBool(map, "Enabled", true);
             Jelly = GetInt(map, "Jelly", 70);
@@ -812,6 +893,8 @@ namespace Okna
             Roll = GetBool(map, "Roll", true);
             RollDirection = (RollDirection)GetInt(map, "RollDirection", (int)RollDirection.Auto);
             AutoUpdate = GetBool(map, "AutoUpdate", true);
+            SkippedVersion = GetString(map, "SkippedVersion", "");
+            Language = GetInt(map, "Language", 0);
             Economy = GetBool(map, "Economy", false);
             PauseOnBattery = GetBool(map, "PauseOnBattery", false);
             PauseOnCall = GetBool(map, "PauseOnCall", true);
@@ -830,6 +913,7 @@ namespace Okna
 
             FirstRun = GetBool(map, "FirstRun", false);
             if (Burn) Shatter = false;
+            return true;
         }
 
         private static Dictionary<string, string> ReadIni(string path)
@@ -870,6 +954,12 @@ namespace Okna
             string value;
             int number;
             return map.TryGetValue(key, out value) && int.TryParse(value, out number) ? number : fallback;
+        }
+
+        private static string GetString(Dictionary<string, string> map, string key, string fallback)
+        {
+            string value;
+            return map.TryGetValue(key, out value) ? value : fallback;
         }
 
         private static void MigrateLegacy(AppSettings s)
@@ -928,6 +1018,7 @@ namespace Okna
             if (_portable && !string.IsNullOrEmpty(_portablePath))
             {
                 WriteIni(_portablePath);
+                WriteBackup(BackupPathFor(_portablePath));
                 return;
             }
 
@@ -949,6 +1040,8 @@ namespace Okna
                     // the choice.
                     key.SetValue("RollHorizontal", RollHorizontal ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("AutoUpdate", _autoUpdate ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue("SkippedVersion", _skippedVersion ?? "", RegistryValueKind.String);
+                    key.SetValue("Language", _language, RegistryValueKind.DWord);
                     key.SetValue("Economy", _economy ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("PauseOnBattery", _pauseOnBattery ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("PauseOnCall", _pauseOnCall ? 1 : 0, RegistryValueKind.DWord);
@@ -959,10 +1052,30 @@ namespace Okna
                     key.SetValue("CloseOverrides", _closeOverrides, RegistryValueKind.MultiString);
                     key.SetValue("FirstRun", 0, RegistryValueKind.DWord);
                 }
+                WriteBackup(BackupPath);
             }
             catch (Exception ex)
             {
                 Log.Error("Settings save failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Writes the current values as an INI next to the settings store.
+        /// The next start falls back to it if the registry is unreadable.
+        /// </summary>
+        private void WriteBackup(string path)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path)) return;
+                string folder = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
+                WriteIni(path);
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Settings backup failed: " + ex.Message);
             }
         }
 
@@ -991,6 +1104,8 @@ namespace Okna
             Roll = GetBool(map, "Roll", Roll);
             RollDirection = (RollDirection)GetInt(map, "RollDirection", (int)RollDirection);
             AutoUpdate = GetBool(map, "AutoUpdate", AutoUpdate);
+            SkippedVersion = GetString(map, "SkippedVersion", SkippedVersion);
+            Language = GetInt(map, "Language", Language);
             Economy = GetBool(map, "Economy", Economy);
             PauseOnBattery = GetBool(map, "PauseOnBattery", PauseOnBattery);
             PauseOnCall = GetBool(map, "PauseOnCall", PauseOnCall);
@@ -1035,6 +1150,8 @@ namespace Okna
                 sb.AppendLine("Roll=" + (_roll ? 1 : 0));
                 sb.AppendLine("RollDirection=" + _rollDirection);
                 sb.AppendLine("AutoUpdate=" + (_autoUpdate ? 1 : 0));
+                sb.AppendLine("SkippedVersion=" + (_skippedVersion ?? ""));
+                sb.AppendLine("Language=" + _language);
                 sb.AppendLine("Economy=" + (_economy ? 1 : 0));
                 sb.AppendLine("PauseOnBattery=" + (_pauseOnBattery ? 1 : 0));
                 sb.AppendLine("PauseOnCall=" + (_pauseOnCall ? 1 : 0));

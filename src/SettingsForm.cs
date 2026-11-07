@@ -28,7 +28,11 @@ namespace Okna
         private JellySwitch _batterySwitch;
         private JellySwitch _motionSwitch;
         private JellySwitch _portableSwitch;
+        private JellyButton _languageAuto;
+        private JellyButton _languageRu;
+        private JellyButton _languageEn;
         private Label _portableLabel;
+        private Label _versionLabel;
         private JellyButton _hotkeyButton;
         private Label _hotkeyStatus;
         private ListBox _excludeList;
@@ -57,7 +61,7 @@ namespace Okna
 
             Text = "Окна";
             Icon = icon;
-            ClientSize = new Size(1088, 904);
+            ClientSize = new Size(1088, 944);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -78,6 +82,7 @@ namespace Okna
                      ControlStyles.ResizeRedraw, true);
 
             BuildUi();
+            Loc.Apply(this);
             WireEvents();
 
             _statusTimer = new Timer();
@@ -542,7 +547,7 @@ namespace Okna
 
             CardPanel miscCard = new CardPanel();
             miscCard.Location = new Point(rightX, topY + 192 + gap + 240 + gap + 140 + gap);
-            miscCard.Size = new Size(colW, 132);
+            miscCard.Size = new Size(colW, 172);
             Controls.Add(miscCard);
 
             Label portableTitle = MakeLabel("Настройки рядом с программой", 20, 12, Theme.FontCardTitle, Theme.Text);
@@ -591,20 +596,51 @@ namespace Okna
             diagnostics.Click += delegate
             {
                 Diagnostics.Show(this, _settings, _engine,
-                    _tray != null ? _tray.HotkeyStatus : "неизвестно");
+                    _tray != null ? _tray.HotkeyStatus : Loc.T("неизвестно"));
             };
             miscCard.Controls.Add(diagnostics);
 
-            _hintLabel = MakeLabel("", 24, 856, Theme.FontSmall, Theme.Faint);
+            Label languageLabel = MakeLabel("Язык", 20, 120, Theme.FontLabel, Theme.Text);
+            miscCard.Controls.Add(languageLabel);
+
+            _languageAuto = new JellyButton();
+            _languageAuto.Text = "Системный";
+            _languageAuto.Location = new Point(100, 116);
+            _languageAuto.Size = new Size(112, 30);
+            _languageAuto.Font = Theme.FontSmall;
+            _languageAuto.Tag = (int)UiLanguage.Auto;
+            _languageAuto.Click += delegate { SetLanguage((int)UiLanguage.Auto); };
+            miscCard.Controls.Add(_languageAuto);
+
+            _languageRu = new JellyButton();
+            _languageRu.Text = "Русский";
+            _languageRu.Location = new Point(220, 116);
+            _languageRu.Size = new Size(112, 30);
+            _languageRu.Font = Theme.FontSmall;
+            _languageRu.Tag = (int)UiLanguage.Russian;
+            _languageRu.Click += delegate { SetLanguage((int)UiLanguage.Russian); };
+            miscCard.Controls.Add(_languageRu);
+
+            _languageEn = new JellyButton();
+            _languageEn.Text = "English";
+            _languageEn.Location = new Point(340, 116);
+            _languageEn.Size = new Size(112, 30);
+            _languageEn.Font = Theme.FontSmall;
+            _languageEn.Tag = (int)UiLanguage.English;
+            _languageEn.Click += delegate { SetLanguage((int)UiLanguage.English); };
+            miscCard.Controls.Add(_languageEn);
+
+            _hintLabel = MakeLabel("", 24, 896, Theme.FontSmall, Theme.Faint);
             Controls.Add(_hintLabel);
 
-            Label version = MakeLabel(Updater.CurrentLabel + "  ·  живёт в трее", 24, 880, Theme.FontTiny, Theme.Faint);
-            Controls.Add(version);
+            _versionLabel = MakeLabel("", 24, 920, Theme.FontTiny, Theme.Faint);
+            UpdateVersionLabel();
+            Controls.Add(_versionLabel);
 
             JellyButton done = new JellyButton();
             done.Text = "Готово";
             done.Accent = true;
-            done.Location = new Point(968, 852);
+            done.Location = new Point(968, 892);
             done.Size = new Size(96, 38);
             done.Click += delegate { Hide(); };
             Controls.Add(done);
@@ -642,6 +678,7 @@ namespace Okna
             _effectSwitch.CheckedChanged += delegate
             {
                 _settings.Enabled = _effectSwitch.Checked;
+                if (_settings.Enabled) StartupGuard.NoteEffectsEnabled();
                 SaveSoon();
                 _statusPill.SetStatus(_engine.PauseReason ?? _engine.Status);
             };
@@ -720,9 +757,9 @@ namespace Okna
                 if (!_settings.SetPortable(wanted))
                 {
                     MessageBox.Show(this,
-                        "Не удалось записать okna.ini рядом с программой. " +
-                        "Скопируйте Okna.exe в папку, где можно писать, или оставьте настройки в реестре.",
-                        "Окна", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        Loc.T("Не удалось записать okna.ini рядом с программой. " +
+                              "Скопируйте Okna.exe в папку, где можно писать, или оставьте настройки в реестре."),
+                        Loc.T("Окна"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     _portableSwitch.Checked = _settings.IsPortable;
                 }
                 UpdatePortableLabel();
@@ -797,7 +834,9 @@ namespace Okna
             Persist();
             bool ok = _tray == null || _tray.ApplyHotkey(true);
             _hotkeyButton.Text = _settings.HotkeyLabel;
-            _hotkeyStatus.Text = _tray != null ? _tray.HotkeyStatus : (ok ? "работает" : "занята");
+            _hotkeyStatus.Text = _tray != null
+                ? _tray.HotkeyStatus
+                : Loc.T(ok ? "работает" : "занята");
             _hotkeyStatus.ForeColor = ok ? Theme.Muted : Color.FromArgb(232, 163, 61);
             UpdateHint();
         }
@@ -828,6 +867,7 @@ namespace Okna
                 _slider.Value = _settings.Jelly;
                 UpdateJellyLabel();
                 UpdatePresetStyles();
+                UpdateLanguageStyles();
                 UpdateHint();
                 _statusPill.SetStatus(_engine.PauseReason ?? _engine.Status);
             }
@@ -840,17 +880,23 @@ namespace Okna
         private void UpdateHint()
         {
             if (_hintLabel == null) return;
-            _hintLabel.Text = "Потяните это окно за заголовок — оно желейное  ·  " +
-                "Shift — обычное перетаскивание  ·  " +
-                _settings.HotkeyLabel + " — пауза";
+            _hintLabel.Text =
+                Loc.T("Потяните это окно за заголовок — оно желейное  ·  Shift — обычное перетаскивание  ·  ") +
+                _settings.HotkeyLabel + Loc.T(" — пауза");
+        }
+
+        private void UpdateVersionLabel()
+        {
+            if (_versionLabel == null) return;
+            _versionLabel.Text = Updater.CurrentLabel + "  ·  " + Loc.T("живёт в трее");
         }
 
         private void UpdatePortableLabel()
         {
             if (_portableLabel == null) return;
             _portableLabel.Text = _settings.IsPortable && !string.IsNullOrEmpty(_settings.PortablePath)
-                ? "Файл: " + _settings.PortablePath
-                : "Сейчас настройки хранятся в реестре (HKCU\\Software\\Okna)";
+                ? Loc.T("Файл: ") + _settings.PortablePath
+                : Loc.T("Сейчас настройки хранятся в реестре (HKCU\\Software\\Okna)");
         }
 
         private void UpdateJellyLabel()
@@ -911,6 +957,38 @@ namespace Okna
                 {
                     _presets[i].Accent = accent;
                     _presets[i].Invalidate();
+                }
+            }
+        }
+
+        /// <summary>
+        /// The language is applied immediately: the static controls are
+        /// re-walked, the dynamic labels are rebuilt, and the tray menu is
+        /// asked to do the same.
+        /// </summary>
+        private void SetLanguage(int language)
+        {
+            _settings.Language = language;
+            Loc.Configure(language);
+            Loc.Apply(this);
+            UpdateLanguageStyles();
+            UpdateVersionLabel();
+            SyncFromSettings();
+            if (_tray != null) _tray.ApplyLanguage();
+            Persist();
+        }
+
+        private void UpdateLanguageStyles()
+        {
+            JellyButton[] buttons = new JellyButton[] { _languageAuto, _languageRu, _languageEn };
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                if (buttons[i] == null) continue;
+                bool accent = (int)buttons[i].Tag == _settings.Language;
+                if (buttons[i].Accent != accent)
+                {
+                    buttons[i].Accent = accent;
+                    buttons[i].Invalidate();
                 }
             }
         }
@@ -1070,13 +1148,13 @@ namespace Okna
         {
             using (SaveFileDialog dialog = new SaveFileDialog())
             {
-                dialog.Title = "Экспорт настроек";
-                dialog.Filter = "Настройки Окон (*.ini)|*.ini|Все файлы (*.*)|*.*";
+                dialog.Title = Loc.T("Экспорт настроек");
+                dialog.Filter = Loc.T("Настройки Окон (*.ini)|*.ini|Все файлы (*.*)|*.*");
                 dialog.FileName = "okna.ini";
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 _settings.Export(dialog.FileName);
-                MessageBox.Show(this, "Настройки сохранены в " + dialog.FileName,
-                    "Окна", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(this, Loc.T("Настройки сохранены в ") + dialog.FileName,
+                    Loc.T("Окна"), MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
 
@@ -1084,27 +1162,27 @@ namespace Okna
         {
             using (OpenFileDialog dialog = new OpenFileDialog())
             {
-                dialog.Title = "Импорт настроек";
-                dialog.Filter = "Настройки Окон (*.ini)|*.ini|Все файлы (*.*)|*.*";
+                dialog.Title = Loc.T("Импорт настроек");
+                dialog.Filter = Loc.T("Настройки Окон (*.ini)|*.ini|Все файлы (*.*)|*.*");
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 if (!_settings.Import(dialog.FileName))
                 {
-                    MessageBox.Show(this, "В файле нет настроек Окон.",
-                        "Окна", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(this, Loc.T("В файле нет настроек Окон."),
+                        Loc.T("Окна"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
                 Persist();
                 SyncFromSettings();
                 if (_tray != null) _tray.ApplyHotkey(true);
-                MessageBox.Show(this, "Настройки загружены.", "Окна",
+                MessageBox.Show(this, Loc.T("Настройки загружены."), Loc.T("Окна"),
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
 
         private void ResetSettings()
         {
-            if (MessageBox.Show(this, "Вернуть все настройки к заводским?",
-                    "Окна", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            if (MessageBox.Show(this, Loc.T("Вернуть все настройки к заводским?"),
+                    Loc.T("Окна"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 return;
             _settings.ResetAll();
             Persist();
@@ -1180,6 +1258,22 @@ namespace Okna
                 check("the program list shows a new rule", _overrideList.Items.Count > 0);
                 _settings.RemoveCloseOverride("smoke-test.exe");
                 RefreshOverrideList();
+
+                int originalLanguage = _settings.Language;
+                _languageEn.PerformClick();
+                Application.DoEvents();
+                check("English changes the language",
+                    _settings.Language == (int)UiLanguage.English);
+                check("English translates a visible button", _presets[0].Text == "Calm");
+                _languageRu.PerformClick();
+                Application.DoEvents();
+                check("Russian comes back",
+                    _settings.Language == (int)UiLanguage.Russian &&
+                    _presets[0].Text == "Спокойно");
+                _settings.Language = originalLanguage;
+                Loc.Configure(originalLanguage);
+                Loc.Apply(this);
+                SyncFromSettings();
 
                 string report = Diagnostics.BuildReport(_settings, _engine, "smoke");
                 check("the diagnostics report has content", report.Length > 200);

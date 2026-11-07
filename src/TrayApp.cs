@@ -34,6 +34,8 @@ namespace Okna
         private DateTime _pauseUntil;
 
         private ToolStripMenuItem _updateItem;
+        private ToolStripMenuItem _notesItem;
+        private ToolStripMenuItem _skipItem;
         private ToolStripMenuItem _checkItem;
         private ToolStripMenuItem _autoUpdateItem;
         private ToolStripMenuItem _shakeItem;
@@ -52,7 +54,7 @@ namespace Okna
 
         public string HotkeyStatus
         {
-            get { return _hotkeyStatus; }
+            get { return Loc.HotkeyStatus(_hotkeyStatus); }
         }
 
         public TrayApp(AppSettings settings, JellyEngine engine, Icon icon, bool showOnStart)
@@ -175,6 +177,16 @@ namespace Okna
             _updateItem.Click += delegate { ApplyUpdateNow(); };
             _menu.Items.Add(_updateItem);
 
+            _notesItem = NewItem("Что нового…");
+            _notesItem.Visible = false;
+            _notesItem.Click += delegate { ShowUpdateDialog(); };
+            _menu.Items.Add(_notesItem);
+
+            _skipItem = NewItem("Пропустить эту версию");
+            _skipItem.Visible = false;
+            _skipItem.Click += delegate { SkipReadyUpdate(); };
+            _menu.Items.Add(_skipItem);
+
             _checkItem = NewItem("Проверить обновления…");
             _checkItem.Click += delegate { CheckUpdates(true); };
             _menu.Items.Add(_checkItem);
@@ -222,11 +234,18 @@ namespace Okna
             _notify.DoubleClick += delegate { ShowSettings(); };
             _notify.BalloonTipClicked += delegate
             {
-                if (_ready != null) ApplyUpdateNow();
+                if (_ready != null) ShowUpdateDialog();
             };
 
-            UpdateMenu();
+            ApplyLanguage();
             StartUpdater();
+
+            if (StartupGuard.SafeMode)
+            {
+                Balloon("Безопасный режим",
+                    "Прошлые запуски завершились неудачно, поэтому эффекты выключены. " +
+                    "Включите их в трее, когда всё будет в порядке.");
+            }
 
             if (_showOnStart)
             {
@@ -241,8 +260,8 @@ namespace Okna
                     if (_settings.FirstRun)
                     {
                         _settings.MarkConfigured();
-                        _notify.BalloonTipTitle = "Окна";
-                        _notify.BalloonTipText = "Перетаскивайте окна за заголовок. Shift — обычное перетаскивание.";
+                        _notify.BalloonTipTitle = Loc.T("Окна");
+                        _notify.BalloonTipText = Loc.T("Перетаскивайте окна за заголовок. Shift — обычное перетаскивание.");
                         _notify.BalloonTipIcon = ToolTipIcon.Info;
                         _notify.ShowBalloonTip(4500);
                     }
@@ -309,18 +328,24 @@ namespace Okna
             _settings.StartWithWindows = AppSettings.IsAutoStartEnabled();
 
             string reason = _engine.PauseReason;
-            string status;
-            if (!_settings.Enabled)
-                status = "Окна — выключены";
+            string statusSource;
+            if (StartupGuard.SafeMode && !_settings.Enabled)
+                statusSource = "Окна — безопасный режим";
+            else if (!_settings.Enabled)
+                statusSource = "Окна — выключены";
             else if (reason == null)
-                status = "Окна — работают";
+                statusSource = "Окна — работают";
             else
-                status = "Окна — " + reason;
+                statusSource = "Окна — " + reason;
 
+            string status = reason != null && _settings.Enabled && !StartupGuard.SafeMode
+                ? Loc.T("Окна — ") + Loc.T(reason)
+                : Loc.T(statusSource);
+            _statusItem.AccessibleDescription = statusSource;
             _statusItem.Text = status;
             _statusItem.ForeColor = reason == null && _settings.Enabled ? Theme.Accent : Theme.Muted;
 
-            _toggleItem.Text = _settings.Enabled ? "Эффект включён" : "Эффект выключен";
+            SetText(_toggleItem, _settings.Enabled ? "Эффект включён" : "Эффект выключен");
             _toggleItem.ForeColor = _settings.Enabled ? Theme.Accent : Theme.Muted;
             _toggleItem.ShortcutKeyDisplayString = _settings.HasHotkey ? _settings.HotkeyLabel : "";
 
@@ -330,26 +355,28 @@ namespace Okna
                 {
                     int minutes = (int)Math.Ceiling((_pauseUntil - DateTime.UtcNow).TotalMinutes);
                     if (minutes < 1) minutes = 1;
-                    _pauseItem.Text = "Возобновить (ещё " + minutes + " мин)";
+                    string source = "Возобновить (ещё " + minutes + " мин)";
+                    _pauseItem.AccessibleDescription = source;
+                    _pauseItem.Text = Loc.T("Возобновить (ещё ") + minutes + Loc.T(" мин)");
                     _pauseItem.ForeColor = Theme.Accent;
                 }
                 else
                 {
-                    _pauseItem.Text = "Пауза на 30 минут";
+                    SetText(_pauseItem, "Пауза на 30 минут");
                     _pauseItem.ForeColor = Theme.Text;
                 }
             }
 
-            _startupItem.Text = _settings.StartWithWindows ? "Автозапуск включён" : "Автозапуск выключен";
+            SetText(_startupItem, _settings.StartWithWindows ? "Автозапуск включён" : "Автозапуск выключен");
 
             if (_jellyItem != null)
             {
-                _jellyItem.Text = _settings.Bend ? "Желеобразные окна: вкл" : "Желеобразные окна: выкл";
+                SetText(_jellyItem, _settings.Bend ? "Желеобразные окна: вкл" : "Желеобразные окна: выкл");
                 _jellyItem.Checked = _settings.Bend;
             }
             if (_rollItem != null)
             {
-                _rollItem.Text = _settings.Roll ? "Скатывать в трубочку: вкл" : "Скатывать в трубочку: выкл";
+                SetText(_rollItem, _settings.Roll ? "Скатывать в трубочку: вкл" : "Скатывать в трубочку: выкл");
                 _rollItem.Checked = _settings.Roll;
             }
             if (_presetItems != null)
@@ -371,13 +398,45 @@ namespace Okna
                 _notify.Icon = stateIcon;
 
             if (_autoUpdateItem != null)
-                _autoUpdateItem.Text = _settings.AutoUpdate ? "Автообновление включено" : "Автообновление выключено";
+                SetText(_autoUpdateItem, _settings.AutoUpdate ? "Автообновление включено" : "Автообновление выключено");
 
             if (_updateItem != null)
             {
-                _updateItem.Visible = _ready != null;
-                if (_ready != null) _updateItem.Text = "Обновить до v" + Updater.Format(_ready.Version);
+                bool ready = _ready != null && _ready.Version != null;
+                _updateItem.Visible = ready;
+                _notesItem.Visible = ready;
+                _skipItem.Visible = ready;
+                if (ready)
+                {
+                    string version = Updater.Format(_ready.Version);
+                    SetText(_updateItem, "Обновить до v" + version,
+                        Loc.T("Обновить до v") + version);
+                    SetText(_notesItem, "Что нового…");
+                    SetText(_skipItem, "Пропустить эту версию");
+                }
             }
+        }
+
+        /// <summary>
+        /// Re-translates the whole tray menu and refreshes the strings that
+        /// are built from live state. Called when the language changes.
+        /// </summary>
+        public void ApplyLanguage()
+        {
+            Loc.ApplyItems(_menu.Items);
+            UpdateMenu();
+        }
+
+        private static void SetText(ToolStripItem item, string source)
+        {
+            SetText(item, source, Loc.T(source));
+        }
+
+        private static void SetText(ToolStripItem item, string source, string translated)
+        {
+            if (item == null) return;
+            item.AccessibleDescription = source;
+            item.Text = translated;
         }
 
         /// <summary>
@@ -417,7 +476,7 @@ namespace Okna
                 Log.Error("Hotkey: " + error);
                 if (notify || _showOnStart)
                     Balloon("Горячая клавиша занята", error +
-                        ". Выберите другую в настройках или закройте программу, которая её использует.");
+                        Loc.T(". Выберите другую в настройках или закройте программу, которая её использует."));
             }
             UpdateMenu();
             return ok;
@@ -436,6 +495,7 @@ namespace Okna
         {
             _settings.Enabled = !_settings.Enabled;
             Persist();
+            if (_settings.Enabled) StartupGuard.NoteEffectsEnabled();
             Log.Debug("Effects " + (_settings.Enabled ? "on" : "off"));
             if (!_settings.Enabled) ClearTimedPause();
             UpdateMenu();
@@ -444,7 +504,8 @@ namespace Okna
                 Balloon(_settings.Enabled ? "Окна включены" : "Окна на паузе",
                         _settings.Enabled
                             ? "Эффекты снова работают."
-                            : "Нажмите " + _settings.HotkeyLabel + " или выберите «Эффект выключен» в трее, чтобы вернуть.");
+                            : Loc.T("Нажмите ") + _settings.HotkeyLabel +
+                              Loc.T(" или выберите «Эффект выключен» в трее, чтобы вернуть."));
         }
 
         /// <summary>
@@ -499,10 +560,18 @@ namespace Okna
                 Version pending = Updater.PendingVersion();
                 if (pending != null)
                 {
-                    _ready = new UpdateInfo();
-                    _ready.Version = pending;
-                    UpdateMenu();
-                    if (_settings.AutoUpdate) ScheduleApply();
+                    if (string.Equals(_settings.SkippedVersion, Updater.Format(pending),
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        Updater.Discard();
+                    }
+                    else
+                    {
+                        _ready = new UpdateInfo();
+                        _ready.Version = pending;
+                        UpdateMenu();
+                        if (_settings.AutoUpdate) ScheduleApply();
+                    }
                 }
             }
 
@@ -564,7 +633,16 @@ namespace Okna
             if (found == null)
             {
                 Log.Debug("Update check: no newer release");
-                if (manual) Balloon("Обновлений нет", "У вас последняя версия — " + Updater.CurrentLabel + ".");
+                if (manual) Balloon("Обновлений нет",
+                    Loc.T("У вас последняя версия — ") + Updater.CurrentLabel + ".");
+                return;
+            }
+
+            bool skipped = IsSkipped(found);
+            if (skipped && !manual)
+            {
+                Log.Debug("Update " + Updater.Format(found.Version) + " skipped by the user");
+                Updater.Discard();
                 return;
             }
 
@@ -572,15 +650,65 @@ namespace Okna
             Log.Info("Update " + Updater.Format(found.Version) + " downloaded and verified");
             UpdateMenu();
 
-            if (_settings.AutoUpdate)
+            if (_settings.AutoUpdate && !skipped)
             {
                 ScheduleApply();
             }
             else
             {
-                Balloon("Доступно обновление v" + Updater.Format(found.Version),
-                        "Нажмите, чтобы установить, или выберите «Обновить» в меню.");
+                if (!skipped)
+                    Balloon(Loc.T("Доступно обновление v") + Updater.Format(found.Version),
+                            "Нажмите, чтобы посмотреть, что нового.");
+                if (manual) ShowUpdateDialog();
             }
+        }
+
+        private bool IsSkipped(UpdateInfo info)
+        {
+            return info != null && info.Version != null &&
+                   string.Equals(_settings.SkippedVersion, Updater.Format(info.Version),
+                       StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void ShowUpdateDialog()
+        {
+            if (_ready == null) return;
+            UpdateInfo info = _ready;
+            using (UpdateDialog dialog = new UpdateDialog(info))
+            {
+                IWin32Window owner = _form != null && !_form.IsDisposed && _form.Visible ? _form : null;
+                dialog.ShowDialog(owner);
+                if (dialog.Install)
+                {
+                    ApplyUpdateNow();
+                }
+                else if (dialog.Skip)
+                {
+                    SkipReadyUpdate();
+                }
+                else if (dialog.OpenPage && !string.IsNullOrEmpty(info.PageUrl))
+                {
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo(info.PageUrl) { UseShellExecute = true });
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Debug("Open release page failed: " + ex.Message);
+                    }
+                }
+            }
+        }
+
+        private void SkipReadyUpdate()
+        {
+            if (_ready == null || _ready.Version == null) return;
+            _settings.SkippedVersion = Updater.Format(_ready.Version);
+            Persist();
+            Log.Info("Update " + _settings.SkippedVersion + " skipped");
+            Updater.Discard();
+            _ready = null;
+            UpdateMenu();
         }
 
         private void ScheduleApply()
@@ -693,6 +821,17 @@ namespace Okna
                 check("the status line is filled", _statusItem.Text.Length > 0);
                 check("the pause item is present", _pauseItem != null);
                 check("the update item is present", _updateItem != null);
+                check("the what's new item is present", _notesItem != null);
+                check("the skip version item is present", _skipItem != null);
+
+                UpdateInfo sample = new UpdateInfo();
+                sample.Version = new Version(9, 9, 9);
+                sample.Notes = "test notes";
+                sample.PageUrl = "https://example.com";
+                using (UpdateDialog dialog = new UpdateDialog(sample))
+                {
+                    check("the update dialog builds", dialog.Controls.Count >= 6);
+                }
             }
             catch (Exception ex)
             {
@@ -725,8 +864,8 @@ namespace Okna
         private void Balloon(string title, string text)
         {
             if (_notify == null) return;
-            _notify.BalloonTipTitle = title;
-            _notify.BalloonTipText = text;
+            _notify.BalloonTipTitle = Loc.T(title);
+            _notify.BalloonTipText = Loc.T(text);
             _notify.BalloonTipIcon = ToolTipIcon.Info;
             _notify.ShowBalloonTip(6000);
         }
@@ -852,7 +991,8 @@ namespace Okna
             bool ok = Native.RegisterHotKey(Handle, HotkeyId, modifiers, (uint)settings.HotkeyKey);
             if (!ok)
             {
-                error = "Клавиша " + settings.HotkeyLabel + " уже занята другой программой";
+                error = Loc.T("Клавиша ") + settings.HotkeyLabel +
+                        Loc.T(" уже занята другой программой");
                 return false;
             }
             _registered = true;
