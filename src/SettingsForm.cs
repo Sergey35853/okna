@@ -981,15 +981,16 @@ namespace Okna
         private void BuildSystemPage(Panel page)
         {
             int y = 0;
-            CardPanel startCard = AddCard(page, "Запуск и уведомления", 0, y, _contentHost.Width - 8, 154); y += 162;
+            CardPanel startCard = AddCard(page, "Запуск и уведомления", 0, y, _contentHost.Width - 8, 220); y += 228;
             int ry = 14;
             ry = AddSwitchRow(startCard, "Запускать с Windows", "Тихо стартовать с системой", ry, out _startupSwitch);
             AddDivider(startCard, 18, ry, startCard.Width - 36); ry += 10;
             ry = AddSwitchRow(startCard, "Запуск от имени администратора", "С правами администратора при входе", ry, out _autoStartElevatedSwitch);
             AddDivider(startCard, 18, ry, startCard.Width - 36); ry += 10;
-            AddSwitchRow(startCard, "Меньше уведомлений", "Показывать только важные сообщения в трее", ry, out _quietNotificationsSwitch);
+            ry = AddSwitchRow(startCard, "Меньше уведомлений", "Показывать только важные сообщения в трее", ry, out _quietNotificationsSwitch);
+            startCard.Height = Math.Max(startCard.Height, ry + 12);
 
-            CardPanel hkCard = AddCard(page, "Горячая клавиша", 0, y, _contentHost.Width - 8, 110); y += 118;
+            CardPanel hkCard = AddCard(page, "Горячая клавиша", 0, y, _contentHost.Width - 8, 118); y += 126;
             AddLabel(hkCard, "Нажмите поле и введите сочетание; Backspace — выключить", 18, 14, Theme.FontSmall, Theme.Muted);
             _hotkeyButton = new JellyButton();
             _hotkeyButton.Text = "Ctrl+Alt+J";
@@ -999,14 +1000,17 @@ namespace Okna
             _hotkeyButton.Click += delegate { _hotkeyButton.Focus(); };
             hkCard.Controls.Add(_hotkeyButton);
             _hotkeyStatus = MakeLabel("", 208, 50, Theme.FontSmall, Theme.Muted);
+            _hotkeyStatus.AutoSize = false;
+            _hotkeyStatus.AutoEllipsis = true;
             _hotkeyStatus.Size = new Size(hkCard.Width - 226, 18);
             hkCard.Controls.Add(_hotkeyStatus);
 
-            CardPanel updCard = AddCard(page, "Обновления", 0, y, _contentHost.Width - 8, 168); y += 176;
+            CardPanel updCard = AddCard(page, "Обновления", 0, y, _contentHost.Width - 8, 184); y += 192;
             ry = AddSwitchRow(updCard, "Проверять обновления автоматически", "Фоновая проверка через GitHub Releases", 14, out _autoUpdateSwitch);
             AddDivider(updCard, 18, ry, updCard.Width - 36);
             _updateStatusLabel = MakeLabel("", 18, ry + 10, Theme.FontSmall, Theme.Muted);
             _updateStatusLabel.AutoSize = false;
+            _updateStatusLabel.AutoEllipsis = true;
             _updateStatusLabel.Name = "updateStatusLabel";
             _updateStatusLabel.Size = new Size(updCard.Width - 200, 18);
             updCard.Controls.Add(_updateStatusLabel);
@@ -1043,7 +1047,7 @@ namespace Okna
             CardPanel dataCard = AddCard(page, "Настройки рядом с программой", 0, y, _contentHost.Width - 8, 150);
             ry = AddSwitchRow(dataCard, "Настройки рядом с программой", "okna.ini вместо реестра — для флешки", 14, out _portableSwitch);
             _portableLabel = MakeLabel("", 18, 58, Theme.FontTiny, Theme.Faint);
-            _portableLabel.AutoSize = false; _portableLabel.Size = new Size(dataCard.Width - 36, 16);
+            _portableLabel.AutoSize = false; _portableLabel.AutoEllipsis = true; _portableLabel.Size = new Size(dataCard.Width - 36, 16);
             dataCard.Controls.Add(_portableLabel);
             int bx = 18;
             JellyButton export = MakeSmallButton(dataCard, "Экспорт…", bx, 82, 100); bx += 106; export.Click += delegate { ExportSettings(); };
@@ -1402,8 +1406,57 @@ namespace Okna
             }
             if (_navPanel != null) foreach (Control c in _navPanel.Controls) InvalidateTree(c);
             foreach (Control c in Controls) InvalidateTree(c);
-            if (_pageTitleLabel != null) _pageTitleLabel.ForeColor = Theme.Text;
+            ApplyThemeColors(this);
+            if (_navPanel != null) ApplyThemeColors(_navPanel);
+            if (_pages != null) for (int i = 0; i < _pages.Length; i++) ApplyThemeColors(_pages[i]);
+            RefreshDynamicThemeLabels();
             Invalidate(true);
+        }
+
+        private void ApplyThemeColors(Control root)
+        {
+            if (root == null) return;
+            foreach (Control c in root.Controls)
+            {
+                if (c is ListBox)
+                {
+                    c.BackColor = Theme.CardAlt;
+                    c.ForeColor = Theme.Text;
+                }
+                else if (c is TextBox)
+                {
+                    c.BackColor = Theme.CardAlt;
+                    c.ForeColor = Theme.Text;
+                }
+                else if (c is Panel && !(c is CardPanel) && c.Height <= 2)
+                {
+                    c.BackColor = Theme.BorderSoft;
+                }
+                else if (c is Label && !(c is JellyButton))
+                {
+                    Label l = (Label)c;
+                    if (l == _pauseStatusLabel || l == _updateStatusLabel || l == _hotkeyStatus ||
+                        l == _valueLabel || l == _resumeDelayValueLabel) { }
+                    else if (l.Font == Theme.FontTiny) l.ForeColor = Theme.Faint;
+                    else if (l.Font == Theme.FontSmall) l.ForeColor = Theme.Muted;
+                    else l.ForeColor = Theme.Text;
+                }
+                ApplyThemeColors(c);
+            }
+        }
+
+        private void RefreshDynamicThemeLabels()
+        {
+            if (_pageTitleLabel != null) _pageTitleLabel.ForeColor = Theme.Text;
+            if (_hintLabel != null) _hintLabel.ForeColor = Theme.Faint;
+            if (_versionLabel != null) _versionLabel.ForeColor = Theme.Faint;
+            if (_portableLabel != null) _portableLabel.ForeColor = Theme.Faint;
+            if (_valueLabel != null) _valueLabel.ForeColor = Theme.Accent;
+            if (_resumeDelayValueLabel != null) _resumeDelayValueLabel.ForeColor = Theme.Accent;
+            Control[] appTitles = _navPanel != null ? _navPanel.Controls.Find("appTitleLabel", false) : new Control[0];
+            if (appTitles.Length > 0) appTitles[0].ForeColor = Theme.Text;
+            UpdatePauseStatusLabel();
+            UpdateUpdateStatusLabel();
         }
 
         private static void InvalidateTree(Control c)
