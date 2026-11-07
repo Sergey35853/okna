@@ -64,7 +64,7 @@ namespace Okna
 
             Text = "Окна";
             Icon = icon;
-            ClientSize = new Size(1100, 950);
+            ClientSize = new Size(1200, 1000);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -665,19 +665,19 @@ namespace Okna
             Label themeSub = MakeLabel("Тёмная тема настроек", 20, 162, Theme.FontSmall, Theme.Muted);
             miscCard.Controls.Add(themeSub);
 
-            // Bottom strip — separate rows so nothing overlaps
-            _hintLabel = MakeLabel("", 20, 770, Theme.FontSmall, Theme.Faint);
+            // Bottom strip — each element on its own row so nothing overlaps
+            _hintLabel = MakeLabel("", 20, 820, Theme.FontSmall, Theme.Faint);
             _hintLabel.AutoSize = false;
             _hintLabel.Size = new Size(440, 16);
             Controls.Add(_hintLabel);
 
-            _versionLabel = MakeLabel("", 20, 790, Theme.FontTiny, Theme.Faint);
+            _versionLabel = MakeLabel("", 20, 850, Theme.FontTiny, Theme.Faint);
             _versionLabel.AutoSize = false;
             _versionLabel.Size = new Size(280, 16);
             UpdateVersionLabel();
             Controls.Add(_versionLabel);
 
-            Label copyrightLabel = MakeLabel("© Сергей", ClientSize.Width - 60, 790, Theme.FontTiny, Theme.Faint);
+            Label copyrightLabel = MakeLabel("© Сергей", ClientSize.Width - 60, 850, Theme.FontTiny, Theme.Faint);
             copyrightLabel.AutoSize = false;
             copyrightLabel.Size = new Size(60, 16);
             copyrightLabel.TextAlign = ContentAlignment.MiddleRight;
@@ -685,7 +685,7 @@ namespace Okna
 
             LinkLabel telegramLink = new LinkLabel();
             telegramLink.Text = "Обратная связь: @Link_Ser";
-            telegramLink.Location = new Point(20, 810);
+            telegramLink.Location = new Point(20, 880);
             telegramLink.Size = new Size(220, 18);
             telegramLink.Font = Theme.FontTiny;
             telegramLink.LinkColor = Theme.Accent;
@@ -700,7 +700,7 @@ namespace Okna
             JellyButton done = new JellyButton();
             done.Text = "Готово";
             done.Accent = true;
-            done.Location = new Point(ClientSize.Width - 112, 770);
+            done.Location = new Point(ClientSize.Width - 112, 820);
             done.Size = new Size(96, 36);
             done.Click += delegate { Hide(); };
             Controls.Add(done);
