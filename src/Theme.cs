@@ -30,12 +30,18 @@ namespace Okna
         public static readonly Font FontBody = new Font("Segoe UI", 9.75f, FontStyle.Regular, GraphicsUnit.Point);
         public static readonly Font FontSmall = new Font("Segoe UI", 9f, FontStyle.Regular, GraphicsUnit.Point);
         public static readonly Font FontTiny = new Font("Segoe UI", 8.25f, FontStyle.Regular, GraphicsUnit.Point);
-        public static readonly Font FontLabel = new Font("Segoe UI Semibold", 9.75f, FontStyle.Regular, GraphicsUnit.Point);
-        public static readonly Font FontTitle = new Font("Segoe UI Semibold", 22f, FontStyle.Regular, GraphicsUnit.Point);
-        public static readonly Font FontPageTitle = new Font("Segoe UI Semibold", 20f, FontStyle.Regular, GraphicsUnit.Point);
-        public static readonly Font FontCardTitle = new Font("Segoe UI", 9.75f, FontStyle.Regular, GraphicsUnit.Point);
-        public static readonly Font FontButton = new Font("Segoe UI", 9.75f, FontStyle.Regular, GraphicsUnit.Point);
-        public static readonly Font FontMini = new Font("Segoe UI", 8.5f, FontStyle.Regular, GraphicsUnit.Point);
+        public static readonly Font FontLabel = SafeFont("Segoe UI", 9.75f, FontStyle.Bold);
+        public static readonly Font FontTitle = SafeFont("Segoe UI", 22f, FontStyle.Bold);
+        public static readonly Font FontPageTitle = SafeFont("Segoe UI", 20f, FontStyle.Bold);
+        public static readonly Font FontCardTitle = SafeFont("Segoe UI", 9.75f, FontStyle.Regular);
+        public static readonly Font FontButton = SafeFont("Segoe UI", 9.75f, FontStyle.Regular);
+        public static readonly Font FontMini = SafeFont("Segoe UI", 8.5f, FontStyle.Regular);
+
+        private static Font SafeFont(string family, float size, FontStyle style)
+        {
+            try { return new Font(family, size, style, GraphicsUnit.Point); }
+            catch { return new Font(SystemFonts.DefaultFont.FontFamily, size, style, GraphicsUnit.Point); }
+        }
 
         public static GraphicsPath RoundedRect(RectangleF rect, float radius)
         {
