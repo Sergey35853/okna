@@ -62,6 +62,7 @@ namespace Okna.Tests
             Run("update skip and language survive an INI round-trip", UpdateAndLanguageRoundTrip);
             Run("quiet mode, call apps and pause delay survive an INI round-trip", QuietCallAppsAndPauseDelayRoundTrip);
             Run("pending update info round-trips", PendingUpdateInfoRoundTrip);
+            Run("auto-pause reason decision and call app matching", AutoPauseDecisionLogic);
             Run("settings backup path follows the store", BackupPathLayout);
 
             Console.WriteLine();
@@ -975,6 +976,23 @@ namespace Okna.Tests
             {
                 try { File.Delete(path); } catch { }
             }
+        }
+
+        private static void AutoPauseDecisionLogic()
+        {
+            // Priority: remote > fullscreen > call > battery saver > battery > reduce motion
+            Check(AutoPause.DecideReason(true, true, true, true, true, true) == "Удалённый рабочий стол", "remote wins");
+            Check(AutoPause.DecideReason(false, true, true, false, false, false) == "Полноэкранное приложение", "fullscreen");
+            Check(AutoPause.DecideReason(false, false, true, false, false, false) == "Звонок или показ экрана", "call");
+            Check(AutoPause.DecideReason(false, false, false, true, false, false) == "Экономия энергии", "battery saver");
+            Check(AutoPause.DecideReason(false, false, false, false, true, false) == "Питание от батареи", "battery");
+            Check(AutoPause.DecideReason(false, false, false, false, false, true) == "Уменьшено движение", "reduce motion");
+            Check(AutoPause.DecideReason(false, false, false, false, false, false) == null, "no reason");
+
+            Check(AutoPause.IsCallAppName("Teams.exe", null), "builtin call app");
+            Check(AutoPause.IsCallAppName("mycall.exe", new string[] { "mycall.exe" }), "custom call app");
+            Check(!AutoPause.IsCallAppName("notepad.exe", new string[] { "mycall.exe" }), "non-call app");
+            Check(AutoPause.IsCallAppName("zoom.exe", null), "builtin case-insensitive");
         }
 
         private static void BackupPathLayout()

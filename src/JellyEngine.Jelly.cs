@@ -186,7 +186,7 @@ namespace Okna
             double phase = 2.0 * Math.PI * elapsed;
             // Same normalisation as the release wobble: the default 70 is
             // unchanged, the top of the slider sloshes much harder.
-            double visc = Math.Max(0.6, _settings.JellyFactor / 1.1);
+            double visc = Math.Max(0.6, (_settings.JellyFactor * _settings.EffectIntensityFactor) / 1.1);
             double ax = 0.010 * w * env * Math.Cos(phase * 1.90 + 0.8) * visc;
             double ay = 0.022 * h * env * Math.Cos(phase * 2.20) * visc;
             double ox = 0.0025 * w * env * Math.Cos(phase * 1.90 + 1.4) * visc;

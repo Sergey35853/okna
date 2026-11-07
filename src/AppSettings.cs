@@ -68,6 +68,40 @@ namespace Okna
             get { return _quietNotifications; }
             set { _quietNotifications = value; }
         }
+        // Global effect multipliers (safe bounds). 100 = 1.0x.
+        private volatile int _effectIntensity = 100;
+        private volatile int _effectSpeed = 100;
+        public int EffectIntensity
+        {
+            get { return _effectIntensity; }
+            set { if (value < 50) value = 50; if (value > 150) value = 150; _effectIntensity = value; }
+        }
+        public int EffectSpeed
+        {
+            get { return _effectSpeed; }
+            set { if (value < 50) value = 50; if (value > 150) value = 150; _effectSpeed = value; }
+        }
+        public double EffectIntensityFactor { get { return _effectIntensity / 100.0; } }
+        public double EffectSpeedFactor { get { return _effectSpeed / 100.0; } }
+        // Extra hotkeys (0 = disabled). Main toggle uses HotkeyModifiers/HotkeyKey for compatibility.
+        private volatile int _hotkeyBendModifiers;
+        private volatile int _hotkeyBendKey;
+        private volatile int _hotkeyRollModifiers;
+        private volatile int _hotkeyRollKey;
+        private volatile int _hotkeySettingsModifiers;
+        private volatile int _hotkeySettingsKey;
+        public int HotkeyBendModifiers { get { return _hotkeyBendModifiers; } set { _hotkeyBendModifiers = value; } }
+        public int HotkeyBendKey { get { return _hotkeyBendKey; } set { _hotkeyBendKey = value; } }
+        public int HotkeyRollModifiers { get { return _hotkeyRollModifiers; } set { _hotkeyRollModifiers = value; } }
+        public int HotkeyRollKey { get { return _hotkeyRollKey; } set { _hotkeyRollKey = value; } }
+        public int HotkeySettingsModifiers { get { return _hotkeySettingsModifiers; } set { _hotkeySettingsModifiers = value; } }
+        public int HotkeySettingsKey { get { return _hotkeySettingsKey; } set { _hotkeySettingsKey = value; } }
+        public bool HasHotkeyBend { get { return _hotkeyBendKey != 0 && _hotkeyBendModifiers != 0; } }
+        public bool HasHotkeyRoll { get { return _hotkeyRollKey != 0 && _hotkeyRollModifiers != 0; } }
+        public bool HasHotkeySettings { get { return _hotkeySettingsKey != 0 && _hotkeySettingsModifiers != 0; } }
+        public string HotkeyBendLabel { get { return FormatHotkey(_hotkeyBendModifiers, _hotkeyBendKey); } }
+        public string HotkeyRollLabel { get { return FormatHotkey(_hotkeyRollModifiers, _hotkeyRollKey); } }
+        public string HotkeySettingsLabel { get { return FormatHotkey(_hotkeySettingsModifiers, _hotkeySettingsKey); } }
         private bool _portable;
         private string _portablePath;
 
@@ -848,6 +882,11 @@ namespace Okna
             _fade = false;
             _darkTheme = false;
             _quietNotifications = false;
+            _effectIntensity = 100;
+            _effectSpeed = 100;
+            _hotkeyBendModifiers = 0; _hotkeyBendKey = 0;
+            _hotkeyRollModifiers = 0; _hotkeyRollKey = 0;
+            _hotkeySettingsModifiers = 0; _hotkeySettingsKey = 0;
         }
 
         public static AppSettings Load()
@@ -943,6 +982,14 @@ namespace Okna
                         if (v != null) s.DarkTheme = Convert.ToInt32(v) != 0;
                         v = key.GetValue("QuietNotifications");
                         if (v != null) s.QuietNotifications = Convert.ToInt32(v) != 0;
+                        v = key.GetValue("EffectIntensity"); if (v != null) s.EffectIntensity = Convert.ToInt32(v);
+                        v = key.GetValue("EffectSpeed"); if (v != null) s.EffectSpeed = Convert.ToInt32(v);
+                        v = key.GetValue("HotkeyBendModifiers"); if (v != null) s.HotkeyBendModifiers = Convert.ToInt32(v);
+                        v = key.GetValue("HotkeyBendKey"); if (v != null) s.HotkeyBendKey = Convert.ToInt32(v);
+                        v = key.GetValue("HotkeyRollModifiers"); if (v != null) s.HotkeyRollModifiers = Convert.ToInt32(v);
+                        v = key.GetValue("HotkeyRollKey"); if (v != null) s.HotkeyRollKey = Convert.ToInt32(v);
+                        v = key.GetValue("HotkeySettingsModifiers"); if (v != null) s.HotkeySettingsModifiers = Convert.ToInt32(v);
+                        v = key.GetValue("HotkeySettingsKey"); if (v != null) s.HotkeySettingsKey = Convert.ToInt32(v);
                     }
                 }
 
@@ -1073,6 +1120,14 @@ namespace Okna
             Fade = GetBool(map, "Fade", false);
             DarkTheme = GetBool(map, "DarkTheme", false);
             QuietNotifications = GetBool(map, "QuietNotifications", false);
+            EffectIntensity = GetInt(map, "EffectIntensity", 100);
+            EffectSpeed = GetInt(map, "EffectSpeed", 100);
+            HotkeyBendModifiers = GetInt(map, "HotkeyBendModifiers", 0);
+            HotkeyBendKey = GetInt(map, "HotkeyBendKey", 0);
+            HotkeyRollModifiers = GetInt(map, "HotkeyRollModifiers", 0);
+            HotkeyRollKey = GetInt(map, "HotkeyRollKey", 0);
+            HotkeySettingsModifiers = GetInt(map, "HotkeySettingsModifiers", 0);
+            HotkeySettingsKey = GetInt(map, "HotkeySettingsKey", 0);
             Economy = GetBool(map, "Economy", false);
             PauseOnBattery = GetBool(map, "PauseOnBattery", false);
             PauseOnCall = GetBool(map, "PauseOnCall", true);
@@ -1242,6 +1297,14 @@ namespace Okna
                     key.SetValue("Fade", _fade ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("DarkTheme", _darkTheme ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("QuietNotifications", _quietNotifications ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue("EffectIntensity", _effectIntensity, RegistryValueKind.DWord);
+                    key.SetValue("EffectSpeed", _effectSpeed, RegistryValueKind.DWord);
+                    key.SetValue("HotkeyBendModifiers", _hotkeyBendModifiers, RegistryValueKind.DWord);
+                    key.SetValue("HotkeyBendKey", _hotkeyBendKey, RegistryValueKind.DWord);
+                    key.SetValue("HotkeyRollModifiers", _hotkeyRollModifiers, RegistryValueKind.DWord);
+                    key.SetValue("HotkeyRollKey", _hotkeyRollKey, RegistryValueKind.DWord);
+                    key.SetValue("HotkeySettingsModifiers", _hotkeySettingsModifiers, RegistryValueKind.DWord);
+                    key.SetValue("HotkeySettingsKey", _hotkeySettingsKey, RegistryValueKind.DWord);
                 }
                 WriteBackup(BackupPath);
             }
@@ -1301,6 +1364,14 @@ namespace Okna
             Fade = GetBool(map, "Fade", Fade);
             DarkTheme = GetBool(map, "DarkTheme", DarkTheme);
             QuietNotifications = GetBool(map, "QuietNotifications", QuietNotifications);
+            EffectIntensity = GetInt(map, "EffectIntensity", EffectIntensity);
+            EffectSpeed = GetInt(map, "EffectSpeed", EffectSpeed);
+            HotkeyBendModifiers = GetInt(map, "HotkeyBendModifiers", HotkeyBendModifiers);
+            HotkeyBendKey = GetInt(map, "HotkeyBendKey", HotkeyBendKey);
+            HotkeyRollModifiers = GetInt(map, "HotkeyRollModifiers", HotkeyRollModifiers);
+            HotkeyRollKey = GetInt(map, "HotkeyRollKey", HotkeyRollKey);
+            HotkeySettingsModifiers = GetInt(map, "HotkeySettingsModifiers", HotkeySettingsModifiers);
+            HotkeySettingsKey = GetInt(map, "HotkeySettingsKey", HotkeySettingsKey);
             Economy = GetBool(map, "Economy", Economy);
             PauseOnBattery = GetBool(map, "PauseOnBattery", PauseOnBattery);
             PauseOnCall = GetBool(map, "PauseOnCall", PauseOnCall);
@@ -1358,6 +1429,14 @@ namespace Okna
                 sb.AppendLine("Fade=" + (_fade ? 1 : 0));
                 sb.AppendLine("DarkTheme=" + (_darkTheme ? 1 : 0));
                 sb.AppendLine("QuietNotifications=" + (_quietNotifications ? 1 : 0));
+                sb.AppendLine("EffectIntensity=" + _effectIntensity);
+                sb.AppendLine("EffectSpeed=" + _effectSpeed);
+                sb.AppendLine("HotkeyBendModifiers=" + _hotkeyBendModifiers);
+                sb.AppendLine("HotkeyBendKey=" + _hotkeyBendKey);
+                sb.AppendLine("HotkeyRollModifiers=" + _hotkeyRollModifiers);
+                sb.AppendLine("HotkeyRollKey=" + _hotkeyRollKey);
+                sb.AppendLine("HotkeySettingsModifiers=" + _hotkeySettingsModifiers);
+                sb.AppendLine("HotkeySettingsKey=" + _hotkeySettingsKey);
                 sb.AppendLine("Economy=" + (_economy ? 1 : 0));
                 sb.AppendLine("PauseOnBattery=" + (_pauseOnBattery ? 1 : 0));
                 sb.AppendLine("PauseOnCall=" + (_pauseOnCall ? 1 : 0));

@@ -569,6 +569,24 @@ namespace Okna
             ToggleTimedPause(true);
         }
 
+        internal void ToggleBendHotkey()
+        {
+            _settings.Bend = !_settings.Bend;
+            Persist();
+            UpdateMenu();
+            SyncForm();
+            Log.Debug("Bend hotkey -> " + _settings.Bend);
+        }
+
+        internal void ToggleRollHotkey()
+        {
+            _settings.Roll = !_settings.Roll;
+            Persist();
+            UpdateMenu();
+            SyncForm();
+            Log.Debug("Roll hotkey -> " + _settings.Roll);
+        }
+
         private void ToggleTimedPause(bool notify)
         {
             if (_pauseTimer != null)
@@ -1098,8 +1116,11 @@ namespace Okna
 
     internal sealed class DispatcherForm : Form
     {
-        private const int HotkeyId = 0x4F4B;
-        private bool _registered;
+        private const int HotkeyIdToggle = 0x4F4B;
+        private const int HotkeyIdBend = 0x4F4C;
+        private const int HotkeyIdRoll = 0x4F4D;
+        private const int HotkeyIdSettings = 0x4F4E;
+        private readonly System.Collections.Generic.List<int> _registeredIds = new System.Collections.Generic.List<int>();
 
         public TrayApp Tray { get; set; }
 
@@ -1126,8 +1147,8 @@ namespace Okna
         }
 
         /// <summary>
-        /// Registers the hotkey from the settings. A conflict is returned to
-        /// the caller, which tells the user instead of silently doing nothing.
+        /// Registers hotkeys from settings. Main toggle conflict is reported via <paramref name="error"/>.
+        /// Additional hotkey conflicts are collected but do not block the main toggle.
         /// </summary>
         public bool ApplyHotkey(AppSettings settings, out string error)
         {
@@ -1138,34 +1159,49 @@ namespace Okna
                 return false;
             }
 
-            if (_registered)
+            UnregisterAll();
+
+            bool mainOk = true;
+            if (settings != null && settings.HasHotkey)
+                mainOk = RegisterOne(HotkeyIdToggle, settings.HotkeyModifiers, settings.HotkeyKey, settings.HotkeyLabel, out error);
+            // register extras (best-effort)
+            if (settings != null)
             {
-                try { Native.UnregisterHotKey(Handle, HotkeyId); } catch { }
-                _registered = false;
+                string e2;
+                if (settings.HasHotkeyBend) RegisterOne(HotkeyIdBend, settings.HotkeyBendModifiers, settings.HotkeyBendKey, settings.HotkeyBendLabel, out e2);
+                if (settings.HasHotkeyRoll) RegisterOne(HotkeyIdRoll, settings.HotkeyRollModifiers, settings.HotkeyRollKey, settings.HotkeyRollLabel, out e2);
+                if (settings.HasHotkeySettings) RegisterOne(HotkeyIdSettings, settings.HotkeySettingsModifiers, settings.HotkeySettingsKey, settings.HotkeySettingsLabel, out e2);
             }
+            return mainOk;
+        }
 
-            if (!settings.HasHotkey) return true;
-
-            uint modifiers = (uint)settings.HotkeyModifiers | Native.MOD_NOREPEAT;
-            bool ok = Native.RegisterHotKey(Handle, HotkeyId, modifiers, (uint)settings.HotkeyKey);
+        private bool RegisterOne(int id, int modifiers, int key, string label, out string error)
+        {
+            error = null;
+            if (key == 0 || modifiers == 0) return true;
+            uint mods = (uint)modifiers | Native.MOD_NOREPEAT;
+            bool ok = Native.RegisterHotKey(Handle, id, mods, (uint)key);
             if (!ok)
             {
-                error = Loc.T("Клавиша ") + settings.HotkeyLabel +
-                        Loc.T(" уже занята другой программой");
+                error = Loc.T("Клавиша ") + label + Loc.T(" уже занята другой программой");
                 return false;
             }
-            _registered = true;
+            _registeredIds.Add(id);
             return true;
+        }
+
+        private void UnregisterAll()
+        {
+            for (int i = 0; i < _registeredIds.Count; i++)
+            {
+                try { Native.UnregisterHotKey(Handle, _registeredIds[i]); } catch { }
+            }
+            _registeredIds.Clear();
         }
 
         protected override void OnHandleDestroyed(EventArgs e)
         {
-            try
-            {
-                if (_registered) Native.UnregisterHotKey(Handle, HotkeyId);
-            }
-            catch { }
-            _registered = false;
+            try { UnregisterAll(); } catch { }
             base.OnHandleDestroyed(e);
         }
 
@@ -1183,10 +1219,13 @@ namespace Okna
                         Loc.T("Программа уже работает в трее."), true);
                 return;
             }
-            if (m.Msg == Native.WM_HOTKEY && m.WParam.ToInt32() == HotkeyId)
+            if (m.Msg == Native.WM_HOTKEY && Tray != null)
             {
-                if (Tray != null) Tray.TogglePause();
-                return;
+                int id = m.WParam.ToInt32();
+                if (id == HotkeyIdToggle) { Tray.TogglePause(); return; }
+                if (id == HotkeyIdBend) { Tray.ToggleBendHotkey(); return; }
+                if (id == HotkeyIdRoll) { Tray.ToggleRollHotkey(); return; }
+                if (id == HotkeyIdSettings) { Tray.ShowSettings(); return; }
             }
             base.WndProc(ref m);
         }

@@ -37,6 +37,7 @@ namespace Okna
         private JellyButton _timedPauseButton;
         private JellySlider _resumeDelaySlider;
         private Label _resumeDelayValueLabel;
+        private JellyButton[] _resumeDelayChoices;
         private JellySwitch _portableSwitch;
         private JellySwitch _autoUpdateSwitch;
         private Label _updateStatusLabel;
@@ -52,6 +53,9 @@ namespace Okna
         private Label _pageTitleLabel;
         private JellyButton _hotkeyButton;
         private Label _hotkeyStatus;
+        private JellyButton _hotkeyBendButton;
+        private JellyButton _hotkeyRollButton;
+        private JellyButton _hotkeySettingsButton;
         private ListBox _excludeList;
         private TextBox _excludeMask;
         private ListBox _overrideList;
@@ -59,6 +63,8 @@ namespace Okna
         private TextBox _callAppMask;
         private JellySlider _slider;
         private Label _valueLabel;
+        private Label _effectIntensityLabel;
+        private Label _effectSpeedLabel;
         private Label _hintLabel;
         private StatusPill _statusPill;
         private JellyButton[] _presets;
@@ -87,10 +93,11 @@ namespace Okna
 
             Text = "Окна";
             Icon = icon;
-            ClientSize = new Size(860, 600);
+            ClientSize = new Size(940, 680);
+            MinimumSize = new Size(780, 520);
             StartPosition = FormStartPosition.CenterScreen;
-            FormBorderStyle = FormBorderStyle.FixedSingle;
-            MaximizeBox = false;
+            FormBorderStyle = FormBorderStyle.Sizable;
+            MaximizeBox = true;
             MinimizeBox = false;
             ShowInTaskbar = true;
             BackColor = Theme.Bg;
@@ -158,6 +165,25 @@ namespace Okna
         protected override void WndProc(ref Message m)
         {
             const int WM_CLOSE = 0x0010;
+            const int WM_DPICHANGED = 0x02E0;
+            if (m.Msg == WM_DPICHANGED)
+            {
+                try
+                {
+                    base.WndProc(ref m);
+                    if (m.LParam != IntPtr.Zero)
+                    {
+                        int w = System.Runtime.InteropServices.Marshal.ReadInt16(m.LParam, 8);
+                        int h = System.Runtime.InteropServices.Marshal.ReadInt16(m.LParam, 10);
+                        // suggested rect not always reliable across WinForms versions; relayout anyway
+                    }
+                    LayoutChrome();
+                    LayoutPages();
+                    Invalidate(true);
+                    return;
+                }
+                catch { }
+            }
             if (m.Msg == WM_CLOSE && !ReallyExit && !Environment.HasShutdownStarted)
             {
                 Persist();
@@ -365,17 +391,43 @@ namespace Okna
         private void LayoutPages()
         {
             if (_pages == null || _contentHost == null) return;
-            int pageW = Math.Max(300, _contentHost.ClientSize.Width - 8);
+            int pageW = Math.Max(320, _contentHost.ClientSize.Width - (SystemInformation.VerticalScrollBarWidth + 8));
             for (int p = 0; p < _pages.Length; p++)
             {
                 Panel page = _pages[p];
                 if (page == null) continue;
+                int y = 0;
+                int gap = 12;
                 foreach (Control c in page.Controls)
                 {
+                    c.Left = 0;
                     c.Width = pageW;
-                    if (c is CardPanel) RelayoutCard((CardPanel)c);
+                    if (c is CardPanel)
+                    {
+                        c.Top = y;
+                        RelayoutCard((CardPanel)c);
+                        FitCardHeight((CardPanel)c);
+                        y = c.Bottom + gap;
+                    }
                 }
             }
+        }
+
+        private void FitCardHeight(CardPanel card)
+        {
+            int bottom = 12;
+            foreach (Control c in card.Controls)
+            {
+                if (!c.Visible) continue;
+                int b = c.Bottom;
+                if (c is Label && c.AutoSize == false)
+                {
+                    // use preferred height for wrapped/ellipsized labels where reasonable
+                    try { int ph = ((Label)c).PreferredHeight; if (ph > 0 && ph < 140) b = c.Top + Math.Max(c.Height, ph); } catch { }
+                }
+                if (b > bottom) bottom = b;
+            }
+            card.Height = Math.Max(48, bottom + 14);
         }
 
         private void RelayoutCard(CardPanel card)
@@ -657,7 +709,7 @@ namespace Okna
             _slider = new JellySlider(); _slider.Minimum = 0; _slider.Maximum = 200;
             _slider.Location = new Point(18, 94); _slider.Size = new Size(card.Width - 36, 24); card.Controls.Add(_slider);
 
-            CardPanel presetsCard = AddCard(page, "Режим", 0, y, _contentHost.Width - 8, 96);
+            CardPanel presetsCard = AddCard(page, "Режим", 0, y, _contentHost.Width - 8, 96); y += 104;
             _presets = new JellyButton[6];
             string[] names = new string[] { "Спокойно", "Баланс", "Желе", "Экономно", "Яркий", "Минимальный" };
             int bw = (presetsCard.Width - 36 - 10) / 3;
@@ -672,6 +724,17 @@ namespace Okna
                 _presets[i] = b;
                 presetsCard.Controls.Add(b);
             }
+
+            CardPanel tuneCard = AddCard(page, "Тонкая настройка", 0, y, _contentHost.Width - 8, 74);
+            AddLabel(tuneCard, "Интенсивность", 18, 14, Theme.FontSmall, Theme.Muted);
+            JellyButton im = MakeSmallButton(tuneCard, "−", 120, 10, 28); im.Click += delegate { _settings.EffectIntensity -= 10; SaveSoon(); UpdateEffectTuningLabels(); };
+            _effectIntensityLabel = MakeLabel("100%", 152, 14, Theme.FontLabel, Theme.Text); _effectIntensityLabel.AutoSize = false; _effectIntensityLabel.Size = new Size(48, 18); _effectIntensityLabel.TextAlign = ContentAlignment.MiddleCenter; tuneCard.Controls.Add(_effectIntensityLabel);
+            JellyButton ip = MakeSmallButton(tuneCard, "+", 204, 10, 28); ip.Click += delegate { _settings.EffectIntensity += 10; SaveSoon(); UpdateEffectTuningLabels(); };
+            AddLabel(tuneCard, "Скорость", 250, 14, Theme.FontSmall, Theme.Muted);
+            JellyButton sm = MakeSmallButton(tuneCard, "−", 320, 10, 28); sm.Click += delegate { _settings.EffectSpeed -= 10; SaveSoon(); UpdateEffectTuningLabels(); };
+            _effectSpeedLabel = MakeLabel("100%", 352, 14, Theme.FontLabel, Theme.Text); _effectSpeedLabel.AutoSize = false; _effectSpeedLabel.Size = new Size(48, 18); _effectSpeedLabel.TextAlign = ContentAlignment.MiddleCenter; tuneCard.Controls.Add(_effectSpeedLabel);
+            JellyButton sp = MakeSmallButton(tuneCard, "+", 404, 10, 28); sp.Click += delegate { _settings.EffectSpeed += 10; SaveSoon(); UpdateEffectTuningLabels(); };
+            AddLabel(tuneCard, "Без ползунков: глобальные множители (50–150%)", 18, 46, Theme.FontTiny, Theme.Faint);
         }
 
         private void BuildMotionPage(Panel page)
@@ -769,12 +832,37 @@ namespace Okna
             _resumeDelayValueLabel = MakeLabel("", cfgCard.Width - 70, ry, Theme.FontSmall, Theme.Accent);
             _resumeDelayValueLabel.AutoSize = false; _resumeDelayValueLabel.Name = "resumeDelayValue"; _resumeDelayValueLabel.Size = new Size(52, 16); _resumeDelayValueLabel.TextAlign = ContentAlignment.MiddleRight;
             cfgCard.Controls.Add(_resumeDelayValueLabel);
+            int[] delayVals = new int[] { 0, 1, 2, 3, 5, 10, 15, 30 };
+            _resumeDelayChoices = new JellyButton[delayVals.Length];
+            int dx = 18;
+            for (int di = 0; di < delayVals.Length; di++)
+            {
+                int dv = delayVals[di];
+                JellyButton b = new JellyButton();
+                b.Text = dv == 0 ? Loc.T("выкл") : (dv + "с");
+                b.Tag = dv;
+                b.Size = new Size(44, 26);
+                b.Location = new Point(dx, ry + 24);
+                b.Font = Theme.FontSmall;
+                b.Name = "resumeDelayChoice" + dv;
+                b.Click += delegate
+                {
+                    if (_resumeDelaySlider != null) _resumeDelaySlider.Value = dv;
+                    else if (!_syncing) { _settings.AutoPauseResumeDelaySeconds = dv; SaveSoon(); }
+                    UpdateResumeDelayLabel();
+                    UpdateResumeDelayChoices();
+                };
+                cfgCard.Controls.Add(b);
+                _resumeDelayChoices[di] = b;
+                dx += 48;
+            }
             _resumeDelaySlider = new JellySlider();
             _resumeDelaySlider.Minimum = 0; _resumeDelaySlider.Maximum = 30;
-            _resumeDelaySlider.Location = new Point(18, ry + 22); _resumeDelaySlider.Size = new Size(cfgCard.Width - 36, 22);
+            _resumeDelaySlider.Location = new Point(18, ry + 52); _resumeDelaySlider.Size = new Size(1, 1);
+            _resumeDelaySlider.Visible = false; // smoke/test compatibility; UI uses quick choices
             _resumeDelaySlider.Name = "resumeDelaySlider";
             cfgCard.Controls.Add(_resumeDelaySlider);
-            Label rdHint = AddLabel(cfgCard, "0–30 сек: защищает от мигания при Alt-Tab/переключении", 18, ry + 46, Theme.FontTiny, Theme.Faint);
+            Label rdHint = AddLabel(cfgCard, "Защищает от мигания при Alt-Tab/переключении окон", 18, ry + 54, Theme.FontTiny, Theme.Faint);
             rdHint.AutoSize = false; rdHint.Name = "resumeDelayHint"; rdHint.Width = Math.Max(100, cfgCard.Width - 36); rdHint.Height = 14;
 
             CardPanel alwaysCard = AddCard(page, "Всегда активные условия", 0, y, _contentHost.Width - 8, 112); y += 120;
@@ -868,6 +956,26 @@ namespace Okna
             if (_resumeDelayValueLabel == null) return;
             int s = _settings == null ? 0 : _settings.AutoPauseResumeDelaySeconds;
             _resumeDelayValueLabel.Text = s <= 0 ? Loc.T("выкл") : (s + Loc.T(" сек"));
+            UpdateResumeDelayChoices();
+        }
+
+        private void UpdateResumeDelayChoices()
+        {
+            if (_resumeDelayChoices == null) return;
+            int s = _settings == null ? 0 : _settings.AutoPauseResumeDelaySeconds;
+            int best = -1; int bestDiff = int.MaxValue;
+            for (int i = 0; i < _resumeDelayChoices.Length; i++)
+            {
+                int dv = _resumeDelayChoices[i].Tag is int ? (int)_resumeDelayChoices[i].Tag : 0;
+                int diff = Math.Abs(dv - s);
+                if (diff < bestDiff) { bestDiff = diff; best = i; }
+                if (dv == 0) _resumeDelayChoices[i].Text = Loc.T("выкл"); else _resumeDelayChoices[i].Text = dv + "с";
+            }
+            for (int i = 0; i < _resumeDelayChoices.Length; i++)
+            {
+                bool accent = i == best;
+                if (_resumeDelayChoices[i].Accent != accent) { _resumeDelayChoices[i].Accent = accent; _resumeDelayChoices[i].Invalidate(); }
+            }
         }
 
         private void UpdateUpdateStatusLabel()
@@ -1004,6 +1112,18 @@ namespace Okna
             _hotkeyStatus.AutoEllipsis = true;
             _hotkeyStatus.Size = new Size(hkCard.Width - 226, 18);
             hkCard.Controls.Add(_hotkeyStatus);
+
+            CardPanel hkExtra = AddCard(page, "Дополнительные горячие клавиши", 0, y, _contentHost.Width - 8, 150); y += 158;
+            AddLabel(hkExtra, "Необязательно: изгиб, скатывание, открыть настройки", 18, 14, Theme.FontSmall, Theme.Muted);
+            AddLabel(hkExtra, "Изгиб:", 18, 44, Theme.FontSmall, Theme.Text);
+            _hotkeyBendButton = MakeSmallButton(hkExtra, "Нет", 90, 40, 140); _hotkeyBendButton.Click += delegate { _hotkeyBendButton.Focus(); };
+            HookHotkeyCapture(_hotkeyBendButton, delegate(int m, int k) { _settings.HotkeyBendModifiers = m; _settings.HotkeyBendKey = k; ApplyHotkey(); });
+            AddLabel(hkExtra, "Скатывание:", 248, 44, Theme.FontSmall, Theme.Text);
+            _hotkeyRollButton = MakeSmallButton(hkExtra, "Нет", 330, 40, 140); _hotkeyRollButton.Click += delegate { _hotkeyRollButton.Focus(); };
+            HookHotkeyCapture(_hotkeyRollButton, delegate(int m, int k) { _settings.HotkeyRollModifiers = m; _settings.HotkeyRollKey = k; ApplyHotkey(); });
+            AddLabel(hkExtra, "Открыть настройки:", 18, 80, Theme.FontSmall, Theme.Text);
+            _hotkeySettingsButton = MakeSmallButton(hkExtra, "Нет", 150, 76, 160); _hotkeySettingsButton.Click += delegate { _hotkeySettingsButton.Focus(); };
+            HookHotkeyCapture(_hotkeySettingsButton, delegate(int m, int k) { _settings.HotkeySettingsModifiers = m; _settings.HotkeySettingsKey = k; ApplyHotkey(); });
 
             CardPanel updCard = AddCard(page, "Обновления", 0, y, _contentHost.Width - 8, 184); y += 192;
             ry = AddSwitchRow(updCard, "Проверять обновления автоматически", "Фоновая проверка через GitHub Releases", 14, out _autoUpdateSwitch);
@@ -1314,7 +1434,33 @@ namespace Okna
             _hotkeyButton.Text = _settings.HotkeyLabel;
             _hotkeyStatus.Text = _tray != null ? _tray.HotkeyStatus : Loc.T(ok ? "работает" : "занята");
             _hotkeyStatus.ForeColor = ok ? Theme.Muted : Color.FromArgb(232, 163, 61);
+            SyncExtraHotkeyLabels();
             UpdateHint();
+        }
+
+        private void HookHotkeyCapture(JellyButton button, Action<int, int> set)
+        {
+            if (button == null) return;
+            button.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                e.SuppressKeyPress = true; e.Handled = true;
+                if (e.KeyCode == Keys.Back || e.KeyCode == Keys.Delete) { set(0, 0); ApplyHotkey(); return; }
+                if (e.KeyCode == Keys.ControlKey || e.KeyCode == Keys.ShiftKey ||
+                    e.KeyCode == Keys.Menu || e.KeyCode == Keys.LWin || e.KeyCode == Keys.RWin) return;
+                Keys modifiers = Control.ModifierKeys; int mods = 0;
+                if ((modifiers & Keys.Control) != 0) mods |= (int)Native.MOD_CONTROL;
+                if ((modifiers & Keys.Alt) != 0) mods |= (int)Native.MOD_ALT;
+                if ((modifiers & Keys.Shift) != 0) mods |= (int)Native.MOD_SHIFT;
+                if (mods == 0) return;
+                set(mods, (int)e.KeyCode); ApplyHotkey();
+            };
+        }
+
+        private void SyncExtraHotkeyLabels()
+        {
+            if (_hotkeyBendButton != null) _hotkeyBendButton.Text = _settings.HasHotkeyBend ? _settings.HotkeyBendLabel : Loc.T("Нет");
+            if (_hotkeyRollButton != null) _hotkeyRollButton.Text = _settings.HasHotkeyRoll ? _settings.HotkeyRollLabel : Loc.T("Нет");
+            if (_hotkeySettingsButton != null) _hotkeySettingsButton.Text = _settings.HasHotkeySettings ? _settings.HotkeySettingsLabel : Loc.T("Нет");
         }
 
         public void SyncFromSettings()
@@ -1352,11 +1498,13 @@ namespace Okna
                 _hotkeyButton.Text = _settings.HotkeyLabel;
                 _hotkeyStatus.Text = _tray != null ? _tray.HotkeyStatus : "";
                 _hotkeyStatus.ForeColor = Theme.Muted;
+                SyncExtraHotkeyLabels();
                 RefreshExcludeList();
                 RefreshOverrideList();
                 RefreshCallAppsList();
                 _slider.Value = _settings.Jelly;
                 UpdateJellyLabel();
+                UpdateEffectTuningLabels();
                 UpdatePresetStyles();
                 UpdateLanguageStyles();
                 UpdateHint();
@@ -1388,6 +1536,11 @@ namespace Okna
         }
 
         private void UpdateJellyLabel() { _valueLabel.Text = _settings.Jelly + "  ·  " + _settings.JellyLabel; }
+        private void UpdateEffectTuningLabels()
+        {
+            if (_effectIntensityLabel != null) _effectIntensityLabel.Text = (_settings == null ? 100 : _settings.EffectIntensity) + "%";
+            if (_effectSpeedLabel != null) _effectSpeedLabel.Text = (_settings == null ? 100 : _settings.EffectSpeed) + "%";
+        }
 
         internal void ApplyTheme()
         {
@@ -1453,10 +1606,13 @@ namespace Okna
             if (_portableLabel != null) _portableLabel.ForeColor = Theme.Faint;
             if (_valueLabel != null) _valueLabel.ForeColor = Theme.Accent;
             if (_resumeDelayValueLabel != null) _resumeDelayValueLabel.ForeColor = Theme.Accent;
+            if (_effectIntensityLabel != null) _effectIntensityLabel.ForeColor = Theme.Text;
+            if (_effectSpeedLabel != null) _effectSpeedLabel.ForeColor = Theme.Text;
             Control[] appTitles = _navPanel != null ? _navPanel.Controls.Find("appTitleLabel", false) : new Control[0];
             if (appTitles.Length > 0) appTitles[0].ForeColor = Theme.Text;
             UpdatePauseStatusLabel();
             UpdateUpdateStatusLabel();
+            UpdateEffectTuningLabels();
         }
 
         private static void InvalidateTree(Control c)

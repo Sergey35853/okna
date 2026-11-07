@@ -11,7 +11,7 @@ namespace Okna
     /// </summary>
     internal sealed class AutoPause
     {
-        private static readonly string[] CallApps = new string[]
+        internal static readonly string[] BuiltInCallApps = new string[]
         {
             "Teams.exe", "ms-teams.exe", "ms-teamsupdate.exe",
             "Zoom.exe", "zoom.exe",
@@ -51,19 +51,14 @@ namespace Okna
             if (now < _nextCheck) return;
             _nextCheck = now + 0.4;
 
-            string reason = null;
-            if (Native.IsRemoteSession())
-                reason = "Удалённый рабочий стол";
-            else if (_settings.PauseOnFullscreen && Native.IsFullscreenWindow(foreground))
-                reason = "Полноэкранное приложение";
-            else if (_settings.PauseOnCall && IsCallApp(foreground))
-                reason = "Звонок или показ экрана";
-            else if (Native.IsBatterySaverOn())
-                reason = "Экономия энергии";
-            else if (_settings.PauseOnBattery && Native.IsOnBattery())
-                reason = "Питание от батареи";
-            else if (_settings.RespectReduceMotion && !Native.ClientAreaAnimationEnabled())
-                reason = "Уменьшено движение";
+            bool remote = Native.IsRemoteSession();
+            bool full = _settings != null && _settings.PauseOnFullscreen && Native.IsFullscreenWindow(foreground);
+            bool call = _settings != null && _settings.PauseOnCall && IsCallApp(foreground);
+            bool saver = Native.IsBatterySaverOn();
+            bool battery = _settings != null && _settings.PauseOnBattery && Native.IsOnBattery();
+            bool motion = _settings != null && _settings.RespectReduceMotion && !Native.ClientAreaAnimationEnabled();
+
+            string reason = DecideReason(remote, full, call, saver, battery, motion);
 
             if (reason != null)
             {
@@ -75,7 +70,7 @@ namespace Okna
             }
 
             if (_reason == null) return;
-            int delay = _settings.AutoPauseResumeDelaySeconds;
+            int delay = _settings == null ? 0 : _settings.AutoPauseResumeDelaySeconds;
             if (delay <= 0)
             {
                 _reason = null;
@@ -92,22 +87,39 @@ namespace Okna
             }
         }
 
+        /// <summary>Testable decision (same priority/strings as runtime). Conditions are pre-evaluated by caller/settings as appropriate.</summary>
+        internal static string DecideReason(bool remote, bool fullscreenActive, bool callActive, bool batterySaver, bool onBattery, bool reduceMotion)
+        {
+            if (remote) return "Удалённый рабочий стол";
+            if (fullscreenActive) return "Полноэкранное приложение";
+            if (callActive) return "Звонок или показ экрана";
+            if (batterySaver) return "Экономия энергии";
+            if (onBattery) return "Питание от батареи";
+            if (reduceMotion) return "Уменьшено движение";
+            return null;
+        }
+
+        internal static bool IsCallAppName(string name, string[] customCallApps)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            for (int i = 0; i < BuiltInCallApps.Length; i++)
+                if (string.Equals(BuiltInCallApps[i], name, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            if (customCallApps != null)
+            {
+                for (int i = 0; i < customCallApps.Length; i++)
+                    if (!string.IsNullOrEmpty(customCallApps[i]) &&
+                        string.Equals(customCallApps[i], name, StringComparison.OrdinalIgnoreCase))
+                        return true;
+            }
+            return false;
+        }
+
         private bool IsCallApp(IntPtr hwnd)
         {
             if (hwnd == IntPtr.Zero) return false;
             string exe = Native.GetWindowProcessName(hwnd);
-            if (string.IsNullOrEmpty(exe)) return false;
-            for (int i = 0; i < CallApps.Length; i++)
-                if (string.Equals(CallApps[i], exe, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            string[] custom = _settings.CallApps;
-            if (custom != null)
-            {
-                for (int i = 0; i < custom.Length; i++)
-                    if (string.Equals(custom[i], exe, StringComparison.OrdinalIgnoreCase))
-                        return true;
-            }
-            return false;
+            return IsCallAppName(exe, _settings == null ? null : _settings.CallApps);
         }
     }
 }

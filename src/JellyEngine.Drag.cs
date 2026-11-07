@@ -272,7 +272,7 @@ namespace Okna
                     // the new range makes the release noticeably gooier. The
                     // factors are normalised so the default 70 feels exactly as
                     // before.
-                    double visc = Math.Max(0.6, _settings.JellyFactor / 1.1);
+                    double visc = Math.Max(0.6, (_settings.JellyFactor * _settings.EffectIntensityFactor) / 1.1);
                     double alongCap = Math.Min(80.0, 42.0 * visc);
                     double perpCap = Math.Min(56.0, 30.0 * visc);
                     double sizeCap = Math.Min(36.0, 20.0 * visc);
@@ -321,7 +321,7 @@ namespace Okna
             // The wave follows both the speed of the hand and the distance the
             // edge travelled. A slow 300 px drag used to give almost nothing,
             // while a quick 40 px nudge looked stronger than the drag.
-            double amp = ResizeAmplitude(speed, delta, _settings.JellyFactor);
+            double amp = ResizeAmplitude(speed, delta, _settings.JellyFactor * _settings.EffectIntensityFactor);
             if (amp < 1.5) return;
 
             _target = hwnd;
@@ -568,7 +568,7 @@ namespace Okna
         private void UpdateBend(double dt, bool settling)
         {
             if (dt > 0.03) dt = 0.03;
-            double jelly = 0.4 + _settings.Jelly / 100.0;
+            double jelly = (0.4 + _settings.Jelly / 100.0) * _settings.EffectIntensityFactor;
             double maxBend = Math.Min(80.0, Math.Min(_baseWidth, _baseHeight) * 0.14) * jelly;
             double tx = 0;
             double ty = 0;

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Windows.Forms;
@@ -380,7 +380,12 @@ namespace Okna
                 { "Запуск и уведомления", "Startup and notifications" },
                 { "Меньше уведомлений", "Fewer notifications" },
                 { "Показывать только важные сообщения в трее", "Show only important tray messages" },
-                { "Производительность:", "Performance:" }
+                { "Производительность:", "Performance:" },
+                { "Дополнительные горячие клавиши", "Additional hotkeys" },
+                { "Необязательно: изгиб, скатывание, открыть настройки", "Optional: bend, roll, open settings" },
+                { "Изгиб:", "Bend:" },
+                { "Скатывание:", "Roll:" },
+                { "Открыть настройки:", "Open settings:" }
             };
 
         private static bool _english;

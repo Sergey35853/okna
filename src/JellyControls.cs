@@ -248,29 +248,38 @@ namespace Okna
         private int _value = 50;
         private bool _dragging;
         private bool _hover;
+        private bool _showTicks;
 
         public event EventHandler ValueChanged;
 
         public JellySlider()
         {
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
-                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-            Height = 28;
-            BackColor = Theme.Card;
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw |
+                     ControlStyles.SupportsTransparentBackColor, true);
+            Height = 26;
+            BackColor = Color.Transparent;
             Cursor = Cursors.Hand;
             TabStop = true;
+        }
+
+        /// <summary>Show subtle tick marks (useful for discrete ranges).</summary>
+        public bool ShowTicks
+        {
+            get { return _showTicks; }
+            set { _showTicks = value; Invalidate(); }
         }
 
         public int Minimum
         {
             get { return _minimum; }
-            set { _minimum = value; if (_value < _minimum) Value = _minimum; }
+            set { _minimum = value; if (_value < _minimum) Value = _minimum; Invalidate(); }
         }
 
         public int Maximum
         {
             get { return _maximum; }
-            set { _maximum = value; if (_value > _maximum) Value = _maximum; }
+            set { _maximum = value; if (_value > _maximum) Value = _maximum; Invalidate(); }
         }
 
         public int Value
@@ -295,6 +304,7 @@ namespace Okna
                 _dragging = true;
                 Capture = true;
                 SetFromX(e.X);
+                Focus();
             }
             base.OnMouseDown(e);
         }
@@ -312,28 +322,19 @@ namespace Okna
             {
                 _dragging = false;
                 Capture = false;
+                Invalidate();
             }
             base.OnMouseUp(e);
         }
 
-        protected override void OnMouseEnter(EventArgs e)
-        {
-            _hover = true;
-            Invalidate();
-            base.OnMouseEnter(e);
-        }
-
-        protected override void OnMouseLeave(EventArgs e)
-        {
-            _hover = false;
-            Invalidate();
-            base.OnMouseLeave(e);
-        }
+        protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { _hover = false; Invalidate(); base.OnMouseLeave(e); }
 
         protected override void OnKeyDown(KeyEventArgs e)
         {
-            if (e.KeyCode == Keys.Left) { Value -= 1; e.Handled = true; }
-            else if (e.KeyCode == Keys.Right) { Value += 1; e.Handled = true; }
+            int step = (_maximum - _minimum) > 60 ? 5 : 1;
+            if (e.KeyCode == Keys.Left) { Value -= step; e.Handled = true; }
+            else if (e.KeyCode == Keys.Right) { Value += step; e.Handled = true; }
             else if (e.KeyCode == Keys.Home) { Value = _minimum; e.Handled = true; }
             else if (e.KeyCode == Keys.End) { Value = _maximum; e.Handled = true; }
             else if (e.KeyCode == Keys.PageDown) { Value -= 10; e.Handled = true; }
@@ -343,8 +344,8 @@ namespace Okna
 
         private void SetFromX(int x)
         {
-            float left = 10f;
-            float right = Width - 10f;
+            float left = 8f;
+            float right = Width - 8f;
             if (right <= left) return;
             float t = (x - left) / (right - left);
             t = Theme.Clamp(t, 0f, 1f);
@@ -355,41 +356,39 @@ namespace Okna
         {
             Graphics g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.Clear(Parent != null ? Parent.BackColor : Theme.Bg);
 
-            float left = 10f;
-            float right = Width - 10f;
+            float left = 8f;
+            float right = Width - 8f;
             float cy = Height / 2f;
-            RectangleF track = new RectangleF(left, cy - 3f, right - left, 6f);
+            float trackH = (_hover || _dragging) ? 4f : 3f;
+            RectangleF track = new RectangleF(left, cy - trackH / 2f, right - left, trackH);
 
-            using (SolidBrush brush = new SolidBrush(Theme.CardAlt))
-                Theme.FillRounded(g, brush, track, 3f);
+            Color trackBg = Theme.DarkMode ? Color.FromArgb(70, 70, 70) : Color.FromArgb(220, 220, 220);
+            using (SolidBrush brush = new SolidBrush(trackBg))
+                Theme.FillRounded(g, brush, track, trackH / 2f);
 
             float t = _maximum == _minimum ? 0f : (_value - _minimum) / (float)(_maximum - _minimum);
             float knobX = left + (right - left) * t;
-            if (knobX > left + 2)
+            if (knobX > left + 1)
             {
-                RectangleF fill = new RectangleF(left, cy - 3f, knobX - left, 6f);
-                using (LinearGradientBrush brush = new LinearGradientBrush(fill,
-                    Theme.AccentDark, Theme.Accent, LinearGradientMode.Horizontal))
-                    Theme.FillRounded(g, brush, fill, 3f);
+                RectangleF fill = new RectangleF(left, cy - trackH / 2f, knobX - left, trackH);
+                using (SolidBrush brush = new SolidBrush(Enabled ? Theme.Accent : Theme.Muted))
+                    Theme.FillRounded(g, brush, fill, trackH / 2f);
             }
 
-            float knobRadius = _hover || _dragging ? 9f : 8f;
-            if (_hover || _dragging)
-            {
-                using (SolidBrush glow = new SolidBrush(Color.FromArgb(35, Theme.Accent)))
-                    g.FillEllipse(glow, knobX - knobRadius - 5, cy - knobRadius - 5, (knobRadius + 5) * 2, (knobRadius + 5) * 2);
-            }
-
-            using (SolidBrush knob = new SolidBrush(Color.FromArgb(238, 251, 248)))
-                g.FillEllipse(knob, knobX - knobRadius, cy - knobRadius, knobRadius * 2, knobRadius * 2);
-            using (Pen ring = new Pen(Theme.Accent, 2.2f))
-                g.DrawEllipse(ring, knobX - knobRadius, cy - knobRadius, knobRadius * 2, knobRadius * 2);
+            float r = (_hover || _dragging) ? 8f : 7f;
+            Color thumbFill = Theme.DarkMode ? Color.FromArgb(245, 245, 245) : Color.White;
+            if (!Enabled) thumbFill = Theme.CardAlt;
+            using (SolidBrush knob = new SolidBrush(thumbFill))
+                g.FillEllipse(knob, knobX - r, cy - r, r * 2, r * 2);
+            using (Pen ring = new Pen(Enabled ? Theme.Accent : Theme.Border, _dragging ? 2f : 1.5f))
+                g.DrawEllipse(ring, knobX - r, cy - r, r * 2, r * 2);
 
             if (Focused && ShowFocusCues)
             {
-                using (Pen pen = new Pen(Color.FromArgb(100, Theme.Accent), 1f))
-                    g.DrawEllipse(pen, knobX - knobRadius - 4, cy - knobRadius - 4, (knobRadius + 4) * 2, (knobRadius + 4) * 2);
+                using (Pen pen = new Pen(Color.FromArgb(120, Theme.Accent), 1f))
+                    g.DrawEllipse(pen, knobX - r - 3, cy - r - 3, (r + 3) * 2, (r + 3) * 2);
             }
         }
     }
