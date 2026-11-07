@@ -64,7 +64,7 @@ namespace Okna
 
             Text = "Окна";
             Icon = icon;
-            ClientSize = new Size(1088, 944);
+            ClientSize = new Size(950, 820);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -182,70 +182,70 @@ namespace Okna
 
         private void BuildUi()
         {
-            const int leftX = 24;
-            const int colW = 512;
-            const int rightX = 552;
-            const int topY = 88;
-            const int gap = 12;
+            const int leftX = 20;
+            const int colW = 440;
+            const int rightX = 470;
+            const int topY = 74;
+            const int gap = 8;
 
             PictureBox logo = new PictureBox();
-            logo.Location = new Point(leftX, 20);
-            logo.Size = new Size(46, 46);
+            logo.Location = new Point(leftX, 14);
+            logo.Size = new Size(38, 38);
             logo.SizeMode = PictureBoxSizeMode.Zoom;
             logo.BackColor = Color.Transparent;
             try
             {
-                using (Icon sized = new Icon(_icon, 46, 46))
+                using (Icon sized = new Icon(_icon, 38, 38))
                     logo.Image = sized.ToBitmap();
             }
             catch { logo.Image = _icon.ToBitmap(); }
             Controls.Add(logo);
 
-            Label title = MakeLabel("Окна", 80, 14, Theme.FontTitle, Theme.Text);
+            Label title = MakeLabel("Окна", 66, 10, Theme.FontTitle, Theme.Text);
             Controls.Add(title);
 
-            Label subtitle = MakeLabel("Инерционные окна для Windows", 82, 49, Theme.FontSmall, Theme.Muted);
+            Label subtitle = MakeLabel("Инерционные окна для Windows", 68, 42, Theme.FontSmall, Theme.Muted);
             Controls.Add(subtitle);
 
             _statusPill = new StatusPill();
-            _statusPill.Location = new Point(ClientSize.Width - 24 - _statusPill.Width, 26);
+            _statusPill.Location = new Point(ClientSize.Width - 24 - _statusPill.Width, 20);
             _statusPill.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             Controls.Add(_statusPill);
 
             CardPanel moveCard = new CardPanel();
             moveCard.Location = new Point(leftX, topY);
-            moveCard.Size = new Size(colW, 184);
+            moveCard.Size = new Size(colW, 160);
             Controls.Add(moveCard);
 
-            Label effectTitle = MakeLabel("Желеобразные окна", 20, 24, Theme.FontCardTitle, Theme.Text);
+            Label effectTitle = MakeLabel("Желеобразные окна", 20, 10, Theme.FontCardTitle, Theme.Text);
             moveCard.Controls.Add(effectTitle);
-            Label effectSub = MakeLabel("Перетаскивание за заголовок", 20, 48, Theme.FontSmall, Theme.Muted);
+            Label effectSub = MakeLabel("Перетаскивание за заголовок", 20, 34, Theme.FontSmall, Theme.Muted);
             moveCard.Controls.Add(effectSub);
 
             _effectSwitch = new JellySwitch();
-            _effectSwitch.Location = new Point(432, 33);
+            _effectSwitch.Location = new Point(372, 24);
             moveCard.Controls.Add(_effectSwitch);
 
             Panel divider = new Panel();
-            divider.Location = new Point(20, 80);
-            divider.Size = new Size(472, 1);
+            divider.Location = new Point(20, 68);
+            divider.Size = new Size(400, 1);
             divider.BackColor = Theme.BorderSoft;
             moveCard.Controls.Add(divider);
 
-            Label jellyLabel = MakeLabel("Желейность", 20, 92, Theme.FontLabel, Theme.Text);
+            Label jellyLabel = MakeLabel("Желейность", 20, 80, Theme.FontLabel, Theme.Text);
             moveCard.Controls.Add(jellyLabel);
 
-            _valueLabel = MakeLabel("", 332, 92, Theme.FontSmall, Theme.Accent);
+            _valueLabel = MakeLabel("", 292, 80, Theme.FontSmall, Theme.Accent);
             _valueLabel.AutoSize = false;
-            _valueLabel.Size = new Size(160, 18);
+            _valueLabel.Size = new Size(128, 16);
             _valueLabel.TextAlign = ContentAlignment.MiddleRight;
             moveCard.Controls.Add(_valueLabel);
 
             _slider = new JellySlider();
             _slider.Minimum = 0;
             _slider.Maximum = 200;
-            _slider.Location = new Point(20, 114);
-            _slider.Size = new Size(472, 26);
+            _slider.Location = new Point(20, 102);
+            _slider.Size = new Size(400, 24);
             moveCard.Controls.Add(_slider);
 
             _presets = new JellyButton[6];
@@ -254,8 +254,8 @@ namespace Okna
             {
                 JellyButton b = new JellyButton();
                 b.Text = names[i];
-                b.Location = new Point(20 + i * 120, 148);
-                b.Size = new Size(112, 28);
+                b.Location = new Point(20 + i * 74, 130);
+                b.Size = new Size(70, 24);
                 b.Font = Theme.FontSmall;
                 b.Tag = i;
                 _presets[i] = b;
@@ -263,129 +263,129 @@ namespace Okna
             }
 
             CardPanel behaviorCard = new CardPanel();
-            behaviorCard.Location = new Point(leftX, topY + 184 + gap);
-            behaviorCard.Size = new Size(colW, 280);
+            behaviorCard.Location = new Point(leftX, topY + 160 + gap);
+            behaviorCard.Size = new Size(colW, 232);
             Controls.Add(behaviorCard);
 
-            Label wobbleTitle = MakeLabel("Покачивание при отпускании", 20, 12, Theme.FontCardTitle, Theme.Text);
+            Label wobbleTitle = MakeLabel("Покачивание при отпускании", 20, 10, Theme.FontCardTitle, Theme.Text);
             behaviorCard.Controls.Add(wobbleTitle);
-            Label wobbleSub = MakeLabel("Боковое качание и упругое сжатие после движения", 20, 34, Theme.FontSmall, Theme.Muted);
+            Label wobbleSub = MakeLabel("Боковое качание после движения", 20, 30, Theme.FontSmall, Theme.Muted);
             behaviorCard.Controls.Add(wobbleSub);
 
             _wobbleSwitch = new JellySwitch();
-            _wobbleSwitch.Location = new Point(432, 16);
+            _wobbleSwitch.Location = new Point(372, 14);
             behaviorCard.Controls.Add(_wobbleSwitch);
 
             Panel divider2 = new Panel();
-            divider2.Location = new Point(20, 56);
-            divider2.Size = new Size(472, 1);
+            divider2.Location = new Point(20, 48);
+            divider2.Size = new Size(400, 1);
             divider2.BackColor = Theme.BorderSoft;
             behaviorCard.Controls.Add(divider2);
 
-            Label bendTitle = MakeLabel("Гнуть окна по инерции", 20, 64, Theme.FontCardTitle, Theme.Text);
+            Label bendTitle = MakeLabel("Гнуть окна по инерции", 20, 56, Theme.FontCardTitle, Theme.Text);
             behaviorCard.Controls.Add(bendTitle);
-            Label bendSub = MakeLabel("Края изгибаются при разгоне и торможении", 20, 86, Theme.FontSmall, Theme.Muted);
+            Label bendSub = MakeLabel("Края изгибаются при разгоне и торможении", 20, 76, Theme.FontSmall, Theme.Muted);
             behaviorCard.Controls.Add(bendSub);
 
             _bendSwitch = new JellySwitch();
-            _bendSwitch.Location = new Point(432, 68);
+            _bendSwitch.Location = new Point(372, 60);
             behaviorCard.Controls.Add(_bendSwitch);
 
             Panel divider3 = new Panel();
-            divider3.Location = new Point(20, 108);
-            divider3.Size = new Size(472, 1);
+            divider3.Location = new Point(20, 90);
+            divider3.Size = new Size(400, 1);
             divider3.BackColor = Theme.BorderSoft;
             behaviorCard.Controls.Add(divider3);
 
-            Label maxShakeTitle = MakeLabel("Тряска при разворачивании", 20, 116, Theme.FontCardTitle, Theme.Text);
+            Label maxShakeTitle = MakeLabel("Тряска при разворачивании", 20, 98, Theme.FontCardTitle, Theme.Text);
             behaviorCard.Controls.Add(maxShakeTitle);
-            Label maxShakeSub = MakeLabel("Качается при развороте, восстановлении и возврате", 20, 138, Theme.FontSmall, Theme.Muted);
+            Label maxShakeSub = MakeLabel("Качается при развороте, восстановлении", 20, 118, Theme.FontSmall, Theme.Muted);
             behaviorCard.Controls.Add(maxShakeSub);
 
             _maxShakeSwitch = new JellySwitch();
-            _maxShakeSwitch.Location = new Point(432, 120);
+            _maxShakeSwitch.Location = new Point(372, 102);
             behaviorCard.Controls.Add(_maxShakeSwitch);
 
             Panel divider4 = new Panel();
-            divider4.Location = new Point(20, 160);
-            divider4.Size = new Size(472, 1);
+            divider4.Location = new Point(20, 134);
+            divider4.Size = new Size(400, 1);
             divider4.BackColor = Theme.BorderSoft;
             behaviorCard.Controls.Add(divider4);
 
-            Label startupTitle = MakeLabel("Запускать с Windows", 20, 168, Theme.FontCardTitle, Theme.Text);
+            Label startupTitle = MakeLabel("Запускать с Windows", 20, 142, Theme.FontCardTitle, Theme.Text);
             behaviorCard.Controls.Add(startupTitle);
-            Label startupSub = MakeLabel("Тихо стартовать вместе с системой", 20, 190, Theme.FontSmall, Theme.Muted);
+            Label startupSub = MakeLabel("Тихо стартовать с системой", 20, 162, Theme.FontSmall, Theme.Muted);
             behaviorCard.Controls.Add(startupSub);
 
             _startupSwitch = new JellySwitch();
-            _startupSwitch.Location = new Point(432, 172);
+            _startupSwitch.Location = new Point(372, 146);
             behaviorCard.Controls.Add(_startupSwitch);
 
-            Label elevatedTitle = MakeLabel("Запуск от имени администратора", 20, 208, Theme.FontCardTitle, Theme.Text);
+            Label elevatedTitle = MakeLabel("Запуск от имени администратора", 20, 176, Theme.FontCardTitle, Theme.Text);
             behaviorCard.Controls.Add(elevatedTitle);
-            Label elevatedSub = MakeLabel("Запускать с правами администратора при входе в Windows", 20, 230, Theme.FontSmall, Theme.Muted);
+            Label elevatedSub = MakeLabel("С правами администратора при входе", 20, 196, Theme.FontSmall, Theme.Muted);
             behaviorCard.Controls.Add(elevatedSub);
 
             _autoStartElevatedSwitch = new JellySwitch();
-            _autoStartElevatedSwitch.Location = new Point(432, 212);
+            _autoStartElevatedSwitch.Location = new Point(372, 180);
             behaviorCard.Controls.Add(_autoStartElevatedSwitch);
 
             CardPanel closeCard = new CardPanel();
-            closeCard.Location = new Point(leftX, topY + 184 + gap + 280 + gap);
-            closeCard.Size = new Size(colW, 220);
+            closeCard.Location = new Point(leftX, topY + 160 + gap + 232 + gap);
+            closeCard.Size = new Size(colW, 172);
             Controls.Add(closeCard);
 
-            Label closeTitle = MakeLabel("Эффект при закрытии", 20, 12, Theme.FontCardTitle, Theme.Text);
+            Label closeTitle = MakeLabel("Эффект при закрытии", 20, 10, Theme.FontCardTitle, Theme.Text);
             closeCard.Controls.Add(closeTitle);
-            Label closeSub = MakeLabel("Если программа остаётся в трее — окно скатывается туда", 20, 34, Theme.FontSmall, Theme.Muted);
+            Label closeSub = MakeLabel("Если программа остаётся в трее — скатывается туда", 20, 30, Theme.FontSmall, Theme.Muted);
             closeCard.Controls.Add(closeSub);
 
             _closeNone = new JellyButton();
             _closeNone.Text = "Без эффекта";
-            _closeNone.Location = new Point(20, 54);
-            _closeNone.Size = new Size(152, 28);
+            _closeNone.Location = new Point(20, 52);
+            _closeNone.Size = new Size(132, 26);
             _closeNone.Font = Theme.FontSmall;
             closeCard.Controls.Add(_closeNone);
 
             _closeShatter = new JellyButton();
             _closeShatter.Text = "Осколки";
-            _closeShatter.Location = new Point(180, 54);
-            _closeShatter.Size = new Size(152, 28);
+            _closeShatter.Location = new Point(160, 52);
+            _closeShatter.Size = new Size(132, 26);
             _closeShatter.Font = Theme.FontSmall;
             closeCard.Controls.Add(_closeShatter);
 
             _closeBurn = new JellyButton();
             _closeBurn.Text = "Сгорание";
-            _closeBurn.Location = new Point(340, 54);
-            _closeBurn.Size = new Size(152, 28);
+            _closeBurn.Location = new Point(300, 52);
+            _closeBurn.Size = new Size(132, 26);
             _closeBurn.Font = Theme.FontSmall;
             closeCard.Controls.Add(_closeBurn);
 
             _closeFade = new JellyButton();
             _closeFade.Text = "Затухание";
-            _closeFade.Location = new Point(500, 54);
-            _closeFade.Size = new Size(152, 28);
+            _closeFade.Location = new Point(20, 84);
+            _closeFade.Size = new Size(132, 26);
             _closeFade.Font = Theme.FontSmall;
             closeCard.Controls.Add(_closeFade);
 
             Panel divider5 = new Panel();
-            divider5.Location = new Point(20, 92);
-            divider5.Size = new Size(472, 1);
+            divider5.Location = new Point(20, 120);
+            divider5.Size = new Size(400, 1);
             divider5.BackColor = Theme.BorderSoft;
             closeCard.Controls.Add(divider5);
 
-            Label rollTitle = MakeLabel("Сворачивать в трубочку", 20, 100, Theme.FontCardTitle, Theme.Text);
+            Label rollTitle = MakeLabel("Сворачивать в трубочку", 20, 128, Theme.FontCardTitle, Theme.Text);
             closeCard.Controls.Add(rollTitle);
-            Label rollSub = MakeLabel("Окно скатывается и уезжает в панель задач", 20, 122, Theme.FontSmall, Theme.Muted);
+            Label rollSub = MakeLabel("Окно скатывается в панель задач", 20, 148, Theme.FontSmall, Theme.Muted);
             closeCard.Controls.Add(rollSub);
 
             _rollSwitch = new JellySwitch();
-            _rollSwitch.Location = new Point(432, 104);
+            _rollSwitch.Location = new Point(372, 132);
             closeCard.Controls.Add(_rollSwitch);
 
-            Label directionTitle = MakeLabel("Куда скатывать", 20, 140, Theme.FontLabel, Theme.Text);
+            Label directionTitle = MakeLabel("Куда скатывать", 20, 166, Theme.FontLabel, Theme.Text);
             closeCard.Controls.Add(directionTitle);
-            Label directionSub = MakeLabel("Авто — в сторону панели задач, остальное — принудительно", 20, 162, Theme.FontSmall, Theme.Muted);
+            Label directionSub = MakeLabel("Авто — к панели задач", 20, 186, Theme.FontSmall, Theme.Muted);
             closeCard.Controls.Add(directionSub);
 
             _directionButtons = new JellyButton[5];
@@ -394,8 +394,8 @@ namespace Okna
             {
                 JellyButton b = new JellyButton();
                 b.Text = directionNames[i];
-                b.Location = new Point(20 + i * 94, 184);
-                b.Size = new Size(88, 28);
+                b.Location = new Point(20 + i * 76, 148);
+                b.Size = new Size(72, 24);
                 b.Font = Theme.FontSmall;
                 b.Tag = (RollDirection)i;
                 _directionButtons[i] = b;
@@ -403,76 +403,76 @@ namespace Okna
             }
 
             CardPanel hotkeyCard = new CardPanel();
-            hotkeyCard.Location = new Point(leftX, topY + 184 + gap + 280 + gap + 220 + gap);
-            hotkeyCard.Size = new Size(colW, 112);
+            hotkeyCard.Location = new Point(leftX, topY + 160 + gap + 232 + gap + 172 + gap);
+            hotkeyCard.Size = new Size(colW, 96);
             Controls.Add(hotkeyCard);
 
-            Label hotkeyTitle = MakeLabel("Горячая клавиша", 20, 12, Theme.FontCardTitle, Theme.Text);
+            Label hotkeyTitle = MakeLabel("Горячая клавиша", 20, 10, Theme.FontCardTitle, Theme.Text);
             hotkeyCard.Controls.Add(hotkeyTitle);
-            Label hotkeySub = MakeLabel("Нажмите на поле и введите сочетание; Backspace — выключить", 20, 34, Theme.FontSmall, Theme.Muted);
+            Label hotkeySub = MakeLabel("Нажмите поле и введите сочетание; Backspace — выключить", 20, 30, Theme.FontSmall, Theme.Muted);
             hotkeyCard.Controls.Add(hotkeySub);
 
             _hotkeyButton = new JellyButton();
             _hotkeyButton.Text = "Ctrl+Alt+J";
-            _hotkeyButton.Location = new Point(20, 60);
-            _hotkeyButton.Size = new Size(200, 34);
+            _hotkeyButton.Location = new Point(20, 52);
+            _hotkeyButton.Size = new Size(180, 30);
             _hotkeyButton.Font = Theme.FontBody;
             _hotkeyButton.Click += delegate { _hotkeyButton.Focus(); };
             hotkeyCard.Controls.Add(_hotkeyButton);
 
-            _hotkeyStatus = MakeLabel("", 236, 66, Theme.FontSmall, Theme.Muted);
-            _hotkeyStatus.Size = new Size(256, 22);
+            _hotkeyStatus = MakeLabel("", 210, 58, Theme.FontSmall, Theme.Muted);
+            _hotkeyStatus.Size = new Size(210, 20);
             hotkeyCard.Controls.Add(_hotkeyStatus);
 
             CardPanel pauseCard = new CardPanel();
             pauseCard.Location = new Point(rightX, topY);
-            pauseCard.Size = new Size(colW, 192);
+            pauseCard.Size = new Size(colW, 168);
             Controls.Add(pauseCard);
 
-            Label pauseTitle = MakeLabel("Пауза сама по себе", 20, 12, Theme.FontCardTitle, Theme.Text);
+            Label pauseTitle = MakeLabel("Пауза сама по себе", 20, 10, Theme.FontCardTitle, Theme.Text);
             pauseCard.Controls.Add(pauseTitle);
-            Label pauseSub = MakeLabel("Эффекты уступают место, когда вы заняты другим", 20, 34, Theme.FontSmall, Theme.Muted);
+            Label pauseSub = MakeLabel("Эффекты уступают место, когда вы заняты", 20, 30, Theme.FontSmall, Theme.Muted);
             pauseCard.Controls.Add(pauseSub);
 
-            Label callTitle = MakeLabel("Звонки и показ экрана", 20, 64, Theme.FontCardTitle, Theme.Text);
+            Label callTitle = MakeLabel("Звонки и показ экрана", 20, 54, Theme.FontCardTitle, Theme.Text);
             pauseCard.Controls.Add(callTitle);
-            Label callSub = MakeLabel("Teams, Zoom, Discord, Slack и похожие впереди", 20, 86, Theme.FontSmall, Theme.Muted);
+            Label callSub = MakeLabel("Teams, Zoom, Discord, Slack и др.", 20, 74, Theme.FontSmall, Theme.Muted);
             pauseCard.Controls.Add(callSub);
             _callSwitch = new JellySwitch();
-            _callSwitch.Location = new Point(432, 68);
+            _callSwitch.Location = new Point(372, 58);
             pauseCard.Controls.Add(_callSwitch);
 
-            Label batteryTitle = MakeLabel("Питание от батареи", 20, 108, Theme.FontCardTitle, Theme.Text);
+            Label batteryTitle = MakeLabel("Питание от батареи", 20, 88, Theme.FontCardTitle, Theme.Text);
             pauseCard.Controls.Add(batteryTitle);
-            Label batterySub = MakeLabel("Не тратить заряд на эффекты", 20, 130, Theme.FontSmall, Theme.Muted);
+            Label batterySub = MakeLabel("Не тратить заряд на эффекты", 20, 108, Theme.FontSmall, Theme.Muted);
             pauseCard.Controls.Add(batterySub);
             _batterySwitch = new JellySwitch();
-            _batterySwitch.Location = new Point(432, 112);
+            _batterySwitch.Location = new Point(372, 92);
             pauseCard.Controls.Add(_batterySwitch);
 
-            Label motionTitle = MakeLabel("Уважать уменьшение движения", 20, 152, Theme.FontCardTitle, Theme.Text);
+            Label motionTitle = MakeLabel("Уважать уменьшение движения", 20, 122, Theme.FontCardTitle, Theme.Text);
             pauseCard.Controls.Add(motionTitle);
-            Label motionSub = MakeLabel("Если анимации выключены в Windows — не мешать", 20, 174, Theme.FontSmall, Theme.Muted);
+            Label motionSub = MakeLabel("Если анимации выключены в Windows", 20, 142, Theme.FontSmall, Theme.Muted);
             pauseCard.Controls.Add(motionSub);
             _motionSwitch = new JellySwitch();
-            _motionSwitch.Location = new Point(432, 156);
+            _motionSwitch.Location = new Point(372, 126);
             pauseCard.Controls.Add(_motionSwitch);
 
             CardPanel excludeCard = new CardPanel();
-            excludeCard.Location = new Point(rightX, topY + 192 + gap);
-            excludeCard.Size = new Size(colW, 240);
+            excludeCard.Location = new Point(rightX, topY + 168 + gap);
+            excludeCard.Size = new Size(colW, 216);
             Controls.Add(excludeCard);
 
-            Label excludeTitle = MakeLabel("Исключения", 20, 12, Theme.FontCardTitle, Theme.Text);
+            Label excludeTitle = MakeLabel("Исключения", 20, 10, Theme.FontCardTitle, Theme.Text);
             excludeCard.Controls.Add(excludeTitle);
-            Label excludeSub = MakeLabel("Здесь окна остаются обычными: программы, маски и классы окон", 20, 34, Theme.FontSmall, Theme.Muted);
+            Label excludeSub = MakeLabel("Окна остаются обычными: программы, маски, классы", 20, 30, Theme.FontSmall, Theme.Muted);
             excludeCard.Controls.Add(excludeSub);
 
             _excludeList = new ListBox();
-            _excludeList.Location = new Point(20, 58);
-            _excludeList.Size = new Size(300, 96);
+            _excludeList.Location = new Point(20, 54);
+            _excludeList.Size = new Size(260, 88);
             _excludeList.DrawMode = DrawMode.OwnerDrawFixed;
-            _excludeList.ItemHeight = 22;
+            _excludeList.ItemHeight = 20;
             _excludeList.BorderStyle = BorderStyle.None;
             _excludeList.BackColor = Theme.CardAlt;
             _excludeList.ForeColor = Theme.Text;
@@ -483,34 +483,34 @@ namespace Okna
 
             JellyButton excludeAdd = new JellyButton();
             excludeAdd.Text = "Добавить файл…";
-            excludeAdd.Location = new Point(340, 58);
-            excludeAdd.Size = new Size(152, 30);
+            excludeAdd.Location = new Point(292, 54);
+            excludeAdd.Size = new Size(128, 28);
             excludeAdd.Font = Theme.FontSmall;
             excludeAdd.Click += delegate { AddExclusions(); };
             excludeCard.Controls.Add(excludeAdd);
 
             JellyButton excludeRunning = new JellyButton();
             excludeRunning.Text = "Из запущенных…";
-            excludeRunning.Location = new Point(340, 92);
-            excludeRunning.Size = new Size(152, 30);
+            excludeRunning.Location = new Point(292, 86);
+            excludeRunning.Size = new Size(128, 28);
             excludeRunning.Font = Theme.FontSmall;
             excludeRunning.Click += delegate { PickRunning(); };
             excludeCard.Controls.Add(excludeRunning);
 
             JellyButton excludeRemove = new JellyButton();
             excludeRemove.Text = "Убрать";
-            excludeRemove.Location = new Point(340, 126);
-            excludeRemove.Size = new Size(152, 30);
+            excludeRemove.Location = new Point(292, 118);
+            excludeRemove.Size = new Size(128, 28);
             excludeRemove.Font = Theme.FontSmall;
             excludeRemove.Click += delegate { RemoveSelectedExclusion(); };
             excludeCard.Controls.Add(excludeRemove);
 
-            Label maskLabel = MakeLabel("Маска: steam* или class:Progman", 20, 162, Theme.FontSmall, Theme.Muted);
+            Label maskLabel = MakeLabel("Маска: steam* или class:Progman", 20, 150, Theme.FontSmall, Theme.Muted);
             excludeCard.Controls.Add(maskLabel);
 
             _excludeMask = new TextBox();
-            _excludeMask.Location = new Point(20, 184);
-            _excludeMask.Size = new Size(300, 28);
+            _excludeMask.Location = new Point(20, 172);
+            _excludeMask.Size = new Size(260, 26);
             _excludeMask.BorderStyle = BorderStyle.FixedSingle;
             _excludeMask.BackColor = Theme.CardAlt;
             _excludeMask.ForeColor = Theme.Text;
@@ -519,27 +519,27 @@ namespace Okna
 
             JellyButton addMask = new JellyButton();
             addMask.Text = "Добавить маску";
-            addMask.Location = new Point(340, 182);
-            addMask.Size = new Size(152, 30);
+            addMask.Location = new Point(292, 172);
+            addMask.Size = new Size(128, 26);
             addMask.Font = Theme.FontSmall;
             addMask.Click += delegate { AddMask(); };
             excludeCard.Controls.Add(addMask);
 
             CardPanel overrideCard = new CardPanel();
-            overrideCard.Location = new Point(rightX, topY + 192 + gap + 240 + gap);
-            overrideCard.Size = new Size(colW, 140);
+            overrideCard.Location = new Point(rightX, topY + 168 + gap + 216 + gap);
+            overrideCard.Size = new Size(colW, 120);
             Controls.Add(overrideCard);
 
-            Label overrideTitle = MakeLabel("Свои правила для программы", 20, 12, Theme.FontCardTitle, Theme.Text);
+            Label overrideTitle = MakeLabel("Свои правила для программы", 20, 10, Theme.FontCardTitle, Theme.Text);
             overrideCard.Controls.Add(overrideTitle);
-            Label overrideSub = MakeLabel("Эффект закрытия и отключение изгиба, тряски, скатывания", 20, 34, Theme.FontSmall, Theme.Muted);
+            Label overrideSub = MakeLabel("Эффект закрытия, изгиб, тряска, скатывание", 20, 30, Theme.FontSmall, Theme.Muted);
             overrideCard.Controls.Add(overrideSub);
 
             _overrideList = new ListBox();
-            _overrideList.Location = new Point(20, 58);
-            _overrideList.Size = new Size(300, 56);
+            _overrideList.Location = new Point(20, 52);
+            _overrideList.Size = new Size(260, 48);
             _overrideList.DrawMode = DrawMode.OwnerDrawFixed;
-            _overrideList.ItemHeight = 22;
+            _overrideList.ItemHeight = 20;
             _overrideList.BorderStyle = BorderStyle.None;
             _overrideList.BackColor = Theme.CardAlt;
             _overrideList.ForeColor = Theme.Text;
@@ -550,67 +550,67 @@ namespace Okna
 
             JellyButton overrideAdd = new JellyButton();
             overrideAdd.Text = "Для программы…";
-            overrideAdd.Location = new Point(340, 58);
-            overrideAdd.Size = new Size(152, 30);
+            overrideAdd.Location = new Point(292, 52);
+            overrideAdd.Size = new Size(128, 28);
             overrideAdd.Font = Theme.FontSmall;
             overrideAdd.Click += delegate { AddOverride(); };
             overrideCard.Controls.Add(overrideAdd);
 
             JellyButton overrideRemove = new JellyButton();
             overrideRemove.Text = "Убрать";
-            overrideRemove.Location = new Point(340, 92);
-            overrideRemove.Size = new Size(152, 30);
+            overrideRemove.Location = new Point(292, 84);
+            overrideRemove.Size = new Size(128, 28);
             overrideRemove.Font = Theme.FontSmall;
             overrideRemove.Click += delegate { RemoveOverride(); };
             overrideCard.Controls.Add(overrideRemove);
 
             CardPanel miscCard = new CardPanel();
-            miscCard.Location = new Point(rightX, topY + 192 + gap + 240 + gap + 140 + gap);
-            miscCard.Size = new Size(colW, 200);
+            miscCard.Location = new Point(rightX, topY + 168 + gap + 216 + gap + 120 + gap);
+            miscCard.Size = new Size(colW, 164);
             Controls.Add(miscCard);
 
-            Label portableTitle = MakeLabel("Настройки рядом с программой", 20, 12, Theme.FontCardTitle, Theme.Text);
+            Label portableTitle = MakeLabel("Настройки рядом с программой", 20, 10, Theme.FontCardTitle, Theme.Text);
             miscCard.Controls.Add(portableTitle);
-            Label portableSub = MakeLabel("Файл okna.ini вместо реестра — для флешки", 20, 34, Theme.FontSmall, Theme.Muted);
+            Label portableSub = MakeLabel("okna.ini вместо реестра — для флешки", 20, 30, Theme.FontSmall, Theme.Muted);
             miscCard.Controls.Add(portableSub);
 
             _portableSwitch = new JellySwitch();
-            _portableSwitch.Location = new Point(432, 16);
+            _portableSwitch.Location = new Point(372, 14);
             miscCard.Controls.Add(_portableSwitch);
 
-            _portableLabel = MakeLabel("", 20, 54, Theme.FontTiny, Theme.Faint);
+            _portableLabel = MakeLabel("", 20, 50, Theme.FontTiny, Theme.Faint);
             _portableLabel.AutoSize = false;
-            _portableLabel.Size = new Size(472, 18);
+            _portableLabel.Size = new Size(400, 16);
             miscCard.Controls.Add(_portableLabel);
 
             JellyButton export = new JellyButton();
             export.Text = "Экспорт…";
-            export.Location = new Point(20, 80);
-            export.Size = new Size(112, 30);
+            export.Location = new Point(20, 76);
+            export.Size = new Size(100, 28);
             export.Font = Theme.FontSmall;
             export.Click += delegate { ExportSettings(); };
             miscCard.Controls.Add(export);
 
             JellyButton import = new JellyButton();
             import.Text = "Импорт…";
-            import.Location = new Point(140, 80);
-            import.Size = new Size(112, 30);
+            import.Location = new Point(128, 76);
+            import.Size = new Size(100, 28);
             import.Font = Theme.FontSmall;
             import.Click += delegate { ImportSettings(); };
             miscCard.Controls.Add(import);
 
             JellyButton reset = new JellyButton();
             reset.Text = "Сбросить";
-            reset.Location = new Point(260, 80);
-            reset.Size = new Size(112, 30);
+            reset.Location = new Point(236, 76);
+            reset.Size = new Size(100, 28);
             reset.Font = Theme.FontSmall;
             reset.Click += delegate { ResetSettings(); };
             miscCard.Controls.Add(reset);
 
             JellyButton diagnostics = new JellyButton();
             diagnostics.Text = "Диагностика…";
-            diagnostics.Location = new Point(380, 80);
-            diagnostics.Size = new Size(112, 30);
+            diagnostics.Location = new Point(344, 76);
+            diagnostics.Size = new Size(100, 28);
             diagnostics.Font = Theme.FontSmall;
             diagnostics.Click += delegate
             {
@@ -619,13 +619,13 @@ namespace Okna
             };
             miscCard.Controls.Add(diagnostics);
 
-            Label languageLabel = MakeLabel("Язык", 20, 120, Theme.FontLabel, Theme.Text);
+            Label languageLabel = MakeLabel("Язык", 20, 110, Theme.FontLabel, Theme.Text);
             miscCard.Controls.Add(languageLabel);
 
             _languageAuto = new JellyButton();
             _languageAuto.Text = "Системный";
-            _languageAuto.Location = new Point(100, 116);
-            _languageAuto.Size = new Size(112, 30);
+            _languageAuto.Location = new Point(96, 106);
+            _languageAuto.Size = new Size(96, 26);
             _languageAuto.Font = Theme.FontSmall;
             _languageAuto.Tag = (int)UiLanguage.Auto;
             _languageAuto.Click += delegate { SetLanguage((int)UiLanguage.Auto); };
@@ -633,8 +633,8 @@ namespace Okna
 
             _languageRu = new JellyButton();
             _languageRu.Text = "Русский";
-            _languageRu.Location = new Point(220, 116);
-            _languageRu.Size = new Size(112, 30);
+            _languageRu.Location = new Point(200, 106);
+            _languageRu.Size = new Size(96, 26);
             _languageRu.Font = Theme.FontSmall;
             _languageRu.Tag = (int)UiLanguage.Russian;
             _languageRu.Click += delegate { SetLanguage((int)UiLanguage.Russian); };
@@ -642,18 +642,18 @@ namespace Okna
 
             _languageEn = new JellyButton();
             _languageEn.Text = "English";
-            _languageEn.Location = new Point(340, 116);
-            _languageEn.Size = new Size(112, 30);
+            _languageEn.Location = new Point(304, 106);
+            _languageEn.Size = new Size(96, 26);
             _languageEn.Font = Theme.FontSmall;
             _languageEn.Tag = (int)UiLanguage.English;
             _languageEn.Click += delegate { SetLanguage((int)UiLanguage.English); };
             miscCard.Controls.Add(_languageEn);
 
-            Label themeLabel = MakeLabel("Тема оформления", 20, 146, Theme.FontLabel, Theme.Text);
+            Label themeLabel = MakeLabel("Тема оформления", 20, 138, Theme.FontLabel, Theme.Text);
             miscCard.Controls.Add(themeLabel);
 
             _darkThemeSwitch = new JellySwitch();
-            _darkThemeSwitch.Location = new Point(100, 150);
+            _darkThemeSwitch.Location = new Point(96, 142);
             _darkThemeSwitch.CheckedChanged += delegate
             {
                 _settings.DarkTheme = _darkThemeSwitch.Checked;
@@ -662,21 +662,39 @@ namespace Okna
             };
             miscCard.Controls.Add(_darkThemeSwitch);
 
-            Label themeSub = MakeLabel("Тёмная тема окна настроек", 20, 172, Theme.FontSmall, Theme.Muted);
+            Label themeSub = MakeLabel("Тёмная тема настроек", 20, 162, Theme.FontSmall, Theme.Muted);
             miscCard.Controls.Add(themeSub);
 
-            _hintLabel = MakeLabel("", 24, 896, Theme.FontSmall, Theme.Faint);
+            _hintLabel = MakeLabel("", 20, 740, Theme.FontSmall, Theme.Faint);
             Controls.Add(_hintLabel);
 
-            _versionLabel = MakeLabel("", 24, 920, Theme.FontTiny, Theme.Faint);
+            _versionLabel = MakeLabel("", 20, 760, Theme.FontTiny, Theme.Faint);
             UpdateVersionLabel();
             Controls.Add(_versionLabel);
+
+            Label copyrightLabel = MakeLabel("© Сергей", ClientSize.Width - 100, 760, Theme.FontTiny, Theme.Faint);
+            copyrightLabel.TextAlign = ContentAlignment.MiddleRight;
+            Controls.Add(copyrightLabel);
+
+            LinkLabel telegramLink = new LinkLabel();
+            telegramLink.Text = "Обратная связь: @Link_Ser";
+            telegramLink.Location = new Point(ClientSize.Width - 190, 778);
+            telegramLink.Size = new Size(170, 18);
+            telegramLink.Font = Theme.FontTiny;
+            telegramLink.LinkColor = Theme.Accent;
+            telegramLink.ActiveLinkColor = Theme.Accent;
+            telegramLink.LinkBehavior = LinkBehavior.HoverUnderline;
+            telegramLink.Click += delegate
+            {
+                try { System.Diagnostics.Process.Start("https://t.me/Link_Ser"); } catch { }
+            };
+            Controls.Add(telegramLink);
 
             JellyButton done = new JellyButton();
             done.Text = "Готово";
             done.Accent = true;
-            done.Location = new Point(968, 892);
-            done.Size = new Size(96, 38);
+            done.Location = new Point(ClientSize.Width - 112, 740);
+            done.Size = new Size(96, 36);
             done.Click += delegate { Hide(); };
             Controls.Add(done);
 

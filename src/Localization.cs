@@ -209,6 +209,8 @@ namespace Okna
                 { "Программа уже работает в трее.", "The program is already running in the tray." },
                 { "Исключение", "Excluded" },
                 { "Диагностика", "Diagnostics" },
+                { "© Сергей", "© Sergey" },
+                { "Обратная связь: @Link_Ser", "Feedback: @Link_Ser" },
 
                 // Dialogs.
                 { "Что открыто сейчас", "What is open now" },
