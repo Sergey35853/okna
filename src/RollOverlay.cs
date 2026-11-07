@@ -210,7 +210,7 @@ namespace Okna
             }
 
             Native.RECT found;
-            if (!Find(title, exe, hwnd, out found)) return false;
+            if (!Find(title, exe, hwnd, out found) && !FindWin32(title, exe, hwnd, out found)) return false;
 
             lock (Sync)
             {
@@ -295,6 +295,81 @@ namespace Okna
                 Log.Debug("Taskbar button lookup failed: " + ex.GetType().Name);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Win32 fallback for locating a window's taskbar button icon. Enumerates
+        /// the taskbar toolbar buttons and matches by window title or executable
+        /// name. Used when UI Automation cannot expose the taskbar buttons
+        /// (Windows 10/8.1 shell, locked desktop, etc.).
+        /// </summary>
+        private static bool FindWin32(string title, string exe, IntPtr hwnd, out Native.RECT rect)
+        {
+            rect = new Native.RECT();
+            string exeBase = BaseName(exe);
+            IntPtr after = IntPtr.Zero;
+            for (int barIndex = 0; barIndex < 8; barIndex++)
+            {
+                IntPtr bar = barIndex == 0
+                    ? Native.FindWindow("Shell_TrayWnd", null)
+                    : Native.FindWindowEx(IntPtr.Zero, after, "Shell_SecondaryTrayWnd", null);
+                if (bar == IntPtr.Zero) break;
+                after = bar;
+
+                IntPtr toolbar = Native.FindWindowEx(bar, IntPtr.Zero, "ToolbarWindow32", null);
+                if (toolbar == IntPtr.Zero) continue;
+
+                int count = (int)Native.SendMessage(toolbar, Native.TB_BUTTONCOUNT,
+                    IntPtr.Zero, IntPtr.Zero);
+                if (count <= 0) continue;
+
+                for (int i = 0; i < count; i++)
+                {
+                    var info = new Native.TBBUTTONINFO();
+                    info.cbSize = Marshal.SizeOf(typeof(Native.TBBUTTONINFO));
+                    info.dwMask = Native.TBIF_TEXT;
+                    IntPtr textBuf = Marshal.AllocHGlobal(512);
+                    try
+                    {
+                        info.iString = textBuf;
+                        IntPtr infoPtr = Marshal.AllocHGlobal(Marshal.SizeOf(info));
+                        try
+                        {
+                            Marshal.StructureToPtr(info, infoPtr, false);
+                            Native.SendMessage(toolbar, Native.TB_GETBUTTONINFO,
+                                new IntPtr(i), infoPtr);
+                            info = (Native.TBBUTTONINFO)Marshal.PtrToStructure(infoPtr,
+                                typeof(Native.TBBUTTONINFO));
+                        }
+                        finally { Marshal.FreeHGlobal(infoPtr); }
+
+                        string btnText = Marshal.PtrToStringUni(textBuf);
+                        if (string.IsNullOrEmpty(btnText)) continue;
+
+                        int score = Score(title, exeBase, exe, null, btnText, null);
+                        if (score <= 0) continue;
+
+                        Native.RECT r;
+                        if (!Native.GetWindowRect(toolbar, out r)) continue;
+                        // Approximate the button rect: split the toolbar width
+                        // evenly among buttons and clamp to the found button index.
+                        int btnW = Math.Max(1, r.Width / count);
+                        rect.Left = r.Left + i * btnW;
+                        rect.Right = rect.Left + btnW;
+                        rect.Top = r.Top;
+                        rect.Bottom = r.Bottom;
+                        Log.Debug("Taskbar button (Win32): index=" + i +
+                            " text='" + btnText + "' -> " + rect.Left + "," + rect.Top);
+                        return true;
+                    }
+                    catch
+                    {
+                        // Continue to the next button.
+                    }
+                    finally { Marshal.FreeHGlobal(textBuf); }
+                }
+            }
+            return false;
         }
 
         private static void AddBars(AutomationElement root, Condition condition,

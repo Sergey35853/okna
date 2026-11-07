@@ -454,6 +454,31 @@ namespace Okna
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool DestroyIcon(IntPtr icon);
 
+        // Taskbar toolbar messages: used to locate a window's taskbar button
+        // icon when UI Automation is unavailable (Windows 10/8.1 shell).
+        public const uint TB_BUTTONCOUNT = 0x0419;
+        public const uint TB_GETBUTTONINFO = 0x0479; // Unicode
+        public const int TBIF_TEXT = 0x0001;
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern IntPtr SendMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct TBBUTTONINFO
+        {
+            public int cbSize;
+            public int dwMask;
+            public int idCommand;
+            public int iImage;
+            public byte fsStyle;
+            public byte bReserved0;
+            public byte bReserved1;
+            public byte bReserved2;
+            public int dwState;
+            public int dwData;
+            public IntPtr iString;
+        }
+
     }
 
 }

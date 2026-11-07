@@ -577,10 +577,22 @@ namespace Okna
                     try
                     {
                         int rowBytes = w * 4;
-                        for (int y = 0; y < h; y++)
+                        // A single block copy is far faster than one CopyMemory
+                        // call per scanline; fall back row by row only if the
+                        // DIB stride is padded and does not match the bitmap row.
+                        if (data.Stride == rowBytes)
                         {
-                            Native.CopyMemory(IntPtr.Add(bits, y * rowBytes),
-                                IntPtr.Add(data.Scan0, y * data.Stride), (IntPtr)rowBytes);
+                            Native.CopyMemory(bits, data.Scan0,
+                                (IntPtr)(rowBytes * h));
+                        }
+                        else
+                        {
+                            for (int y = 0; y < h; y++)
+                            {
+                                Native.CopyMemory(IntPtr.Add(bits, y * rowBytes),
+                                    IntPtr.Add(data.Scan0, y * data.Stride),
+                                    (IntPtr)rowBytes);
+                            }
                         }
                     }
                     finally

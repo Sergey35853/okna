@@ -38,7 +38,6 @@ namespace Okna
         private ToolStripMenuItem _skipItem;
         private ToolStripMenuItem _checkItem;
         private ToolStripMenuItem _autoUpdateItem;
-        private ToolStripMenuItem _shakeItem;
         private Timer _updateTimer;
         private Timer _firstCheck;
         private Timer _applyTimer;
@@ -150,10 +149,6 @@ namespace Okna
             ToolStripMenuItem settingsItem = NewItem("Настройки…");
             settingsItem.Click += delegate { ShowSettings(); };
             _menu.Items.Add(settingsItem);
-
-            _shakeItem = NewItem("Потрясти активное окно");
-            _shakeItem.Click += delegate { _engine.RequestShake(); };
-            _menu.Items.Add(_shakeItem);
 
             _menu.Items.Add(new ToolStripSeparator());
 
@@ -807,9 +802,6 @@ namespace Okna
                 check("the tray master switch turns off", _settings.Enabled == !enabled);
                 _toggleItem.PerformClick();
                 check("the tray master switch turns back on", _settings.Enabled == enabled);
-
-                _shakeItem.PerformClick();
-                check("the shake item asks the engine for a wobble", true);
 
                 bool auto = _settings.AutoUpdate;
                 _autoUpdateItem.PerformClick();
