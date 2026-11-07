@@ -49,6 +49,7 @@ namespace Okna
         private JellyButton _languageEn;
         private Label _portableLabel;
         private Label _versionLabel;
+        private Label _pageTitleLabel;
         private JellyButton _hotkeyButton;
         private Label _hotkeyStatus;
         private ListBox _excludeList;
@@ -171,50 +172,53 @@ namespace Okna
             Graphics g = e.Graphics;
             Rectangle rect = ClientRectangle;
             if (rect.Width <= 0 || rect.Height <= 0) return;
-
-            Color bg1 = _settings != null && _settings.DarkTheme ? Color.FromArgb(26, 28, 32) : Theme.Bg;
-            Color bg2 = _settings != null && _settings.DarkTheme ? Color.FromArgb(34, 36, 42) : Theme.BgLight;
-            using (LinearGradientBrush bg = new LinearGradientBrush(rect, bg1, bg2, LinearGradientMode.Vertical))
+            Theme.DarkMode = _settings != null && _settings.DarkTheme;
+            using (SolidBrush bg = new SolidBrush(Theme.Bg))
                 g.FillRectangle(bg, rect);
-
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            for (int i = 5; i >= 1; i--)
+            // subtle separator between nav and content
+            if (_contentHost != null)
             {
-                using (SolidBrush glow = new SolidBrush(Color.FromArgb(3 + i, Theme.Accent)))
-                    g.FillEllipse(glow, Width - 220 - i * 12, -180 - i * 8, 360 + i * 24, 360 + i * 24);
+                using (Pen p = new Pen(Theme.BorderSoft))
+                    g.DrawLine(p, _contentHost.Left - 1, 0, _contentHost.Left - 1, rect.Height);
             }
         }
 
         private void BuildUi()
         {
+            Theme.DarkMode = _settings != null && _settings.DarkTheme;
+            BackColor = Theme.Bg;
+
+            _navPanel = new Panel();
+            _navPanel.BackColor = Theme.Nav;
+            Controls.Add(_navPanel);
+
             PictureBox logo = new PictureBox();
-            logo.Location = new Point(20, 14);
-            logo.Size = new Size(36, 36);
+            logo.Location = new Point(16, 16);
+            logo.Size = new Size(28, 28);
             logo.SizeMode = PictureBoxSizeMode.Zoom;
             logo.BackColor = Color.Transparent;
             try
             {
-                using (Icon sized = new Icon(_icon, 36, 36))
+                using (Icon sized = new Icon(_icon, 28, 28))
                     logo.Image = sized.ToBitmap();
             }
             catch { logo.Image = _icon.ToBitmap(); }
-            Controls.Add(logo);
+            _navPanel.Controls.Add(logo);
 
-            Controls.Add(MakeLabel("Окна", 64, 10, Theme.FontTitle, Theme.Text));
-            Controls.Add(MakeLabel("Инерционные окна для Windows", 66, 40, Theme.FontSmall, Theme.Muted));
+            Label appTitle = MakeLabel("Окна", 50, 18, Theme.FontLabel, Theme.Text);
+            appTitle.Name = "appTitleLabel";
+            _navPanel.Controls.Add(appTitle);
 
             _statusPill = new StatusPill();
             _statusPill.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             Controls.Add(_statusPill);
 
-            _navPanel = new Panel();
-            _navPanel.Location = new Point(16, 72);
-            _navPanel.BackColor = Color.Transparent;
-            Controls.Add(_navPanel);
+            _pageTitleLabel = MakeLabel("Эффект", 0, 0, Theme.FontPageTitle, Theme.Text);
+            _pageTitleLabel.Name = "pageTitleLabel";
+            Controls.Add(_pageTitleLabel);
 
             _contentHost = new Panel();
-            _contentHost.Location = new Point(220, 72);
-            _contentHost.BackColor = Color.Transparent;
+            _contentHost.BackColor = Theme.Bg;
             Controls.Add(_contentHost);
 
             string[] names = new string[] {
@@ -223,6 +227,7 @@ namespace Okna
             string[] hints = new string[] {
                 "Желейность и режимы", "Изгиб и тряска", "Трубочка и направление", "Что при закрытии", "Когда уступать место", "Программы и правила", "Язык, тема, о программе", "Запуск, клавиша, обновления"
             };
+            string[] glyphs = new string[] { "\uE771", "\uE7C2", "\uE74B", "\uE711", "\uE769", "\uE71C", "\uF2B7", "\uE713" };
             _navItems = new CategoryNavItem[names.Length];
             _pages = new Panel[names.Length];
 
@@ -233,8 +238,9 @@ namespace Okna
                 nav.Title = names[i];
                 nav.Hint = hints[i];
                 nav.Text = names[i];
-                nav.Location = new Point(0, i * 54);
-                nav.Size = new Size(192, 48);
+                nav.Glyph = i < glyphs.Length ? glyphs[i] : null;
+                nav.Location = new Point(8, 58 + i * 38);
+                nav.Size = new Size(204, 36);
                 nav.Click += delegate { SelectPage(index); };
                 nav.Cursor = Cursors.Hand;
                 _navPanel.Controls.Add(nav);
@@ -242,7 +248,7 @@ namespace Okna
 
                 Panel page = new Panel();
                 page.Location = new Point(0, 0);
-                page.BackColor = Color.Transparent;
+                page.BackColor = Theme.Bg;
                 page.Visible = false;
                 page.AutoScroll = true;
                 _contentHost.Controls.Add(page);
@@ -304,13 +310,19 @@ namespace Okna
 
         private void LayoutChrome()
         {
-            int footerH = 62;
-            int top = 72;
-            int navW = 200;
-            int gap = 14;
-            _statusPill.Location = new Point(ClientSize.Width - 20 - _statusPill.Width, 20);
-            _navPanel.SetBounds(16, top, navW, ClientSize.Height - top - footerH - 8);
-            _contentHost.SetBounds(16 + navW + gap, top, ClientSize.Width - 16 - navW - gap - 16, ClientSize.Height - top - footerH - 8);
+            int navW = 230;
+            int footerH = 56;
+            int contentPad = 28;
+            int titleH = 52;
+            _navPanel.SetBounds(0, 0, navW, ClientSize.Height);
+
+            if (_statusPill != null)
+                _statusPill.Location = new Point(ClientSize.Width - 16 - _statusPill.Width, 14);
+            if (_pageTitleLabel != null)
+                _pageTitleLabel.SetBounds(navW + contentPad, 18, Math.Max(120, ClientSize.Width - navW - contentPad - _statusPill.Width - 32), 36);
+
+            int contentTop = titleH + 8;
+            _contentHost.SetBounds(navW + contentPad, contentTop, Math.Max(200, ClientSize.Width - navW - contentPad - 20), Math.Max(100, ClientSize.Height - contentTop - footerH));
             if (_pages != null)
             {
                 for (int i = 0; i < _pages.Length; i++)
@@ -318,13 +330,36 @@ namespace Okna
             }
             LayoutPages();
 
-            Control done = Controls["doneButton"];
-            Control link = Controls["telegramLink"];
-            int fy = ClientSize.Height - footerH + 10;
-            if (_hintLabel != null) _hintLabel.SetBounds(20, fy, Math.Max(120, ClientSize.Width - 170), 16);
-            if (_versionLabel != null) _versionLabel.SetBounds(20, fy + 22, 360, 14);
-            if (link != null) link.Location = new Point(380, fy + 20);
-            if (done != null) done.Location = new Point(ClientSize.Width - done.Width - 16, fy + 8);
+            // Place footer info in nav bottom / form bottom
+            if (_versionLabel != null)
+            {
+                if (_versionLabel.Parent != _navPanel) { _versionLabel.Parent.Controls.Remove(_versionLabel); _navPanel.Controls.Add(_versionLabel); }
+                _versionLabel.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+                _versionLabel.SetBounds(16, _navPanel.ClientSize.Height - 44, navW - 24, 14);
+            }
+            Control[] links = Controls.Find("telegramLink", true);
+            Control link = links.Length > 0 ? links[0] : null;
+            if (link != null)
+            {
+                if (link.Parent != _navPanel) { link.Parent.Controls.Remove(link); _navPanel.Controls.Add(link); }
+                link.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+                link.Location = new Point(16, _navPanel.ClientSize.Height - 24);
+            }
+            if (_hintLabel != null)
+            {
+                if (_hintLabel.Parent != this) { if (_hintLabel.Parent != null) _hintLabel.Parent.Controls.Remove(_hintLabel); Controls.Add(_hintLabel); }
+                _hintLabel.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+                _hintLabel.SetBounds(navW + contentPad, ClientSize.Height - footerH + 18, Math.Max(120, _contentHost.Width - 130), 16);
+            }
+            Control[] dones = Controls.Find("doneButton", true);
+            Control done = dones.Length > 0 ? dones[0] : null;
+            if (done != null)
+            {
+                if (done.Parent != this) { done.Parent.Controls.Remove(done); Controls.Add(done); }
+                done.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+                done.Location = new Point(ClientSize.Width - done.Width - 20, ClientSize.Height - footerH + 10);
+                done.BringToFront();
+            }
         }
 
         private void LayoutPages()
@@ -598,6 +633,11 @@ namespace Okna
                 _pages[i].Visible = (i == index);
                 _navItems[i].Active = (i == index);
                 _navItems[i].Invalidate();
+            }
+            if (_pageTitleLabel != null && _navItems != null && index < _navItems.Length)
+            {
+                string title = _navItems[index].Title ?? _navItems[index].Text ?? "";
+                _pageTitleLabel.Text = Loc.T(title);
             }
             _pages[index].BringToFront();
             _pages[index].AutoScrollPosition = Point.Empty;
@@ -1347,13 +1387,36 @@ namespace Okna
 
         internal void ApplyTheme()
         {
-            if (_settings.DarkTheme)
-            { BackColor = Color.FromArgb(26, 28, 32); ForeColor = Color.FromArgb(224, 224, 224); }
-            else
-            { BackColor = Theme.Bg; ForeColor = Theme.Text; }
-            foreach (Control c in Controls) c.Invalidate();
-            if (_navItems != null) for (int i = 0; i < _navItems.Length; i++) _navItems[i].Invalidate();
-            if (_pages != null) for (int i = 0; i < _pages.Length; i++) foreach (Control c in _pages[i].Controls) c.Invalidate();
+            Theme.DarkMode = _settings != null && _settings.DarkTheme;
+            BackColor = Theme.Bg;
+            ForeColor = Theme.Text;
+            if (_navPanel != null) _navPanel.BackColor = Theme.Nav;
+            if (_contentHost != null) _contentHost.BackColor = Theme.Bg;
+            if (_pages != null)
+            {
+                for (int i = 0; i < _pages.Length; i++)
+                {
+                    _pages[i].BackColor = Theme.Bg;
+                    foreach (Control c in _pages[i].Controls) InvalidateTree(c);
+                }
+            }
+            if (_navPanel != null) foreach (Control c in _navPanel.Controls) InvalidateTree(c);
+            foreach (Control c in Controls) InvalidateTree(c);
+            if (_pageTitleLabel != null) _pageTitleLabel.ForeColor = Theme.Text;
+            Invalidate(true);
+        }
+
+        private static void InvalidateTree(Control c)
+        {
+            if (c == null) return;
+            c.Invalidate();
+            foreach (Control child in c.Controls) InvalidateTree(child);
+        }
+
+        protected override void OnClientSizeChanged(EventArgs e)
+        {
+            base.OnClientSizeChanged(e);
+            if (IsHandleCreated) LayoutChrome();
         }
 
         private void SetCloseEffect(int effect)
@@ -1801,7 +1864,9 @@ namespace Okna
             public string Title { get; set; }
             public string Hint { get; set; }
             public bool Active { get; set; }
+            public string Glyph { get; set; }
             private bool _hover;
+            private static Font _glyphFont;
 
             public CategoryNavItem()
             {
@@ -1810,6 +1875,11 @@ namespace Okna
                          ControlStyles.Selectable | ControlStyles.SupportsTransparentBackColor, true);
                 BackColor = Color.Transparent;
                 TabStop = false;
+                if (_glyphFont == null)
+                {
+                    try { _glyphFont = new Font("Segoe MDL2 Assets", 11f, FontStyle.Regular, GraphicsUnit.Point); }
+                    catch { _glyphFont = null; }
+                }
             }
 
             protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
@@ -1819,24 +1889,38 @@ namespace Okna
             {
                 Graphics g = e.Graphics;
                 g.SmoothingMode = SmoothingMode.AntiAlias;
-                RectangleF rect = new RectangleF(0, 0, Width - 1, Height - 1);
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+                RectangleF rect = new RectangleF(2, 1, Width - 4, Height - 2);
                 if (Active)
                 {
-                    using (SolidBrush fill = new SolidBrush(Color.FromArgb(150, Theme.CardAlt))) Theme.FillRounded(g, fill, rect, 12f);
-                    using (Pen border = new Pen(Color.FromArgb(120, Theme.Accent), 1f)) Theme.DrawRounded(g, border, rect, 12f);
-                    using (SolidBrush bar = new SolidBrush(Theme.Accent)) g.FillRectangle(bar, 2, 10, 3, Height - 20);
+                    using (SolidBrush fill = new SolidBrush(Theme.NavSelected))
+                        Theme.FillRounded(g, fill, rect, 6f);
+                    using (SolidBrush bar = new SolidBrush(Theme.Accent))
+                        Theme.FillRounded(g, bar, new RectangleF(4, (Height - 16f) / 2f, 3f, 16f), 1.5f);
                 }
                 else if (_hover)
                 {
-                    using (SolidBrush fill = new SolidBrush(Color.FromArgb(80, Theme.CardAlt))) Theme.FillRounded(g, fill, rect, 12f);
+                    using (SolidBrush fill = new SolidBrush(Theme.NavHover))
+                        Theme.FillRounded(g, fill, rect, 6f);
                 }
+
                 string title = string.IsNullOrEmpty(AccessibleDescription) ? (Title ?? Text ?? "") : Loc.T(AccessibleDescription);
                 if (string.IsNullOrEmpty(AccessibleDescription) && !string.IsNullOrEmpty(Text)) title = Loc.T(Text);
-                string hint = Loc.T(Hint ?? "");
-                TextRenderer.DrawText(g, title, Theme.FontLabel, new Rectangle(14, 6, Width - 18, 20),
-                    Active ? Theme.Text : Theme.Muted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-                TextRenderer.DrawText(g, hint, Theme.FontTiny, new Rectangle(14, 26, Width - 18, 16),
-                    Theme.Faint, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+
+                int textX = 16;
+                if (!string.IsNullOrEmpty(Glyph) && _glyphFont != null)
+                {
+                    try
+                    {
+                        TextRenderer.DrawText(g, Glyph, _glyphFont, new Rectangle(14, 0, 22, Height),
+                            Active ? Theme.Accent : Theme.Muted,
+                            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+                        textX = 38;
+                    }
+                    catch { textX = 16; }
+                }
+                TextRenderer.DrawText(g, title, Theme.FontBody, new Rectangle(textX, 0, Width - textX - 8, Height),
+                    Theme.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
             }
         }
     }

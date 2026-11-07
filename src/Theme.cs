@@ -6,29 +6,36 @@ namespace Okna
 {
     internal static class Theme
     {
-        public static readonly Color Bg = Color.FromArgb(11, 17, 23);
-        public static readonly Color BgLight = Color.FromArgb(16, 26, 35);
-        public static readonly Color Card = Color.FromArgb(17, 28, 36);
-        public static readonly Color CardAlt = Color.FromArgb(23, 37, 47);
-        public static readonly Color Border = Color.FromArgb(33, 51, 63);
-        public static readonly Color BorderSoft = Color.FromArgb(27, 42, 53);
-        public static readonly Color Text = Color.FromArgb(232, 242, 243);
-        public static readonly Color Muted = Color.FromArgb(139, 160, 171);
-        public static readonly Color Faint = Color.FromArgb(96, 118, 130);
-        public static readonly Color Accent = Color.FromArgb(93, 228, 199);
-        public static readonly Color AccentDark = Color.FromArgb(33, 126, 110);
-        public static readonly Color AccentSoft = Color.FromArgb(34, 64, 63);
-        public static readonly Color Warm = Color.FromArgb(242, 184, 75);
-        public static readonly Color Danger = Color.FromArgb(235, 111, 112);
+        public static bool DarkMode;
+
+        // Windows Settings-inspired palette
+        public static Color Bg { get { return DarkMode ? Color.FromArgb(32, 32, 32) : Color.FromArgb(243, 243, 243); } }
+        public static Color BgLight { get { return DarkMode ? Color.FromArgb(39, 39, 39) : Color.FromArgb(249, 249, 249); } }
+        public static Color Nav { get { return DarkMode ? Color.FromArgb(32, 32, 32) : Color.FromArgb(243, 243, 243); } }
+        public static Color Card { get { return DarkMode ? Color.FromArgb(45, 45, 45) : Color.FromArgb(251, 251, 251); } }
+        public static Color CardAlt { get { return DarkMode ? Color.FromArgb(55, 55, 55) : Color.FromArgb(246, 246, 246); } }
+        public static Color Border { get { return DarkMode ? Color.FromArgb(60, 60, 60) : Color.FromArgb(229, 229, 229); } }
+        public static Color BorderSoft { get { return DarkMode ? Color.FromArgb(55, 55, 55) : Color.FromArgb(234, 234, 234); } }
+        public static Color Text { get { return DarkMode ? Color.FromArgb(255, 255, 255) : Color.FromArgb(28, 28, 28); } }
+        public static Color Muted { get { return DarkMode ? Color.FromArgb(200, 200, 200) : Color.FromArgb(96, 96, 96); } }
+        public static Color Faint { get { return DarkMode ? Color.FromArgb(155, 155, 155) : Color.FromArgb(130, 130, 130); } }
+        public static Color Accent { get { return DarkMode ? Color.FromArgb(96, 205, 255) : Color.FromArgb(0, 103, 192); } }
+        public static Color AccentDark { get { return DarkMode ? Color.FromArgb(76, 160, 210) : Color.FromArgb(0, 90, 158); } }
+        public static Color AccentSoft { get { return DarkMode ? Color.FromArgb(45, 65, 80) : Color.FromArgb(224, 238, 249); } }
+        public static Color Warm { get { return DarkMode ? Color.FromArgb(252, 225, 0) : Color.FromArgb(157, 93, 0); } }
+        public static Color Danger { get { return DarkMode ? Color.FromArgb(255, 153, 164) : Color.FromArgb(196, 43, 28); } }
+        public static Color NavSelected { get { return DarkMode ? Color.FromArgb(55, 55, 55) : Color.FromArgb(234, 234, 234); } }
+        public static Color NavHover { get { return DarkMode ? Color.FromArgb(48, 48, 48) : Color.FromArgb(238, 238, 238); } }
 
         public static readonly Font FontBody = new Font("Segoe UI", 9.75f, FontStyle.Regular, GraphicsUnit.Point);
-        public static readonly Font FontSmall = new Font("Segoe UI", 8.5f, FontStyle.Regular, GraphicsUnit.Point);
-        public static readonly Font FontTiny = new Font("Segoe UI", 7.75f, FontStyle.Regular, GraphicsUnit.Point);
-        public static readonly Font FontLabel = new Font("Segoe UI", 9.5f, FontStyle.Bold, GraphicsUnit.Point);
-        public static readonly Font FontTitle = new Font("Segoe UI", 21f, FontStyle.Bold, GraphicsUnit.Point);
-        public static readonly Font FontCardTitle = new Font("Segoe UI", 11.5f, FontStyle.Bold, GraphicsUnit.Point);
-        public static readonly Font FontButton = new Font("Segoe UI", 9.5f, FontStyle.Bold, GraphicsUnit.Point);
-        public static readonly Font FontMini = new Font("Segoe UI", 8.5f, FontStyle.Bold, GraphicsUnit.Point);
+        public static readonly Font FontSmall = new Font("Segoe UI", 9f, FontStyle.Regular, GraphicsUnit.Point);
+        public static readonly Font FontTiny = new Font("Segoe UI", 8.25f, FontStyle.Regular, GraphicsUnit.Point);
+        public static readonly Font FontLabel = new Font("Segoe UI Semibold", 9.75f, FontStyle.Regular, GraphicsUnit.Point);
+        public static readonly Font FontTitle = new Font("Segoe UI Semibold", 22f, FontStyle.Regular, GraphicsUnit.Point);
+        public static readonly Font FontPageTitle = new Font("Segoe UI Semibold", 20f, FontStyle.Regular, GraphicsUnit.Point);
+        public static readonly Font FontCardTitle = new Font("Segoe UI", 9.75f, FontStyle.Regular, GraphicsUnit.Point);
+        public static readonly Font FontButton = new Font("Segoe UI", 9.75f, FontStyle.Regular, GraphicsUnit.Point);
+        public static readonly Font FontMini = new Font("Segoe UI", 8.5f, FontStyle.Regular, GraphicsUnit.Point);
 
         public static GraphicsPath RoundedRect(RectangleF rect, float radius)
         {

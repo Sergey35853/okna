@@ -76,28 +76,28 @@ namespace Okna
             if (Accent)
             {
                 if (!Enabled) fill = Theme.CardAlt;
-                else if (_pressed) fill = Theme.Blend(Theme.Accent, Color.Black, 0.16f);
-                else if (_hover) fill = Theme.Blend(Theme.Accent, Color.White, 0.10f);
+                else if (_pressed) fill = Theme.AccentDark;
+                else if (_hover) fill = Theme.Blend(Theme.Accent, Color.White, 0.08f);
                 else fill = Theme.Accent;
-                textColor = Enabled ? Theme.Bg : Theme.Faint;
+                textColor = Enabled ? Color.White : Theme.Faint;
             }
             else
             {
                 if (!Enabled) fill = Theme.Card;
-                else if (_pressed) fill = Theme.Blend(Theme.CardAlt, Color.Black, 0.12f);
-                else if (_hover) fill = Theme.Blend(Theme.CardAlt, Theme.Accent, 0.07f);
-                else fill = Theme.CardAlt;
+                else if (_pressed) fill = Color.FromArgb(235, 235, 235);
+                else if (_hover) fill = Color.FromArgb(246, 246, 246);
+                else fill = Theme.Card;
                 textColor = Enabled ? Theme.Text : Theme.Faint;
             }
 
+            radius = 6f;
             using (SolidBrush brush = new SolidBrush(fill))
                 Theme.FillRounded(g, brush, rect, radius);
 
-            if (!Accent)
-            {
-                using (Pen pen = new Pen(_hover ? Theme.Blend(Theme.Border, Theme.Accent, 0.25f) : Theme.Border))
-                    Theme.DrawRounded(g, pen, rect, radius);
-            }
+            Color border = Accent ? Color.FromArgb(40, 0, 0, 0) : Theme.Border;
+            if (!Accent && _hover) border = Theme.Blend(Theme.Border, Theme.Accent, 0.25f);
+            using (Pen pen = new Pen(border))
+                Theme.DrawRounded(g, pen, rect, radius);
 
             TextRenderer.DrawText(g, Text, Font, Rectangle.Round(rect), textColor,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
@@ -401,9 +401,10 @@ namespace Okna
         public StatusPill()
         {
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
-                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-            Size = new Size(138, 28);
-            BackColor = Theme.Bg;
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw |
+                     ControlStyles.SupportsTransparentBackColor, true);
+            Size = new Size(132, 30);
+            BackColor = Color.Transparent;
             Font = Theme.FontSmall;
         }
 
@@ -419,28 +420,27 @@ namespace Okna
         {
             Graphics g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
 
             bool paused = _status == "Пауза" || _status == "Ошибка" || _status == "Конфликт";
-            Color dotColor = paused ? Theme.Warm : Theme.Accent;
+            Color dotColor = paused ? Theme.Warm : Color.FromArgb(15, 123, 15);
             string text = _status;
             if (text == "Готово") text = "Активно";
             if (text == "Удержание") text = "Активно";
             text = Loc.Status(text);
 
             RectangleF rect = new RectangleF(0, 0, Width - 1, Height - 1);
-            using (SolidBrush fill = new SolidBrush(Color.FromArgb(150, Theme.CardAlt)))
-                Theme.FillRounded(g, fill, rect, Height / 2f);
-            using (Pen border = new Pen(Color.FromArgb(100, Theme.Border)))
-                Theme.DrawRounded(g, border, rect, Height / 2f);
+            using (SolidBrush fill = new SolidBrush(Theme.Card))
+                Theme.FillRounded(g, fill, rect, 6f);
+            using (Pen border = new Pen(Theme.Border))
+                Theme.DrawRounded(g, border, rect, 6f);
 
             float cy = Height / 2f;
-            using (SolidBrush glow = new SolidBrush(Color.FromArgb(paused ? 22 : 34, dotColor)))
-                g.FillEllipse(glow, 10, cy - 8, 16, 16);
             using (SolidBrush dot = new SolidBrush(dotColor))
-                g.FillEllipse(dot, 14, cy - 4, 8, 8);
+                g.FillEllipse(dot, 12, cy - 4, 8, 8);
 
-            TextRenderer.DrawText(g, text, Font, new Rectangle(28, 0, Width - 34, Height),
-                paused ? Theme.Warm : Theme.Muted,
+            TextRenderer.DrawText(g, text, Font, new Rectangle(26, 0, Width - 30, Height),
+                Theme.Text,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding |
                 TextFormatFlags.EndEllipsis);
         }
@@ -448,6 +448,8 @@ namespace Okna
 
     internal sealed class CardPanel : Panel
     {
+        public string SectionTitle { get; set; }
+
         public CardPanel()
         {
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
@@ -459,15 +461,16 @@ namespace Okna
         {
             Graphics g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.Clear(Theme.Bg);
+            g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+            Color pageBg = Parent != null ? Parent.BackColor : Theme.Bg;
+            if (pageBg.A != 255) pageBg = Theme.Bg;
+            g.Clear(pageBg);
 
             RectangleF rect = new RectangleF(0, 0, Width - 1, Height - 1);
-            using (SolidBrush shadow = new SolidBrush(Color.FromArgb(50, 0, 0, 0)))
-                Theme.FillRounded(g, shadow, new RectangleF(2, 5, Width - 5, Height - 5), 16f);
             using (SolidBrush fill = new SolidBrush(Theme.Card))
-                Theme.FillRounded(g, fill, rect, 16f);
-            using (Pen pen = new Pen(Theme.BorderSoft))
-                Theme.DrawRounded(g, pen, rect, 16f);
+                Theme.FillRounded(g, fill, rect, 8f);
+            using (Pen pen = new Pen(Theme.Border))
+                Theme.DrawRounded(g, pen, rect, 8f);
         }
     }
 }
