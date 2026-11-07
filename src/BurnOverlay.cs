@@ -194,10 +194,9 @@ namespace Okna
                 // heights follow a slow noise field so they clump into
                 // sheets of fire with low flames between them. That is what
                 // keeps the front from reading as a row of candles.
-                // Large windows need fewer flames: the per-frame GDI+ cost is
-                // the main source of stutter, so cap the count well below the
-                // old limit.
-                int flameCount = Math.Max(10, Math.Min(70, fw / 24));
+                // Large windows need far fewer flames: per-frame GDI+ cost on
+                // a big canvas is the main source of stutter, so cap hard.
+                int flameCount = Math.Max(8, Math.Min(35, fw / 32));
                 float cellW = fw / (float)flameCount;
                 float[] flameX = new float[flameCount];
                 float[] flameHeight = new float[flameCount];
@@ -254,8 +253,8 @@ namespace Okna
                     double q = u * u * (3 - 2 * u);
                     float frontBase = (float)(fh + 6 - q * (fh + 42));
                     float amp = 9f + 4f * (float)Math.Sin(t * 2.7);
-                    int cols = Math.Max(8, fw / 12);
-                    if (cols > 400) cols = 400;
+                    int cols = Math.Max(6, fw / 20);
+                    if (cols > 180) cols = 180;
                     PointF[] front = new PointF[cols + 1];
                     float stepX = fw / (float)cols;
                     for (int i = 0; i <= cols; i++)
@@ -290,7 +289,7 @@ namespace Okna
                             e.Life = 0.5 + rnd.NextDouble() * 0.85;
                             embers.Add(e);
                         }
-                        if (embers.Count > 180) embers.RemoveRange(0, embers.Count - 180);
+                        if (embers.Count > 90) embers.RemoveRange(0, embers.Count - 90);
 
                         puffDebt += dt * 26.0;
                         guard = 0;
@@ -309,7 +308,7 @@ namespace Okna
                             p.Life = 1.3 + rnd.NextDouble() * 1.1;
                             puffs.Add(p);
                         }
-                        if (puffs.Count > 90) puffs.RemoveRange(0, puffs.Count - 90);
+                        if (puffs.Count > 45) puffs.RemoveRange(0, puffs.Count - 45);
                     }
 
                     double fade = 1.0;
@@ -417,7 +416,7 @@ namespace Okna
 
                                 // Glowing cracks in the crust: short bright
                                 // slivers that wink in and out.
-                                int cracks = Math.Max(4, (int)(fw / 34));
+                                int cracks = Math.Max(2, (int)(fw / 60));
                                 for (int i = 0; i < cracks; i++)
                                 {
                                     float x = (i + 0.5f) * fw / cracks + (float)Math.Sin(
@@ -616,11 +615,11 @@ namespace Okna
                             Native.DispatchMessage(ref msg);
                         }
 
-                        // Cap the frame rate (~40 fps): the old code ran as fast as
+                        // Cap the frame rate (~20 fps): the old code ran as fast as
                         // possible (sleep 1 ms), which burned CPU on large canvases
-                        // and caused visible stutters. The animation still looks
-                        // smooth at this rate.
-                        Thread.Sleep(25);
+                        // and caused visible stutters. On big canvases UpdateLayeredWindow
+                        // itself is expensive, so fewer frames means less freeze.
+                        Thread.Sleep(50);
                     }
             }
             finally

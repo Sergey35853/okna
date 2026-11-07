@@ -80,9 +80,11 @@ namespace Okna
             _canResize = (Native.GetWindowLongPtr(root, Native.GWL_STYLE) & Native.WS_THICKFRAME) != 0;
             _mode = Mode.Candidate;
             _followTicks = 0;
+            bool targetElevated;
+            Native.IsProcessElevated(pid, out targetElevated);
             Log.Debug("Candidate " + root.ToInt64() + " '" + Native.GetWindowTitle(root) + "' rect=" +
                 rect.Left + "," + rect.Top + " " + rect.Width + "x" + rect.Height +
-                " hit=" + hit.ToUInt64());
+                " hit=" + hit.ToUInt64() + " pid=" + pid + " elevated=" + targetElevated);
         }
 
         private bool TakeOver(Native.RECT current)
@@ -434,8 +436,10 @@ namespace Okna
             if (nw == _baseWidth && nh == _baseHeight)
                 flags |= Native.SWP_NOSIZE;
 
-            Native.SetWindowPos(_target, IntPtr.Zero, nx, ny, nw, nh, flags);
+            bool moved = Native.SetWindowPos(_target, IntPtr.Zero, nx, ny, nw, nh, flags);
             _frame++;
+            if (!moved && _frame % 10 == 1)
+                Log.Debug("Drag SetWindowPos failed (elevated target?) target=" + _target.ToInt64());
         }
 
         private void ActivateOverlay(Native.POINT cursor)
