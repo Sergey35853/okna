@@ -41,6 +41,7 @@ namespace Okna
         private JellyButton _checkUpdateButton;
         private JellyButton _skipResetUpdateButton;
         private JellyButton _installUpdateButton;
+        private JellyButton _whatsNewButton;
         private JellyButton _languageAuto;
         private JellyButton _languageRu;
         private JellyButton _languageEn;
@@ -51,6 +52,8 @@ namespace Okna
         private ListBox _excludeList;
         private TextBox _excludeMask;
         private ListBox _overrideList;
+        private ListBox _callAppsList;
+        private TextBox _callAppMask;
         private JellySlider _slider;
         private Label _valueLabel;
         private Label _hintLabel;
@@ -373,7 +376,7 @@ namespace Okna
                 {
                     c.Width = Math.Max(120, card.ClientSize.Width - pad - 140);
                 }
-                else if (c == _excludeMask)
+                else if (c == _excludeMask || c == _callAppMask)
                 {
                     c.Width = Math.Max(120, card.ClientSize.Width - pad - 140);
                 }
@@ -469,6 +472,19 @@ namespace Okna
                     }
                 }
             }
+            if (_callAppsList != null && card.Controls.Contains(_callAppsList))
+            {
+                int bx = card.ClientSize.Width - 128;
+                _callAppsList.Width = Math.Max(120, card.ClientSize.Width - 20 - 140);
+                foreach (Control c in card.Controls)
+                {
+                    if (!(c is JellyButton)) continue;
+                    if (c.Name == "callAppAddFile") c.SetBounds(bx, 40, 108, 28);
+                    else if (c.Name == "callAppRemove") c.SetBounds(bx, 72, 108, 28);
+                    else if (c.Name == "callAppAddMask") c.SetBounds(bx, 126, 108, 28);
+                }
+                if (_callAppMask != null) _callAppMask.Width = Math.Max(120, card.ClientSize.Width - 20 - 140);
+            }
             // System data buttons row
             if (_portableSwitch != null && card.Controls.Contains(_portableSwitch))
             {
@@ -531,6 +547,11 @@ namespace Okna
                 {
                     _installUpdateButton.Top = _skipResetUpdateButton != null ? _skipResetUpdateButton.Top : Math.Max(_installUpdateButton.Top, 96);
                     _installUpdateButton.Left = _skipResetUpdateButton != null ? _skipResetUpdateButton.Right + 8 : 20;
+                }
+                if (_whatsNewButton != null)
+                {
+                    _whatsNewButton.Top = _installUpdateButton != null ? _installUpdateButton.Top : Math.Max(_whatsNewButton.Top, 96);
+                    _whatsNewButton.Left = _installUpdateButton != null ? _installUpdateButton.Right + 8 : (_skipResetUpdateButton != null ? _skipResetUpdateButton.Right + 8 : 20);
                 }
             }
         }
@@ -679,10 +700,47 @@ namespace Okna
             Label rdHint = AddLabel(cfgCard, "0–30 сек: защищает от мигания при Alt-Tab/переключении", 18, ry + 46, Theme.FontTiny, Theme.Faint);
             rdHint.AutoSize = false; rdHint.Name = "resumeDelayHint"; rdHint.Width = Math.Max(100, cfgCard.Width - 36); rdHint.Height = 14;
 
-            CardPanel alwaysCard = AddCard(page, "Всегда активные условия", 0, y, _contentHost.Width - 8, 112);
+            CardPanel alwaysCard = AddCard(page, "Всегда активные условия", 0, y, _contentHost.Width - 8, 112); y += 120;
             AddInfoRow(alwaysCard, "Удалённый рабочий стол", "Пауза при сеансе RDP", "Всегда", 14);
             AddDivider(alwaysCard, 18, 58, alwaysCard.Width - 36);
             AddInfoRow(alwaysCard, "Режим экономии энергии Windows", "Системный режим экономии заряда", "Всегда", 68);
+
+            CardPanel callCard = AddCard(page, "Доп. приложения для звонков/экрана", 0, y, _contentHost.Width - 8, 190);
+            AddLabel(callCard, "Добавляются к встроенному списку (Teams, Zoom, Discord…)", 18, 14, Theme.FontSmall, Theme.Muted);
+            _callAppsList = new ListBox();
+            _callAppsList.Location = new Point(18, 40);
+            _callAppsList.Size = new Size(callCard.Width - 160, 80);
+            _callAppsList.DrawMode = DrawMode.OwnerDrawFixed;
+            _callAppsList.ItemHeight = 20;
+            _callAppsList.BorderStyle = BorderStyle.None;
+            _callAppsList.BackColor = Theme.CardAlt;
+            _callAppsList.ForeColor = Theme.Text;
+            _callAppsList.Font = Theme.FontSmall;
+            _callAppsList.IntegralHeight = false;
+            _callAppsList.Name = "callAppsList";
+            _callAppsList.DrawItem += DrawCallAppItem;
+            callCard.Controls.Add(_callAppsList);
+
+            int cbx = callCard.Width - 132;
+            JellyButton callAdd = MakeSmallButton(callCard, "Добавить файл…", cbx, 40, 114);
+            callAdd.Name = "callAppAddFile";
+            callAdd.Click += delegate { AddCallAppFile(); };
+            JellyButton callRemove = MakeSmallButton(callCard, "Убрать", cbx, 72, 114);
+            callRemove.Name = "callAppRemove";
+            callRemove.Click += delegate { RemoveSelectedCallApp(); };
+
+            _callAppMask = new TextBox();
+            _callAppMask.Location = new Point(18, 128);
+            _callAppMask.Size = new Size(callCard.Width - 160, 26);
+            _callAppMask.BorderStyle = BorderStyle.FixedSingle;
+            _callAppMask.BackColor = Theme.CardAlt;
+            _callAppMask.ForeColor = Theme.Text;
+            _callAppMask.Font = Theme.FontSmall;
+            _callAppMask.Name = "callAppMask";
+            callCard.Controls.Add(_callAppMask);
+            JellyButton callMask = MakeSmallButton(callCard, "Добавить", cbx, 126, 114);
+            callMask.Name = "callAppAddMask";
+            callMask.Click += delegate { AddCallAppMask(); };
         }
 
         private static void AddInfoRow(Control parent, string title, string sub, string badge, int y)
@@ -765,6 +823,7 @@ namespace Okna
             if (_checkUpdateButton != null) _checkUpdateButton.Enabled = !checking;
             if (_skipResetUpdateButton != null) _skipResetUpdateButton.Enabled = skipped && !checking;
             if (_installUpdateButton != null) _installUpdateButton.Enabled = ready && !checking;
+            if (_whatsNewButton != null) _whatsNewButton.Enabled = ready && !checking;
         }
 
         private void BuildExcludePage(Panel page)
@@ -876,6 +935,13 @@ namespace Okna
             _installUpdateButton.Click += delegate
             {
                 if (_tray != null && _tray.ReadyUpdate != null) _tray.ApplyUpdateNow();
+                UpdateUpdateStatusLabel();
+            };
+            _whatsNewButton = MakeSmallButton(updCard, "Что нового…", 270, ry + 38, 110);
+            _whatsNewButton.Name = "whatsNewButton";
+            _whatsNewButton.Click += delegate
+            {
+                if (_tray != null) _tray.ShowUpdateDialog();
                 UpdateUpdateStatusLabel();
             };
 
@@ -1179,6 +1245,7 @@ namespace Okna
                 _hotkeyStatus.ForeColor = Theme.Muted;
                 RefreshExcludeList();
                 RefreshOverrideList();
+                RefreshCallAppsList();
                 _slider.Value = _settings.Jelly;
                 UpdateJellyLabel();
                 UpdatePresetStyles();
@@ -1373,6 +1440,17 @@ namespace Okna
                 Theme.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }
 
+        private void DrawCallAppItem(object sender, DrawItemEventArgs e)
+        {
+            if (e.Index < 0 || _callAppsList == null) return;
+            bool selected = (e.State & DrawItemState.Selected) != 0;
+            using (SolidBrush back = new SolidBrush(selected ? Theme.BorderSoft : Theme.CardAlt)) e.Graphics.FillRectangle(back, e.Bounds);
+            string text = Convert.ToString(_callAppsList.Items[e.Index]);
+            TextRenderer.DrawText(e.Graphics, text, _callAppsList.Font,
+                new Rectangle(e.Bounds.X + 8, e.Bounds.Y, e.Bounds.Width - 12, e.Bounds.Height),
+                Theme.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        }
+
         private void DrawOverrideItem(object sender, DrawItemEventArgs e)
         {
             if (e.Index < 0) return;
@@ -1436,6 +1514,44 @@ namespace Okna
         {
             string name = _excludeList.SelectedItem as string; if (name == null) return;
             _settings.RemoveExclude(name); RefreshExcludeList(); SaveSoon();
+        }
+
+        private void RefreshCallAppsList()
+        {
+            if (_callAppsList == null) return;
+            _callAppsList.BeginUpdate(); _callAppsList.Items.Clear();
+            string[] names = _settings.CallApps;
+            if (names != null)
+                for (int i = 0; i < names.Length; i++) _callAppsList.Items.Add(names[i]);
+            _callAppsList.EndUpdate();
+        }
+
+        private void AddCallAppFile()
+        {
+            using (OpenFileDialog dialog = new OpenFileDialog())
+            {
+                dialog.Title = Loc.T("Программы для автопаузы (звонки/экран)");
+                dialog.Filter = Loc.T("Программы (*.exe)|*.exe");
+                dialog.Multiselect = true;
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                string[] files = dialog.FileNames;
+                for (int i = 0; i < files.Length; i++) _settings.AddCallApp(Path.GetFileName(files[i]));
+                RefreshCallAppsList(); SaveSoon();
+            }
+        }
+
+        private void AddCallAppMask()
+        {
+            if (_callAppMask == null) return;
+            string mask = _callAppMask.Text.Trim(); if (mask.Length == 0) return;
+            _settings.AddCallApp(mask); _callAppMask.Text = ""; RefreshCallAppsList(); SaveSoon();
+        }
+
+        private void RemoveSelectedCallApp()
+        {
+            if (_callAppsList == null) return;
+            string name = _callAppsList.SelectedItem as string; if (name == null) return;
+            _settings.RemoveCallApp(name); RefreshCallAppsList(); SaveSoon();
         }
 
         private void AddOverride()
@@ -1503,9 +1619,16 @@ namespace Okna
                 for (int i = 0; i < _directionButtons.Length; i++) { _directionButtons[i].PerformClick(); Application.DoEvents(); check("roll direction " + i + " applies", (int)_settings.RollDirection == i); }
 
                 SelectPage(2); Application.DoEvents();
+                check("close demo button exists", _closeDemo != null);
                 _closeBurn.PerformClick(); Application.DoEvents(); check("burn is chosen alone", _settings.Burn && !_settings.Shatter);
                 _closeShatter.PerformClick(); Application.DoEvents(); check("shards are chosen alone", _settings.Shatter && !_settings.Burn);
                 _closeNone.PerformClick(); Application.DoEvents(); check("no close effect can be chosen", !_settings.Shatter && !_settings.Burn);
+
+                SelectPage(3); Application.DoEvents();
+                check("pause controls exist", _fullscreenSwitch != null && _resumeDelaySlider != null && _timedPauseButton != null);
+                _resumeDelaySlider.Value = 5; Application.DoEvents(); check("resume delay setting applies", _settings.AutoPauseResumeDelaySeconds == 5);
+                _settings.AddCallApp("smoke-call.exe"); RefreshCallAppsList(); check("call app list shows a custom app", _callAppsList != null && _callAppsList.Items.Count > 0);
+                _settings.RemoveCallApp("smoke-call.exe"); RefreshCallAppsList();
 
                 SelectPage(4); Application.DoEvents();
                 _settings.AddExclude("smoke-test.exe"); RefreshExcludeList(); check("the exclusion list shows a new mask", _excludeList.Items.Count > 0); _settings.RemoveExclude("smoke-test.exe"); RefreshExcludeList();
@@ -1519,6 +1642,9 @@ namespace Okna
                 _languageRu.PerformClick(); Application.DoEvents();
                 check("Russian comes back", _settings.Language == (int)UiLanguage.Russian && _presets[0].Text == "Спокойно");
                 _settings.Language = originalLanguage; Loc.Configure(originalLanguage); Loc.Apply(this); SyncFromSettings();
+
+                SelectPage(6); Application.DoEvents();
+                check("system page is last with updates", _autoUpdateSwitch != null && _checkUpdateButton != null && _skipResetUpdateButton != null);
                 SelectPage(0);
 
                 string report = Diagnostics.BuildReport(_settings, _engine, "smoke");

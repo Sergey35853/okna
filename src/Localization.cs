@@ -352,7 +352,10 @@ namespace Okna
                 { "0–30 сек: защищает от мигания при Alt-Tab/переключении", "0–30 sec: prevents flicker on Alt-Tab/switching" },
                 { "Ручная пауза на 30 минут (трей/горячая клавиша). Автопауза действует отдельно.", "Manual 30-min pause (tray/hotkey). Auto-pause works separately." },
                 { "Если нужно отключить эффекты для одной программы — «Исключения и правила».", "To disable effects for one app, use Exclusions & rules." },
-                { "Teams, Zoom, Discord, Slack и доп. список", "Teams, Zoom, Discord, Slack and custom list" }
+                { "Teams, Zoom, Discord, Slack и доп. список", "Teams, Zoom, Discord, Slack and custom list" },
+                { "Доп. приложения для звонков/экрана", "Extra apps for calls/screen sharing" },
+                { "Добавляются к встроенному списку (Teams, Zoom, Discord…)", "Added to the built-in list (Teams, Zoom, Discord…)" },
+                { "Программы для автопаузы (звонки/экран)", "Apps for auto-pause (calls/screen)" }
             };
 
         private static bool _english;

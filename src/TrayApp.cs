@@ -725,7 +725,7 @@ namespace Okna
                        StringComparison.OrdinalIgnoreCase);
         }
 
-        private void ShowUpdateDialog()
+        internal void ShowUpdateDialog()
         {
             if (_ready == null) return;
             UpdateInfo info = _ready;
