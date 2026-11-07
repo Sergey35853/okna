@@ -667,23 +667,23 @@ namespace Okna
 
             // Hint line above the bottom strip — kept short so it does not
             // collide with the Done button on the right.
-            _hintLabel = MakeLabel("", 20, 728, Theme.FontSmall, Theme.Faint);
+            _hintLabel = MakeLabel("", 20, 722, Theme.FontSmall, Theme.Faint);
             _hintLabel.AutoSize = false;
-            _hintLabel.Size = new Size(440, 16);
+            _hintLabel.Size = new Size(420, 16);
             Controls.Add(_hintLabel);
 
-            _versionLabel = MakeLabel("", 20, 756, Theme.FontTiny, Theme.Faint);
+            _versionLabel = MakeLabel("", 20, 752, Theme.FontTiny, Theme.Faint);
             UpdateVersionLabel();
             Controls.Add(_versionLabel);
 
-            Label copyrightLabel = MakeLabel("© Сергей", ClientSize.Width - 90, 756, Theme.FontTiny, Theme.Faint);
+            Label copyrightLabel = MakeLabel("© Сергей", ClientSize.Width - 60, 752, Theme.FontTiny, Theme.Faint);
             copyrightLabel.TextAlign = ContentAlignment.MiddleRight;
             Controls.Add(copyrightLabel);
 
             LinkLabel telegramLink = new LinkLabel();
             telegramLink.Text = "Обратная связь: @Link_Ser";
-            telegramLink.Location = new Point(ClientSize.Width - 200, 776);
-            telegramLink.Size = new Size(180, 18);
+            telegramLink.Location = new Point(20, 774);
+            telegramLink.Size = new Size(200, 18);
             telegramLink.Font = Theme.FontTiny;
             telegramLink.LinkColor = Theme.Accent;
             telegramLink.ActiveLinkColor = Theme.Accent;
@@ -697,7 +697,7 @@ namespace Okna
             JellyButton done = new JellyButton();
             done.Text = "Готово";
             done.Accent = true;
-            done.Location = new Point(ClientSize.Width - 108, 728);
+            done.Location = new Point(ClientSize.Width - 112, 722);
             done.Size = new Size(96, 36);
             done.Click += delegate { Hide(); };
             Controls.Add(done);
