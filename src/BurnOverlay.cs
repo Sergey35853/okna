@@ -123,6 +123,11 @@ namespace Okna
                 return;
             }
 
+            // Large windows burn at low quality: the most expensive per-frame
+            // GDI+ operations (scorch, char band, heat band, cracks, four
+            // flame passes) are skipped so UpdateLayeredWindow doesn't freeze.
+            bool lowQuality = fw > 1280 || fh > 720;
+
             Sprites sprites = CreateSprites();
             Random rnd = new Random();
             float phase0 = (float)(rnd.NextDouble() * 6.2832);
@@ -196,7 +201,9 @@ namespace Okna
                 // keeps the front from reading as a row of candles.
                 // Large windows need far fewer flames: per-frame GDI+ cost on
                 // a big canvas is the main source of stutter, so cap hard.
-                int flameCount = Math.Max(6, Math.Min(20, fw / 48));
+                int flameCount = lowQuality
+                    ? Math.Max(4, Math.Min(8, fw / 96))
+                    : Math.Max(6, Math.Min(20, fw / 48));
                 float cellW = fw / (float)flameCount;
                 float[] flameX = new float[flameCount];
                 float[] flameHeight = new float[flameCount];
@@ -256,8 +263,10 @@ namespace Okna
                     double q = u * u * (3 - 2 * u);
                     float frontBase = (float)(fh + 6 - q * (fh + 42));
                     float amp = 9f + 4f * (float)Math.Sin(t * 2.7);
-                    int cols = Math.Max(5, fw / 32);
-                    if (cols > 100) cols = 100;
+                    int cols = lowQuality
+                        ? Math.Max(4, Math.Min(40, fw / 64))
+                        : Math.Max(5, fw / 32);
+                    if (cols > (lowQuality ? 40 : 100)) cols = lowQuality ? 40 : 100;
                     // Reuse the front array across frames to avoid allocating
                     // a new one every tick on large windows.
                     if (frontCache == null || frontCache.Length < cols + 1)
@@ -296,7 +305,7 @@ namespace Okna
                             e.Life = 0.5 + rnd.NextDouble() * 0.85;
                             embers.Add(e);
                         }
-                        if (embers.Count > 50) embers.RemoveRange(0, embers.Count - 50);
+                        if (embers.Count > (lowQuality ? 25 : 50)) embers.RemoveRange(0, embers.Count - (lowQuality ? 25 : 50));
 
                         puffDebt += dt * 26.0;
                         guard = 0;
@@ -315,7 +324,7 @@ namespace Okna
                             p.Life = 1.3 + rnd.NextDouble() * 1.1;
                             puffs.Add(p);
                         }
-                        if (puffs.Count > 30) puffs.RemoveRange(0, puffs.Count - 30);
+                        if (puffs.Count > (lowQuality ? 15 : 30)) puffs.RemoveRange(0, puffs.Count - (lowQuality ? 15 : 30));
                     }
 
                     double fade = 1.0;
@@ -335,109 +344,112 @@ namespace Okna
                                 g.DrawImageUnscaled(shot, (int)originX, (int)originY);
                                 g.InterpolationMode = InterpolationMode.HighQualityBilinear;
 
-                                // Scorch above the fire: the paper browns
-                                // before it chars. It reaches down to the
-                                // front so no clean strip is left between
-                                // the tint and the crust.
-                                RectangleF scorchRect = new RectangleF(originX,
-                                    originY + frontBase - 104, fw, 114);
-                                ColorBlend scorchBlend = new ColorBlend(4);
-                                scorchBlend.Colors = new Color[]
+                                if (!lowQuality)
                                 {
-                                    Color.FromArgb(0, 84, 46, 18),
-                                    Color.FromArgb(20, 76, 38, 14),
-                                    Color.FromArgb(44, 58, 28, 11),
-                                    Color.FromArgb(70, 40, 20, 8)
-                                };
-                                scorchBlend.Positions = new float[] { 0f, 0.45f, 0.80f, 1f };
-                                using (LinearGradientBrush scorch = new LinearGradientBrush(scorchRect,
-                                    Color.Black, Color.Black, LinearGradientMode.Vertical))
-                                {
-                                    scorch.InterpolationColors = scorchBlend;
-                                    g.FillRectangle(scorch, scorchRect);
-                                }
-
-                                // Charred rim: a ragged crust that follows
-                                // the front. It is nearly black at the fire
-                                // and fades into brown further up, with a
-                                // few glowing cracks.
-                                PointF[] charTop = new PointF[front.Length];
-                                PointF[] charBottom = new PointF[front.Length];
-                                float deepest = 0;
-                                for (int i = 0; i < front.Length; i++)
-                                {
-                                    float x = front[i].X;
-                                    float depth = 5f
-                                        + 7f * (0.5f + 0.5f * (float)Math.Sin(x * 0.026 + phase1 * 1.7))
-                                        + 4f * (0.5f + 0.5f * (float)Math.Sin(x * 0.083 + phase2 + t * 1.1))
-                                        + 2.5f * (0.5f + 0.5f * (float)Math.Sin(x * 0.29 + t * 3.7))
-                                        + 1.5f * (0.5f + 0.5f * (float)Math.Sin(x * 0.71 - t * 5.9));
-                                    charTop[i] = new PointF(originX + x, originY + front[i].Y - depth);
-                                    charBottom[i] = new PointF(originX + x, originY + front[i].Y);
-                                    if (depth > deepest) deepest = depth;
-                                }
-                                float charTopY = originY + frontBase - deepest;
-                                using (GraphicsPath charPath = BandPath(charTop, charBottom))
-                                {
-                                    ColorBlend charBlend = new ColorBlend(4);
-                                    charBlend.Colors = new Color[]
+                                    // Scorch above the fire: the paper browns
+                                    // before it chars. It reaches down to the
+                                    // front so no clean strip is left between
+                                    // the tint and the crust.
+                                    RectangleF scorchRect = new RectangleF(originX,
+                                        originY + frontBase - 104, fw, 114);
+                                    ColorBlend scorchBlend = new ColorBlend(4);
+                                    scorchBlend.Colors = new Color[]
                                     {
-                                        Color.FromArgb(0, 40, 24, 13),
-                                        Color.FromArgb(100, 30, 16, 9),
-                                        Color.FromArgb(200, 12, 7, 4),
-                                        Color.FromArgb(240, 4, 3, 2)
+                                        Color.FromArgb(0, 84, 46, 18),
+                                        Color.FromArgb(20, 76, 38, 14),
+                                        Color.FromArgb(44, 58, 28, 11),
+                                        Color.FromArgb(70, 40, 20, 8)
                                     };
-                                    charBlend.Positions = new float[] { 0f, 0.45f, 0.82f, 1f };
-                                    using (LinearGradientBrush charBrush = new LinearGradientBrush(
-                                        new RectangleF(originX, charTopY, fw, deepest + 8),
+                                    scorchBlend.Positions = new float[] { 0f, 0.45f, 0.80f, 1f };
+                                    using (LinearGradientBrush scorch = new LinearGradientBrush(scorchRect,
                                         Color.Black, Color.Black, LinearGradientMode.Vertical))
                                     {
-                                        charBrush.InterpolationColors = charBlend;
-                                        g.FillPath(charBrush, charPath);
+                                        scorch.InterpolationColors = scorchBlend;
+                                        g.FillRectangle(scorch, scorchRect);
                                     }
-                                }
 
-                                // A sheet of heat and low flame right at
-                                // the edge: it unifies the separate tongues
-                                // into one wall of fire.
-                                PointF[] heatTop = new PointF[front.Length];
-                                PointF[] heatBottom = new PointF[front.Length];
-                                for (int i = 0; i < front.Length; i++)
-                                {
-                                    float d = 20f + 12f * (0.5f + 0.5f * (float)Math.Sin(
-                                        front[i].X * 0.041 + t * 5.3 + phase0));
-                                    heatTop[i] = new PointF(originX + front[i].X,
-                                        originY + front[i].Y - d);
-                                    heatBottom[i] = new PointF(originX + front[i].X,
-                                        originY + front[i].Y);
-                                }
-                                using (GraphicsPath heatPath = BandPath(heatTop, heatBottom))
-                                using (LinearGradientBrush heat = new LinearGradientBrush(
-                                    new RectangleF(originX, originY + frontBase - 36, fw, 44),
-                                    Color.FromArgb(0, 255, 150, 34),
-                                    Color.FromArgb(96, 255, 102, 14),
-                                    LinearGradientMode.Vertical))
-                                {
-                                    g.FillPath(heat, heatPath);
-                                }
-
-                                // Glowing cracks in the crust: short bright
-                                // slivers that wink in and out.
-                                int cracks = Math.Max(2, Math.Min(8, (int)(fw / 100)));
-                                for (int i = 0; i < cracks; i++)
-                                {
-                                    float x = (i + 0.5f) * fw / cracks + (float)Math.Sin(
-                                        i * 2.3 + phase0) * 9f;
-                                    float y = FrontAt(front, x);
-                                    float depth = 5f + 8f * (0.5f + 0.5f * (float)Math.Sin(
-                                        t * 3.7 + i * 1.9 + phase1));
-                                    int a = (int)(150 * (0.45f + 0.55f * (float)Math.Sin(
-                                        t * 5.1 + i * 2.7)));
-                                    if (a < 20) a = 20;
-                                    using (Pen crack = new Pen(Color.FromArgb(a, 255, 132, 34), 1.3f))
+                                    // Charred rim: a ragged crust that follows
+                                    // the front. It is nearly black at the fire
+                                    // and fades into brown further up, with a
+                                    // few glowing cracks.
+                                    PointF[] charTop = new PointF[front.Length];
+                                    PointF[] charBottom = new PointF[front.Length];
+                                    float deepest = 0;
+                                    for (int i = 0; i < front.Length; i++)
                                     {
-                                        g.DrawLine(crack, originX + x, originY + y,
-                                            originX + x + 1.5f, originY + y - depth);
+                                        float x = front[i].X;
+                                        float depth = 5f
+                                            + 7f * (0.5f + 0.5f * (float)Math.Sin(x * 0.026 + phase1 * 1.7))
+                                            + 4f * (0.5f + 0.5f * (float)Math.Sin(x * 0.083 + phase2 + t * 1.1))
+                                            + 2.5f * (0.5f + 0.5f * (float)Math.Sin(x * 0.29 + t * 3.7))
+                                            + 1.5f * (0.5f + 0.5f * (float)Math.Sin(x * 0.71 - t * 5.9));
+                                        charTop[i] = new PointF(originX + x, originY + front[i].Y - depth);
+                                        charBottom[i] = new PointF(originX + x, originY + front[i].Y);
+                                        if (depth > deepest) deepest = depth;
+                                    }
+                                    float charTopY = originY + frontBase - deepest;
+                                    using (GraphicsPath charPath = BandPath(charTop, charBottom))
+                                    {
+                                        ColorBlend charBlend = new ColorBlend(4);
+                                        charBlend.Colors = new Color[]
+                                        {
+                                            Color.FromArgb(0, 40, 24, 13),
+                                            Color.FromArgb(100, 30, 16, 9),
+                                            Color.FromArgb(200, 12, 7, 4),
+                                            Color.FromArgb(240, 4, 3, 2)
+                                        };
+                                        charBlend.Positions = new float[] { 0f, 0.45f, 0.82f, 1f };
+                                        using (LinearGradientBrush charBrush = new LinearGradientBrush(
+                                            new RectangleF(originX, charTopY, fw, deepest + 8),
+                                            Color.Black, Color.Black, LinearGradientMode.Vertical))
+                                        {
+                                            charBrush.InterpolationColors = charBlend;
+                                            g.FillPath(charBrush, charPath);
+                                        }
+                                    }
+
+                                    // A sheet of heat and low flame right at
+                                    // the edge: it unifies the separate tongues
+                                    // into one wall of fire.
+                                    PointF[] heatTop = new PointF[front.Length];
+                                    PointF[] heatBottom = new PointF[front.Length];
+                                    for (int i = 0; i < front.Length; i++)
+                                    {
+                                        float d = 20f + 12f * (0.5f + 0.5f * (float)Math.Sin(
+                                            front[i].X * 0.041 + t * 5.3 + phase0));
+                                        heatTop[i] = new PointF(originX + front[i].X,
+                                            originY + front[i].Y - d);
+                                        heatBottom[i] = new PointF(originX + front[i].X,
+                                            originY + front[i].Y);
+                                    }
+                                    using (GraphicsPath heatPath = BandPath(heatTop, heatBottom))
+                                    using (LinearGradientBrush heat = new LinearGradientBrush(
+                                        new RectangleF(originX, originY + frontBase - 36, fw, 44),
+                                        Color.FromArgb(0, 255, 150, 34),
+                                        Color.FromArgb(96, 255, 102, 14),
+                                        LinearGradientMode.Vertical))
+                                    {
+                                        g.FillPath(heat, heatPath);
+                                    }
+
+                                    // Glowing cracks in the crust: short bright
+                                    // slivers that wink in and out.
+                                    int cracks = Math.Max(2, Math.Min(8, (int)(fw / 100)));
+                                    for (int i = 0; i < cracks; i++)
+                                    {
+                                        float x = (i + 0.5f) * fw / cracks + (float)Math.Sin(
+                                            i * 2.3 + phase0) * 9f;
+                                        float y = FrontAt(front, x);
+                                        float depth = 5f + 8f * (0.5f + 0.5f * (float)Math.Sin(
+                                            t * 3.7 + i * 1.9 + phase1));
+                                        int a = (int)(150 * (0.45f + 0.55f * (float)Math.Sin(
+                                            t * 5.1 + i * 2.7)));
+                                        if (a < 20) a = 20;
+                                        using (Pen crack = new Pen(Color.FromArgb(a, 255, 132, 34), 1.3f))
+                                        {
+                                            g.DrawLine(crack, originX + x, originY + y,
+                                                originX + x + 1.5f, originY + y - depth);
+                                        }
                                     }
                                 }
 
@@ -466,10 +478,10 @@ namespace Okna
 
                         if (intensity > 0.01f)
                         {
-                            // Four passes keep the bright cores on top of the
-                            // warm haloes instead of being painted over by the
-                            // next flame's glow.
-                            for (int pass = 0; pass < 4; pass++)
+                            // Four passes on normal quality; low quality uses
+                            // just one warm-body pass without matrix shears.
+                            int passes = lowQuality ? 1 : 4;
+                            for (int pass = 0; pass < passes; pass++)
                             {
                                 for (int i = 0; i < flameCount; i++)
                                 {
@@ -491,7 +503,14 @@ namespace Okna
                                     Bitmap sprite;
                                     float sw;
                                     float sh;
-                                    if (pass == 0)
+                                    if (lowQuality)
+                                    {
+                                        // Single warm pass: main flame body only.
+                                        sprite = sprites.Warm[flameVariant[i]];
+                                        sh = hgt;
+                                        sw = hgt * flameWidth[i];
+                                    }
+                                    else if (pass == 0)
                                     {
                                         sprite = sprites.Back[flameVariant[i]];
                                         sh = hgt * 1.26f;
@@ -519,8 +538,9 @@ namespace Okna
 
                                     using (Matrix m = new Matrix())
                                     {
+                                        float shear = lowQuality ? 0f : flameLean[i] * (0.55f + 0.45f * flick);
                                         m.Translate(cx, by);
-                                        m.Shear(flameLean[i] * (0.55f + 0.45f * flick), 0);
+                                        m.Shear(shear, 0);
                                         g.Transform = m;
                                         g.DrawImage(sprite, -sw * 0.5f, -sh, sw, sh);
                                         g.ResetTransform();
@@ -529,8 +549,8 @@ namespace Okna
                                     // A small tongue in the gap between the
                                     // big ones keeps the base a continuous
                                     // flickering band instead of a row of
-                                    // separate candles.
-                                    if (pass == 1 || pass == 2)
+                                    // separate candles. Skipped on low quality.
+                                    if (!lowQuality && (pass == 1 || pass == 2))
                                     {
                                         float x2 = x + cellW * (0.34f + 0.34f * (float)Math.Sin(
                                             i * 2.1 + flamePhase[i]));
@@ -622,10 +642,10 @@ namespace Okna
                             Native.DispatchMessage(ref msg);
                         }
 
-                        // Cap the frame rate (~14 fps): on large canvases
-                        // UpdateLayeredWindow itself is expensive, so fewer frames
-                        // means less freeze.
-                        Thread.Sleep(70);
+                        // Cap the frame rate: large windows burn at ~10 fps,
+                        // normal windows at ~14 fps. UpdateLayeredWindow on a
+                        // big canvas is expensive, so fewer frames means less freeze.
+                        Thread.Sleep(lowQuality ? 100 : 70);
                     }
             }
             finally
