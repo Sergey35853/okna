@@ -376,7 +376,7 @@ namespace Okna
 
             Label rollTitle = MakeLabel("Сворачивать в трубочку", 20, 128, Theme.FontCardTitle, Theme.Text);
             closeCard.Controls.Add(rollTitle);
-            Label rollSub = MakeLabel("Окно скатывается в панель задач", 20, 148, Theme.FontSmall, Theme.Muted);
+            Label rollSub = MakeLabel("Окно скатывается в панель задач", 20, 146, Theme.FontSmall, Theme.Muted);
             closeCard.Controls.Add(rollSub);
 
             _rollSwitch = new JellySwitch();
@@ -394,7 +394,7 @@ namespace Okna
             {
                 JellyButton b = new JellyButton();
                 b.Text = directionNames[i];
-                b.Location = new Point(20 + i * 76, 148);
+                b.Location = new Point(20 + i * 76, 172);
                 b.Size = new Size(72, 24);
                 b.Font = Theme.FontSmall;
                 b.Tag = (RollDirection)i;
@@ -414,13 +414,13 @@ namespace Okna
 
             _hotkeyButton = new JellyButton();
             _hotkeyButton.Text = "Ctrl+Alt+J";
-            _hotkeyButton.Location = new Point(20, 52);
+            _hotkeyButton.Location = new Point(20, 60);
             _hotkeyButton.Size = new Size(180, 30);
             _hotkeyButton.Font = Theme.FontBody;
             _hotkeyButton.Click += delegate { _hotkeyButton.Focus(); };
             hotkeyCard.Controls.Add(_hotkeyButton);
 
-            _hotkeyStatus = MakeLabel("", 210, 58, Theme.FontSmall, Theme.Muted);
+            _hotkeyStatus = MakeLabel("", 210, 66, Theme.FontSmall, Theme.Muted);
             _hotkeyStatus.Size = new Size(210, 20);
             hotkeyCard.Controls.Add(_hotkeyStatus);
 
@@ -667,22 +667,26 @@ namespace Okna
 
             // Hint line above the bottom strip — kept short so it does not
             // collide with the Done button on the right.
-            _hintLabel = MakeLabel("", 20, 722, Theme.FontSmall, Theme.Faint);
+            _hintLabel = MakeLabel("", 20, 716, Theme.FontSmall, Theme.Faint);
             _hintLabel.AutoSize = false;
-            _hintLabel.Size = new Size(420, 16);
+            _hintLabel.Size = new Size(400, 16);
             Controls.Add(_hintLabel);
 
-            _versionLabel = MakeLabel("", 20, 752, Theme.FontTiny, Theme.Faint);
+            _versionLabel = MakeLabel("", 20, 744, Theme.FontTiny, Theme.Faint);
+            _versionLabel.AutoSize = false;
+            _versionLabel.Size = new Size(260, 16);
             UpdateVersionLabel();
             Controls.Add(_versionLabel);
 
-            Label copyrightLabel = MakeLabel("© Сергей", ClientSize.Width - 60, 752, Theme.FontTiny, Theme.Faint);
+            Label copyrightLabel = MakeLabel("© Сергей", ClientSize.Width - 50, 744, Theme.FontTiny, Theme.Faint);
+            copyrightLabel.AutoSize = false;
+            copyrightLabel.Size = new Size(50, 16);
             copyrightLabel.TextAlign = ContentAlignment.MiddleRight;
             Controls.Add(copyrightLabel);
 
             LinkLabel telegramLink = new LinkLabel();
             telegramLink.Text = "Обратная связь: @Link_Ser";
-            telegramLink.Location = new Point(20, 774);
+            telegramLink.Location = new Point(20, 770);
             telegramLink.Size = new Size(200, 18);
             telegramLink.Font = Theme.FontTiny;
             telegramLink.LinkColor = Theme.Accent;
@@ -697,7 +701,7 @@ namespace Okna
             JellyButton done = new JellyButton();
             done.Text = "Готово";
             done.Accent = true;
-            done.Location = new Point(ClientSize.Width - 112, 722);
+            done.Location = new Point(ClientSize.Width - 112, 716);
             done.Size = new Size(96, 36);
             done.Click += delegate { Hide(); };
             Controls.Add(done);
