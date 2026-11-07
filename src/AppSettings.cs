@@ -45,6 +45,8 @@ namespace Okna
         private volatile bool _pauseOnCall = true;
         private volatile bool _respectReduceMotion = true;
         private volatile bool _pauseOnFullscreen = true;
+        private volatile int _autoPauseResumeDelaySeconds = 3;
+        private volatile string[] _callApps = new string[0];
         private volatile int _hotkeyModifiers = (int)(Native.MOD_CONTROL | Native.MOD_ALT);
         private volatile int _hotkeyKey = Native.VK_J;
         private volatile string[] _exclude = new string[0];
@@ -238,6 +240,30 @@ namespace Okna
         {
             get { return _pauseOnFullscreen; }
             set { _pauseOnFullscreen = value; }
+        }
+
+        /// <summary>
+        /// Delay before resuming after an auto-pause condition clears (hysteresis),
+        /// in seconds. Prevents rapid on/off when switching windows.
+        /// </summary>
+        public int AutoPauseResumeDelaySeconds
+        {
+            get { return _autoPauseResumeDelaySeconds; }
+            set
+            {
+                if (value < 0) value = 0;
+                if (value > 30) value = 30;
+                _autoPauseResumeDelaySeconds = value;
+            }
+        }
+
+        /// <summary>
+        /// Extra/custom executable names treated as call/screen-sharing apps for
+        /// auto-pause. When empty, the built-in defaults are used.
+        /// </summary>
+        public string[] CallApps
+        {
+            get { return _callApps; }
         }
 
         public int HotkeyModifiers
@@ -803,6 +829,8 @@ namespace Okna
             _pauseOnCall = true;
             _respectReduceMotion = true;
             _pauseOnFullscreen = true;
+            _autoPauseResumeDelaySeconds = 3;
+            _callApps = new string[0];
             _hotkeyModifiers = (int)(Native.MOD_CONTROL | Native.MOD_ALT);
             _hotkeyKey = Native.VK_J;
             _exclude = new string[0];
@@ -879,6 +907,10 @@ namespace Okna
                         if (v != null) s.RespectReduceMotion = Convert.ToInt32(v) != 0;
                         v = key.GetValue("PauseOnFullscreen");
                         if (v != null) s.PauseOnFullscreen = Convert.ToInt32(v) != 0;
+                        v = key.GetValue("AutoPauseResumeDelay");
+                        if (v != null) s.AutoPauseResumeDelaySeconds = Convert.ToInt32(v);
+                        v = key.GetValue("CallApps");
+                        if (v is string[]) s.SetCallApps((string[])v);
                         v = key.GetValue("HotkeyModifiers");
                         if (v != null) s.HotkeyModifiers = Convert.ToInt32(v);
                         v = key.GetValue("HotkeyKey");
@@ -961,6 +993,43 @@ namespace Okna
             _closeOverrides = next.ToArray();
         }
 
+        public void SetCallApps(string[] values)
+        {
+            if (values == null) { _callApps = new string[0]; return; }
+            List<string> next = new List<string>();
+            for (int i = 0; i < values.Length; i++)
+            {
+                string name = CleanPattern(values[i]);
+                if (name == null || name.StartsWith("class:", StringComparison.OrdinalIgnoreCase)) continue;
+                if (IndexOfIgnoreCase(next.ToArray(), name) >= 0) continue;
+                next.Add(name);
+            }
+            _callApps = next.ToArray();
+        }
+
+        public void AddCallApp(string pattern)
+        {
+            string name = CleanPattern(pattern);
+            if (name == null || name.StartsWith("class:", StringComparison.OrdinalIgnoreCase)) return;
+            if (IndexOfIgnoreCase(_callApps, name) >= 0) return;
+            string[] list = _callApps;
+            string[] next = new string[list.Length + 1];
+            Array.Copy(list, next, list.Length);
+            next[list.Length] = name;
+            _callApps = next;
+        }
+
+        public void RemoveCallApp(string pattern)
+        {
+            string[] list = _callApps;
+            int index = IndexOfIgnoreCase(list, pattern);
+            if (index < 0) return;
+            string[] next = new string[list.Length - 1];
+            Array.Copy(list, 0, next, 0, index);
+            Array.Copy(list, index + 1, next, index, list.Length - index - 1);
+            _callApps = next;
+        }
+
         private static string FindPortableFile()
         {
             try
@@ -998,6 +1067,7 @@ namespace Okna
             PauseOnCall = GetBool(map, "PauseOnCall", true);
             RespectReduceMotion = GetBool(map, "RespectReduceMotion", true);
             PauseOnFullscreen = GetBool(map, "PauseOnFullscreen", true);
+            AutoPauseResumeDelaySeconds = GetInt(map, "AutoPauseResumeDelay", 3);
             HotkeyModifiers = GetInt(map, "HotkeyModifiers", (int)(Native.MOD_CONTROL | Native.MOD_ALT));
             HotkeyKey = GetInt(map, "HotkeyKey", Native.VK_J);
 
@@ -1009,6 +1079,10 @@ namespace Okna
             string overrides;
             if (map.TryGetValue("CloseOverrides", out overrides) && !string.IsNullOrEmpty(overrides))
                 SetCloseOverrides(overrides.Split('|'));
+
+            string callApps;
+            if (map.TryGetValue("CallApps", out callApps) && !string.IsNullOrEmpty(callApps))
+                SetCallApps(callApps.Split('|'));
 
             FirstRun = GetBool(map, "FirstRun", false);
             if (Burn) Shatter = false;
@@ -1146,10 +1220,12 @@ namespace Okna
                     key.SetValue("PauseOnCall", _pauseOnCall ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("RespectReduceMotion", _respectReduceMotion ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("PauseOnFullscreen", _pauseOnFullscreen ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue("AutoPauseResumeDelay", _autoPauseResumeDelaySeconds, RegistryValueKind.DWord);
                     key.SetValue("HotkeyModifiers", _hotkeyModifiers, RegistryValueKind.DWord);
                     key.SetValue("HotkeyKey", _hotkeyKey, RegistryValueKind.DWord);
                     key.SetValue("Exclude", _exclude, RegistryValueKind.MultiString);
                     key.SetValue("CloseOverrides", _closeOverrides, RegistryValueKind.MultiString);
+                    key.SetValue("CallApps", _callApps, RegistryValueKind.MultiString);
                     key.SetValue("FirstRun", 0, RegistryValueKind.DWord);
                     key.SetValue("AutoStartElevated", _autoStartElevated ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("Fade", _fade ? 1 : 0, RegistryValueKind.DWord);
@@ -1217,6 +1293,7 @@ namespace Okna
             PauseOnCall = GetBool(map, "PauseOnCall", PauseOnCall);
             RespectReduceMotion = GetBool(map, "RespectReduceMotion", RespectReduceMotion);
             PauseOnFullscreen = GetBool(map, "PauseOnFullscreen", PauseOnFullscreen);
+            AutoPauseResumeDelaySeconds = GetInt(map, "AutoPauseResumeDelay", AutoPauseResumeDelaySeconds);
             HotkeyModifiers = GetInt(map, "HotkeyModifiers", HotkeyModifiers);
             HotkeyKey = GetInt(map, "HotkeyKey", HotkeyKey);
 
@@ -1230,6 +1307,11 @@ namespace Okna
             string overrides;
             if (map.TryGetValue("CloseOverrides", out overrides) && !string.IsNullOrEmpty(overrides))
                 SetCloseOverrides(overrides.Split('|'));
+
+            _callApps = new string[0];
+            string callApps;
+            if (map.TryGetValue("CallApps", out callApps) && !string.IsNullOrEmpty(callApps))
+                SetCallApps(callApps.Split('|'));
 
             if (Burn) Shatter = false;
             return true;
@@ -1267,10 +1349,12 @@ namespace Okna
                 sb.AppendLine("PauseOnCall=" + (_pauseOnCall ? 1 : 0));
                 sb.AppendLine("RespectReduceMotion=" + (_respectReduceMotion ? 1 : 0));
                 sb.AppendLine("PauseOnFullscreen=" + (_pauseOnFullscreen ? 1 : 0));
+                sb.AppendLine("AutoPauseResumeDelay=" + _autoPauseResumeDelaySeconds);
                 sb.AppendLine("HotkeyModifiers=" + _hotkeyModifiers);
                 sb.AppendLine("HotkeyKey=" + _hotkeyKey);
                 sb.AppendLine("Exclude=" + string.Join("|", _exclude));
                 sb.AppendLine("CloseOverrides=" + string.Join("|", _closeOverrides));
+                sb.AppendLine("CallApps=" + string.Join("|", _callApps));
                 sb.AppendLine("FirstRun=0");
                 File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true));
             }

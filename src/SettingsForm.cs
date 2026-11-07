@@ -32,10 +32,15 @@ namespace Okna
         private JellySwitch _motionSwitch;
         private JellySwitch _fullscreenSwitch;
         private Label _pauseStatusLabel;
+        private JellyButton _timedPauseButton;
+        private JellySlider _resumeDelaySlider;
+        private Label _resumeDelayValueLabel;
         private JellySwitch _portableSwitch;
         private JellySwitch _autoUpdateSwitch;
         private Label _updateStatusLabel;
         private JellyButton _checkUpdateButton;
+        private JellyButton _skipResetUpdateButton;
+        private JellyButton _installUpdateButton;
         private JellyButton _languageAuto;
         private JellyButton _languageRu;
         private JellyButton _languageEn;
@@ -491,7 +496,23 @@ namespace Okna
             }
             if (_pauseStatusLabel != null && card.Controls.Contains(_pauseStatusLabel))
             {
-                _pauseStatusLabel.Width = Math.Max(80, card.ClientSize.Width - 36);
+                if (_timedPauseButton != null)
+                {
+                    _timedPauseButton.Left = Math.Max(20, card.ClientSize.Width - _timedPauseButton.Width - 20);
+                    _pauseStatusLabel.Width = Math.Max(80, _timedPauseButton.Left - 28);
+                }
+                else
+                {
+                    _pauseStatusLabel.Width = Math.Max(80, card.ClientSize.Width - 36);
+                }
+            }
+            if (_resumeDelaySlider != null && card.Controls.Contains(_resumeDelaySlider))
+            {
+                _resumeDelaySlider.Width = Math.Max(100, card.ClientSize.Width - 40);
+                if (_resumeDelayValueLabel != null)
+                    _resumeDelayValueLabel.Left = Math.Max(20, card.ClientSize.Width - _resumeDelayValueLabel.Width - 20);
+                foreach (Control c in card.Controls)
+                    if (c.Name == "resumeDelayHint" && c is Label) { c.AutoSize = false; c.Width = Math.Max(80, card.ClientSize.Width - 40); }
             }
             if (_updateStatusLabel != null && card.Controls.Contains(_updateStatusLabel))
             {
@@ -503,6 +524,13 @@ namespace Okna
                 else
                 {
                     _updateStatusLabel.Width = Math.Max(80, card.ClientSize.Width - 36);
+                }
+                // Keep skip/install buttons on their row if present
+                if (_skipResetUpdateButton != null) _skipResetUpdateButton.Top = Math.Max(_skipResetUpdateButton.Top, 96);
+                if (_installUpdateButton != null)
+                {
+                    _installUpdateButton.Top = _skipResetUpdateButton != null ? _skipResetUpdateButton.Top : Math.Max(_installUpdateButton.Top, 96);
+                    _installUpdateButton.Left = _skipResetUpdateButton != null ? _skipResetUpdateButton.Right + 8 : 20;
                 }
             }
         }
@@ -611,23 +639,45 @@ namespace Okna
         {
             int y = 0;
 
-            CardPanel statusCard = AddCard(page, "Текущее состояние", 0, y, _contentHost.Width - 8, 62); y += 70;
+            CardPanel statusCard = AddCard(page, "Текущее состояние", 0, y, _contentHost.Width - 8, 96); y += 104;
             _pauseStatusLabel = MakeLabel("", 18, 16, Theme.FontLabel, Theme.Text);
             _pauseStatusLabel.AutoSize = false;
-            _pauseStatusLabel.Size = new Size(statusCard.Width - 36, 20);
+            _pauseStatusLabel.Size = new Size(statusCard.Width - 180, 20);
             statusCard.Controls.Add(_pauseStatusLabel);
-            AddLabel(statusCard, "Пауза на 30 минут — в меню трея или горячая клавиша", 18, 38, Theme.FontTiny, Theme.Faint);
+            _timedPauseButton = MakeSmallButton(statusCard, "Пауза на 30 мин", statusCard.Width - 148, 12, 130);
+            _timedPauseButton.Name = "timedPauseButton";
+            _timedPauseButton.Click += delegate
+            {
+                if (_tray != null) _tray.ToggleTimedPause();
+                UpdatePauseStatusLabel();
+            };
+            Label ph1 = AddLabel(statusCard, "Ручная пауза на 30 минут (трей/горячая клавиша). Автопауза действует отдельно.", 18, 42, Theme.FontTiny, Theme.Faint);
+            ph1.AutoSize = false; ph1.Width = Math.Max(100, statusCard.Width - 36); ph1.Height = 14;
+            Label ph2 = AddLabel(statusCard, "Если нужно отключить эффекты для одной программы — «Исключения и правила».", 18, 58, Theme.FontTiny, Theme.Faint);
+            ph2.AutoSize = false; ph2.Width = Math.Max(100, statusCard.Width - 36); ph2.Height = 14;
 
-            CardPanel cfgCard = AddCard(page, "Настраиваемые условия", 0, y, _contentHost.Width - 8, 228); y += 236;
+            CardPanel cfgCard = AddCard(page, "Настраиваемые условия", 0, y, _contentHost.Width - 8, 282); y += 290;
             AddLabel(cfgCard, "Эффекты уступают место, когда вы заняты", 18, 14, Theme.FontSmall, Theme.Muted);
             int ry = 42;
             ry = AddSwitchRow(cfgCard, "Полноэкранные приложения", "Игры и видео на весь экран", ry, out _fullscreenSwitch);
             AddDivider(cfgCard, 18, ry, cfgCard.Width - 36); ry += 10;
-            ry = AddSwitchRow(cfgCard, "Звонки и показ экрана", "Teams, Zoom, Discord, Slack и др.", ry, out _callSwitch);
+            ry = AddSwitchRow(cfgCard, "Звонки и показ экрана", "Teams, Zoom, Discord, Slack и доп. список", ry, out _callSwitch);
             AddDivider(cfgCard, 18, ry, cfgCard.Width - 36); ry += 10;
             ry = AddSwitchRow(cfgCard, "Питание от батареи", "Не тратить заряд на эффекты", ry, out _batterySwitch);
             AddDivider(cfgCard, 18, ry, cfgCard.Width - 36); ry += 10;
-            AddSwitchRow(cfgCard, "Уважать уменьшение движения", "Если анимации выключены в Windows", ry, out _motionSwitch);
+            ry = AddSwitchRow(cfgCard, "Уважать уменьшение движения", "Если анимации выключены в Windows", ry, out _motionSwitch);
+            AddDivider(cfgCard, 18, ry, cfgCard.Width - 36); ry += 8;
+            AddLabel(cfgCard, "Задержка возврата после автопаузы", 18, ry, Theme.FontCardTitle, Theme.Text);
+            _resumeDelayValueLabel = MakeLabel("", cfgCard.Width - 70, ry, Theme.FontSmall, Theme.Accent);
+            _resumeDelayValueLabel.AutoSize = false; _resumeDelayValueLabel.Name = "resumeDelayValue"; _resumeDelayValueLabel.Size = new Size(52, 16); _resumeDelayValueLabel.TextAlign = ContentAlignment.MiddleRight;
+            cfgCard.Controls.Add(_resumeDelayValueLabel);
+            _resumeDelaySlider = new JellySlider();
+            _resumeDelaySlider.Minimum = 0; _resumeDelaySlider.Maximum = 30;
+            _resumeDelaySlider.Location = new Point(18, ry + 22); _resumeDelaySlider.Size = new Size(cfgCard.Width - 36, 22);
+            _resumeDelaySlider.Name = "resumeDelaySlider";
+            cfgCard.Controls.Add(_resumeDelaySlider);
+            Label rdHint = AddLabel(cfgCard, "0–30 сек: защищает от мигания при Alt-Tab/переключении", 18, ry + 46, Theme.FontTiny, Theme.Faint);
+            rdHint.AutoSize = false; rdHint.Name = "resumeDelayHint"; rdHint.Width = Math.Max(100, cfgCard.Width - 36); rdHint.Height = 14;
 
             CardPanel alwaysCard = AddCard(page, "Всегда активные условия", 0, y, _contentHost.Width - 8, 112);
             AddInfoRow(alwaysCard, "Удалённый рабочий стол", "Пауза при сеансе RDP", "Всегда", 14);
@@ -654,7 +704,12 @@ namespace Okna
         {
             if (_pauseStatusLabel == null || _pauseStatusLabel.IsDisposed) return;
             string reason = _engine == null ? null : _engine.PauseReason;
-            if (reason != null)
+            if (_tray != null && _tray.TimedPauseActive)
+            {
+                _pauseStatusLabel.Text = Loc.T("Ручная пауза: ещё ") + _tray.TimedPauseMinutesLeft + Loc.T(" мин");
+                _pauseStatusLabel.ForeColor = Theme.Accent;
+            }
+            else if (reason != null)
             {
                 _pauseStatusLabel.Text = Loc.T("Автопауза: ") + Loc.T(reason);
                 _pauseStatusLabel.ForeColor = Theme.Warm;
@@ -669,23 +724,35 @@ namespace Okna
                 _pauseStatusLabel.Text = Loc.T("Эффекты работают");
                 _pauseStatusLabel.ForeColor = Theme.Accent;
             }
+            if (_timedPauseButton != null)
+                _timedPauseButton.Text = (_tray != null && _tray.TimedPauseActive) ? Loc.T("Возобновить") : Loc.T("Пауза на 30 мин");
+        }
+
+        private void UpdateResumeDelayLabel()
+        {
+            if (_resumeDelayValueLabel == null) return;
+            int s = _settings == null ? 0 : _settings.AutoPauseResumeDelaySeconds;
+            _resumeDelayValueLabel.Text = s <= 0 ? Loc.T("выкл") : (s + Loc.T(" сек"));
         }
 
         private void UpdateUpdateStatusLabel()
         {
             if (_updateStatusLabel == null || _updateStatusLabel.IsDisposed) return;
             string status = Loc.T("Текущая версия: ") + Updater.CurrentLabel;
-            if (_tray != null && _tray.IsCheckingUpdates)
+            bool checking = _tray != null && _tray.IsCheckingUpdates;
+            bool ready = _tray != null && _tray.ReadyUpdate != null && _tray.ReadyUpdate.Version != null;
+            bool skipped = _settings != null && !string.IsNullOrEmpty(_settings.SkippedVersion);
+            if (checking)
             {
                 status += "  ·  " + Loc.T("проверка…");
                 _updateStatusLabel.ForeColor = Theme.Muted;
             }
-            else if (_tray != null && _tray.ReadyUpdate != null && _tray.ReadyUpdate.Version != null)
+            else if (ready)
             {
                 status += "  ·  " + Loc.T("доступна v") + Updater.Format(_tray.ReadyUpdate.Version);
                 _updateStatusLabel.ForeColor = Theme.Accent;
             }
-            else if (_settings != null && !string.IsNullOrEmpty(_settings.SkippedVersion))
+            else if (skipped)
             {
                 status += "  ·  " + Loc.T("пропущена v") + _settings.SkippedVersion;
                 _updateStatusLabel.ForeColor = Theme.Faint;
@@ -695,8 +762,9 @@ namespace Okna
                 _updateStatusLabel.ForeColor = Theme.Muted;
             }
             _updateStatusLabel.Text = status;
-            if (_checkUpdateButton != null)
-                _checkUpdateButton.Enabled = _tray == null || !_tray.IsCheckingUpdates;
+            if (_checkUpdateButton != null) _checkUpdateButton.Enabled = !checking;
+            if (_skipResetUpdateButton != null) _skipResetUpdateButton.Enabled = skipped && !checking;
+            if (_installUpdateButton != null) _installUpdateButton.Enabled = ready && !checking;
         }
 
         private void BuildExcludePage(Panel page)
@@ -780,7 +848,7 @@ namespace Okna
             _hotkeyStatus.Size = new Size(hkCard.Width - 226, 18);
             hkCard.Controls.Add(_hotkeyStatus);
 
-            CardPanel updCard = AddCard(page, "Обновления", 0, y, _contentHost.Width - 8, 132); y += 140;
+            CardPanel updCard = AddCard(page, "Обновления", 0, y, _contentHost.Width - 8, 168); y += 176;
             ry = AddSwitchRow(updCard, "Проверять обновления автоматически", "Фоновая проверка через GitHub Releases", 14, out _autoUpdateSwitch);
             AddDivider(updCard, 18, ry, updCard.Width - 36);
             _updateStatusLabel = MakeLabel("", 18, ry + 10, Theme.FontSmall, Theme.Muted);
@@ -793,6 +861,21 @@ namespace Okna
             _checkUpdateButton.Click += delegate
             {
                 if (_tray != null) _tray.CheckUpdates(true);
+                UpdateUpdateStatusLabel();
+            };
+            _skipResetUpdateButton = MakeSmallButton(updCard, "Сбросить пропуск", 18, ry + 38, 130);
+            _skipResetUpdateButton.Name = "skipResetUpdateButton";
+            _skipResetUpdateButton.Click += delegate
+            {
+                if (_tray != null) _tray.ClearSkippedUpdateUi();
+                else { _settings.SkippedVersion = ""; SaveSoon(); }
+                UpdateUpdateStatusLabel();
+            };
+            _installUpdateButton = MakeSmallButton(updCard, "Установить", 154, ry + 38, 110);
+            _installUpdateButton.Name = "installUpdateButton";
+            _installUpdateButton.Click += delegate
+            {
+                if (_tray != null && _tray.ReadyUpdate != null) _tray.ApplyUpdateNow();
                 UpdateUpdateStatusLabel();
             };
 
@@ -967,6 +1050,16 @@ namespace Okna
             _batterySwitch.CheckedChanged += delegate { _settings.PauseOnBattery = _batterySwitch.Checked; SaveSoon(); };
             _motionSwitch.CheckedChanged += delegate { _settings.RespectReduceMotion = _motionSwitch.Checked; SaveSoon(); };
             _fullscreenSwitch.CheckedChanged += delegate { _settings.PauseOnFullscreen = _fullscreenSwitch.Checked; SaveSoon(); };
+            if (_resumeDelaySlider != null)
+            {
+                _resumeDelaySlider.ValueChanged += delegate
+                {
+                    if (_syncing) return;
+                    _settings.AutoPauseResumeDelaySeconds = _resumeDelaySlider.Value;
+                    UpdateResumeDelayLabel();
+                    SaveSoon();
+                };
+            }
             if (_autoUpdateSwitch != null)
             {
                 _autoUpdateSwitch.CheckedChanged += delegate
@@ -1069,6 +1162,14 @@ namespace Okna
                 _batterySwitch.Checked = _settings.PauseOnBattery;
                 _motionSwitch.Checked = _settings.RespectReduceMotion;
                 _fullscreenSwitch.Checked = _settings.PauseOnFullscreen;
+                if (_resumeDelaySlider != null)
+                {
+                    int d = _settings.AutoPauseResumeDelaySeconds;
+                    if (d < _resumeDelaySlider.Minimum) d = _resumeDelaySlider.Minimum;
+                    if (d > _resumeDelaySlider.Maximum) d = _resumeDelaySlider.Maximum;
+                    _resumeDelaySlider.Value = d;
+                    UpdateResumeDelayLabel();
+                }
                 if (_autoUpdateSwitch != null) _autoUpdateSwitch.Checked = _settings.AutoUpdate;
                 _portableSwitch.Checked = _settings.IsPortable;
                 UpdatePortableLabel();

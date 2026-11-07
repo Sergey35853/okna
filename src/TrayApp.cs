@@ -562,14 +562,19 @@ namespace Okna
         /// A pause that ends by itself: the master switch stays on, but the
         /// effects sleep for half an hour. Pressing it again resumes early.
         /// </summary>
-        private void ToggleTimedPause()
+        internal void ToggleTimedPause()
+        {
+            ToggleTimedPause(true);
+        }
+
+        private void ToggleTimedPause(bool notify)
         {
             if (_pauseTimer != null)
             {
                 ClearTimedPause();
                 UpdateMenu();
                 SyncForm();
-                Balloon("Окна включены", "Пауза снята.");
+                if (notify) Balloon("Окна включены", "Пауза снята.");
                 return;
             }
 
@@ -583,12 +588,12 @@ namespace Okna
                 ClearTimedPause();
                 UpdateMenu();
                 SyncForm();
-                Balloon("Окна включены", "Пауза на 30 минут закончилась.");
+                if (notify) Balloon("Окна включены", "Пауза на 30 минут закончилась.");
             };
             _pauseTimer.Start();
             UpdateMenu();
             SyncForm();
-            Balloon("Окна на паузе", "Эффекты вернутся через 30 минут.");
+            if (notify) Balloon("Окна на паузе", "Эффекты вернутся через 30 минут.");
         }
 
         private void ClearTimedPause()
@@ -773,7 +778,7 @@ namespace Okna
             _applyTimer.Start();
         }
 
-        private void ApplyUpdateNow()
+        internal void ApplyUpdateNow()
         {
             _applyAttempts = 1000;
             TryApplyUpdate();
@@ -819,6 +824,28 @@ namespace Okna
         internal bool IsCheckingUpdates
         {
             get { return _checking; }
+        }
+
+        internal bool TimedPauseActive
+        {
+            get { return _pauseTimer != null; }
+        }
+
+        internal int TimedPauseMinutesLeft
+        {
+            get
+            {
+                if (_pauseTimer == null) return 0;
+                int m = (int)Math.Ceiling((_pauseUntil - DateTime.UtcNow).TotalMinutes);
+                return m < 1 ? 1 : m;
+            }
+        }
+
+        internal void ClearSkippedUpdateUi()
+        {
+            _settings.SkippedVersion = "";
+            Persist();
+            UpdateMenu();
         }
 
         internal string RunSmokeTest()

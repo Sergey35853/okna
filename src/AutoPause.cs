@@ -28,6 +28,7 @@ namespace Okna
         private readonly AppSettings _settings;
         private string _reason;
         private double _nextCheck;
+        private double _clearSince;
 
         public AutoPause(AppSettings settings)
         {
@@ -64,15 +65,34 @@ namespace Okna
             else if (_settings.RespectReduceMotion && !Native.ClientAreaAnimationEnabled())
                 reason = "Уменьшено движение";
 
-            if (reason == _reason) return;
-            _reason = reason;
-            if (reason == null)
-                Log.Debug("Auto pause off");
-            else
+            if (reason != null)
+            {
+                _clearSince = 0;
+                if (reason == _reason) return;
+                _reason = reason;
                 Log.Debug("Auto pause: " + reason);
+                return;
+            }
+
+            if (_reason == null) return;
+            int delay = _settings.AutoPauseResumeDelaySeconds;
+            if (delay <= 0)
+            {
+                _reason = null;
+                _clearSince = 0;
+                Log.Debug("Auto pause off");
+                return;
+            }
+            if (_clearSince <= 0) _clearSince = now;
+            if (now - _clearSince >= delay)
+            {
+                _reason = null;
+                _clearSince = 0;
+                Log.Debug("Auto pause off (delayed)");
+            }
         }
 
-        private static bool IsCallApp(IntPtr hwnd)
+        private bool IsCallApp(IntPtr hwnd)
         {
             if (hwnd == IntPtr.Zero) return false;
             string exe = Native.GetWindowProcessName(hwnd);
@@ -80,6 +100,13 @@ namespace Okna
             for (int i = 0; i < CallApps.Length; i++)
                 if (string.Equals(CallApps[i], exe, StringComparison.OrdinalIgnoreCase))
                     return true;
+            string[] custom = _settings.CallApps;
+            if (custom != null)
+            {
+                for (int i = 0; i < custom.Length; i++)
+                    if (string.Equals(custom[i], exe, StringComparison.OrdinalIgnoreCase))
+                        return true;
+            }
             return false;
         }
     }

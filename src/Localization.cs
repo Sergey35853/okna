@@ -342,7 +342,17 @@ namespace Okna
                 { "проверка…", "checking…" },
                 { "доступна v", "available: v" },
                 { "пропущена v", "skipped: v" },
-                { "Запуск, клавиша, обновления", "Startup, hotkey, updates" }
+                { "Запуск, клавиша, обновления", "Startup, hotkey, updates" },
+
+                { "Сбросить пропуск", "Reset skipped" },
+                { "Задержка возврата после автопаузы", "Resume delay after auto-pause" },
+                { "Ручная пауза: ещё ", "Manual pause: " },
+                { "Пауза на 30 мин", "Pause 30 min" },
+                { " сек", " sec" },
+                { "0–30 сек: защищает от мигания при Alt-Tab/переключении", "0–30 sec: prevents flicker on Alt-Tab/switching" },
+                { "Ручная пауза на 30 минут (трей/горячая клавиша). Автопауза действует отдельно.", "Manual 30-min pause (tray/hotkey). Auto-pause works separately." },
+                { "Если нужно отключить эффекты для одной программы — «Исключения и правила».", "To disable effects for one app, use Exclusions & rules." },
+                { "Teams, Zoom, Discord, Slack и доп. список", "Teams, Zoom, Discord, Slack and custom list" }
             };
 
         private static bool _english;
