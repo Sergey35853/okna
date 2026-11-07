@@ -196,7 +196,7 @@ namespace Okna
                 // keeps the front from reading as a row of candles.
                 // Large windows need far fewer flames: per-frame GDI+ cost on
                 // a big canvas is the main source of stutter, so cap hard.
-                int flameCount = Math.Max(8, Math.Min(35, fw / 32));
+                int flameCount = Math.Max(6, Math.Min(20, fw / 48));
                 float cellW = fw / (float)flameCount;
                 float[] flameX = new float[flameCount];
                 float[] flameHeight = new float[flameCount];
@@ -228,6 +228,9 @@ namespace Okna
                 }
 
                 double last = 0;
+                // Reuse the front array across frames to avoid allocating a new
+                // one every tick on large windows.
+                PointF[] frontCache = null;
                 // Reuse one Graphics object for every frame instead of creating
                 // and throwing away a new one each time: GDI+ allocation is a
                 // measurable part of the per-frame cost on large canvases.
@@ -253,9 +256,12 @@ namespace Okna
                     double q = u * u * (3 - 2 * u);
                     float frontBase = (float)(fh + 6 - q * (fh + 42));
                     float amp = 9f + 4f * (float)Math.Sin(t * 2.7);
-                    int cols = Math.Max(6, fw / 20);
-                    if (cols > 180) cols = 180;
-                    PointF[] front = new PointF[cols + 1];
+                    int cols = Math.Max(5, fw / 32);
+                    if (cols > 100) cols = 100;
+                    // Reuse the front array across frames to avoid allocating
+                    // a new one every tick on large windows.
+                    if (frontCache == null || frontCache.Length < cols + 1)
+                        frontCache = new PointF[cols + 1];
                     float stepX = fw / (float)cols;
                     for (int i = 0; i <= cols; i++)
                     {
@@ -265,8 +271,9 @@ namespace Okna
                             0.30 * Math.Sin(x * 0.043 - phase1 + t * 4.1) +
                             0.15 * Math.Sin(x * 0.007 + phase2 - t * 1.3) +
                             0.22 * Math.Sin(x * 0.095 - phase0 + t * 5.7));
-                        front[i] = new PointF(x, y);
+                        frontCache[i] = new PointF(x, y);
                     }
+                    var front = frontCache;
 
                     // Embers and smoke keep being born while the front is
                     // inside the picture, then die down with it.
@@ -289,7 +296,7 @@ namespace Okna
                             e.Life = 0.5 + rnd.NextDouble() * 0.85;
                             embers.Add(e);
                         }
-                        if (embers.Count > 90) embers.RemoveRange(0, embers.Count - 90);
+                        if (embers.Count > 50) embers.RemoveRange(0, embers.Count - 50);
 
                         puffDebt += dt * 26.0;
                         guard = 0;
@@ -308,7 +315,7 @@ namespace Okna
                             p.Life = 1.3 + rnd.NextDouble() * 1.1;
                             puffs.Add(p);
                         }
-                        if (puffs.Count > 45) puffs.RemoveRange(0, puffs.Count - 45);
+                        if (puffs.Count > 30) puffs.RemoveRange(0, puffs.Count - 30);
                     }
 
                     double fade = 1.0;
@@ -416,7 +423,7 @@ namespace Okna
 
                                 // Glowing cracks in the crust: short bright
                                 // slivers that wink in and out.
-                                int cracks = Math.Max(2, (int)(fw / 60));
+                                int cracks = Math.Max(2, Math.Min(8, (int)(fw / 100)));
                                 for (int i = 0; i < cracks; i++)
                                 {
                                     float x = (i + 0.5f) * fw / cracks + (float)Math.Sin(
@@ -615,11 +622,10 @@ namespace Okna
                             Native.DispatchMessage(ref msg);
                         }
 
-                        // Cap the frame rate (~20 fps): the old code ran as fast as
-                        // possible (sleep 1 ms), which burned CPU on large canvases
-                        // and caused visible stutters. On big canvases UpdateLayeredWindow
-                        // itself is expensive, so fewer frames means less freeze.
-                        Thread.Sleep(50);
+                        // Cap the frame rate (~14 fps): on large canvases
+                        // UpdateLayeredWindow itself is expensive, so fewer frames
+                        // means less freeze.
+                        Thread.Sleep(70);
                     }
             }
             finally
