@@ -44,6 +44,7 @@ namespace Okna
         private volatile bool _pauseOnBattery = false;
         private volatile bool _pauseOnCall = true;
         private volatile bool _respectReduceMotion = true;
+        private volatile bool _pauseOnFullscreen = true;
         private volatile int _hotkeyModifiers = (int)(Native.MOD_CONTROL | Native.MOD_ALT);
         private volatile int _hotkeyKey = Native.VK_J;
         private volatile string[] _exclude = new string[0];
@@ -230,6 +231,13 @@ namespace Okna
         {
             get { return _respectReduceMotion; }
             set { _respectReduceMotion = value; }
+        }
+
+        /// <summary>Pause when a fullscreen app or game is in front.</summary>
+        public bool PauseOnFullscreen
+        {
+            get { return _pauseOnFullscreen; }
+            set { _pauseOnFullscreen = value; }
         }
 
         public int HotkeyModifiers
@@ -794,6 +802,7 @@ namespace Okna
             _pauseOnBattery = false;
             _pauseOnCall = true;
             _respectReduceMotion = true;
+            _pauseOnFullscreen = true;
             _hotkeyModifiers = (int)(Native.MOD_CONTROL | Native.MOD_ALT);
             _hotkeyKey = Native.VK_J;
             _exclude = new string[0];
@@ -868,6 +877,8 @@ namespace Okna
                         if (v != null) s.PauseOnCall = Convert.ToInt32(v) != 0;
                         v = key.GetValue("RespectReduceMotion");
                         if (v != null) s.RespectReduceMotion = Convert.ToInt32(v) != 0;
+                        v = key.GetValue("PauseOnFullscreen");
+                        if (v != null) s.PauseOnFullscreen = Convert.ToInt32(v) != 0;
                         v = key.GetValue("HotkeyModifiers");
                         if (v != null) s.HotkeyModifiers = Convert.ToInt32(v);
                         v = key.GetValue("HotkeyKey");
@@ -986,6 +997,7 @@ namespace Okna
             PauseOnBattery = GetBool(map, "PauseOnBattery", false);
             PauseOnCall = GetBool(map, "PauseOnCall", true);
             RespectReduceMotion = GetBool(map, "RespectReduceMotion", true);
+            PauseOnFullscreen = GetBool(map, "PauseOnFullscreen", true);
             HotkeyModifiers = GetInt(map, "HotkeyModifiers", (int)(Native.MOD_CONTROL | Native.MOD_ALT));
             HotkeyKey = GetInt(map, "HotkeyKey", Native.VK_J);
 
@@ -1133,6 +1145,7 @@ namespace Okna
                     key.SetValue("PauseOnBattery", _pauseOnBattery ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("PauseOnCall", _pauseOnCall ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("RespectReduceMotion", _respectReduceMotion ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue("PauseOnFullscreen", _pauseOnFullscreen ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("HotkeyModifiers", _hotkeyModifiers, RegistryValueKind.DWord);
                     key.SetValue("HotkeyKey", _hotkeyKey, RegistryValueKind.DWord);
                     key.SetValue("Exclude", _exclude, RegistryValueKind.MultiString);
@@ -1203,6 +1216,7 @@ namespace Okna
             PauseOnBattery = GetBool(map, "PauseOnBattery", PauseOnBattery);
             PauseOnCall = GetBool(map, "PauseOnCall", PauseOnCall);
             RespectReduceMotion = GetBool(map, "RespectReduceMotion", RespectReduceMotion);
+            PauseOnFullscreen = GetBool(map, "PauseOnFullscreen", PauseOnFullscreen);
             HotkeyModifiers = GetInt(map, "HotkeyModifiers", HotkeyModifiers);
             HotkeyKey = GetInt(map, "HotkeyKey", HotkeyKey);
 
@@ -1252,6 +1266,7 @@ namespace Okna
                 sb.AppendLine("PauseOnBattery=" + (_pauseOnBattery ? 1 : 0));
                 sb.AppendLine("PauseOnCall=" + (_pauseOnCall ? 1 : 0));
                 sb.AppendLine("RespectReduceMotion=" + (_respectReduceMotion ? 1 : 0));
+                sb.AppendLine("PauseOnFullscreen=" + (_pauseOnFullscreen ? 1 : 0));
                 sb.AppendLine("HotkeyModifiers=" + _hotkeyModifiers);
                 sb.AppendLine("HotkeyKey=" + _hotkeyKey);
                 sb.AppendLine("Exclude=" + string.Join("|", _exclude));

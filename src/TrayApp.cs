@@ -356,7 +356,7 @@ namespace Okna
             }
         }
 
-        private void UpdateMenu()
+        internal void UpdateMenu()
         {
             _settings.StartWithWindows = AppSettings.IsAutoStartEnabled();
 
@@ -642,7 +642,7 @@ namespace Okna
             _updateTimer.Start();
         }
 
-        private void CheckUpdates(bool manual)
+        internal void CheckUpdates(bool manual)
         {
             if (_checking) return;
             _checking = true;
@@ -811,6 +811,16 @@ namespace Okna
         /// Clicks the safe menu items and checks that they leave the settings
         /// in a sane state. Used by --ui-smoke; nothing is written to disk.
         /// </summary>
+        internal UpdateInfo ReadyUpdate
+        {
+            get { return _ready; }
+        }
+
+        internal bool IsCheckingUpdates
+        {
+            get { return _checking; }
+        }
+
         internal string RunSmokeTest()
         {
             SmokeMode = true;

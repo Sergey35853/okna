@@ -117,6 +117,7 @@ namespace Okna
 
         private DateTime _releaseTime;
         private bool _resizeOnly;
+        private DateTime _lastMoveAt;
 
         // Edge-resize watcher: after the user lets go of a resized window, a
         // short size wave makes the new size land like jelly. The watcher only
@@ -464,11 +465,11 @@ namespace Okna
                     int sleep;
                     switch (_mode)
                     {
-                        case Mode.Dragging: sleep = 1; break;
-                        case Mode.Candidate: sleep = 2; break;
-                        case Mode.Settling: sleep = 3; break;
-                        case Mode.Shaking: sleep = 5; break;
-                        case Mode.Jelly: sleep = 2; break;
+                        case Mode.Dragging: sleep = _overlayActive ? 1 : 2; break;
+                        case Mode.Candidate: sleep = 3; break;
+                        case Mode.Settling: sleep = 4; break;
+                        case Mode.Shaking: sleep = 6; break;
+                        case Mode.Jelly: sleep = 3; break;
                         default: sleep = 8; break;
                     }
                     Thread.Sleep(sleep);

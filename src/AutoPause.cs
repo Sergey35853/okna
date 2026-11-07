@@ -53,7 +53,7 @@ namespace Okna
             string reason = null;
             if (Native.IsRemoteSession())
                 reason = "Удалённый рабочий стол";
-            else if (Native.IsFullscreenWindow(foreground))
+            else if (_settings.PauseOnFullscreen && Native.IsFullscreenWindow(foreground))
                 reason = "Полноэкранное приложение";
             else if (_settings.PauseOnCall && IsCallApp(foreground))
                 reason = "Звонок или показ экрана";

@@ -426,13 +426,22 @@ namespace Okna
                 nw == _lastRequestedW && nh == _lastRequestedH)
                 return;
 
+            // Throttle rigid moves to avoid SetWindowPos storms (a major source of
+            // stutter/freezes during jelly drag). Settling still animates smoothly.
+            DateTime utcNow = DateTime.UtcNow;
+            double minMs = settling ? 8.0 : 7.0;
+            if (_lastMoveAt != DateTime.MinValue && (utcNow - _lastMoveAt).TotalMilliseconds < minMs)
+                return;
+
+            _lastMoveAt = utcNow;
             _lastRequestedX = nx;
             _lastRequestedY = ny;
             _lastRequestedW = nw;
             _lastRequestedH = nh;
 
             uint flags = Native.SWP_NOZORDER | Native.SWP_NOACTIVATE |
-                         Native.SWP_NOOWNERZORDER | Native.SWP_ASYNCWINDOWPOS;
+                         Native.SWP_NOOWNERZORDER | Native.SWP_ASYNCWINDOWPOS |
+                         Native.SWP_NOCOPYBITS | Native.SWP_DEFERERASE;
             if (nw == _baseWidth && nh == _baseHeight)
                 flags |= Native.SWP_NOSIZE;
 

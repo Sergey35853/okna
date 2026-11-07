@@ -69,6 +69,7 @@ namespace Okna
             {
                 failed++;
                 report.AppendLine("[FAIL] the settings window crashed: " + ex.Message);
+                report.AppendLine(ex.ToString());
                 Log.Error("UI smoke settings: " + ex);
             }
 
