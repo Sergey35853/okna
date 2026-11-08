@@ -34,6 +34,7 @@ namespace Okna
         private JellySwitch _motionSwitch;
         private JellySwitch _fullscreenSwitch;
         private Label _pauseStatusLabel;
+        private Label _pauseProgramHint;
         private JellyButton _timedPauseButton;
         private JellySlider _resumeDelaySlider;
         private Label _resumeDelayValueLabel;
@@ -56,6 +57,7 @@ namespace Okna
         private JellyButton _hotkeyBendButton;
         private JellyButton _hotkeyRollButton;
         private JellyButton _hotkeySettingsButton;
+        private ToolTip _hintToolTip;
         private ListBox _excludeList;
         private TextBox _excludeMask;
         private ListBox _overrideList;
@@ -294,6 +296,7 @@ namespace Okna
 
             _hintLabel = MakeLabel("", 20, 0, Theme.FontSmall, Theme.Faint);
             _hintLabel.AutoSize = false;
+            _hintLabel.AutoEllipsis = true;
             _hintLabel.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
             Controls.Add(_hintLabel);
 
@@ -320,6 +323,8 @@ namespace Okna
             LayoutChrome();
 
             ToolTip tip = new ToolTip();
+            _hintToolTip = tip;
+            UpdatePauseProgramHintToolTip();
             tip.SetToolTip(_effectSwitch, "Включить или выключить эффект");
             tip.SetToolTip(_slider, "0–200: насколько сильно окно отстаёт и изгибается; 200 — максимально вязко");
             tip.SetToolTip(_wobbleSwitch, "Добавляет боковое покачивание в конце движения");
@@ -480,6 +485,10 @@ namespace Okna
                 {
                     c.Width = Math.Max(120, card.ClientSize.Width - pad - 140);
                 }
+                else if (c == _pauseProgramHint)
+                {
+                    c.Width = Math.Max(80, card.ClientSize.Width - c.Left - rightPad);
+                }
                 else if (c is Label && c.Name == "badge")
                 {
                     c.Left = Math.Max(pad, card.ClientSize.Width - ((Label)c).PreferredWidth - rightPad);
@@ -609,6 +618,20 @@ namespace Okna
             if (_hotkeyButton != null && card.Controls.Contains(_hotkeyButton))
             {
                 _hotkeyStatus.Width = Math.Max(80, card.ClientSize.Width - _hotkeyButton.Right - 28);
+            }
+            if (_hotkeyBendButton != null && card.Controls.Contains(_hotkeyBendButton) &&
+                card.ClientSize.Width < 500)
+            {
+                Control[] bendLabels = card.Controls.Find("hotkeyBendLabel", false);
+                Control[] rollLabels = card.Controls.Find("hotkeyRollLabel", false);
+                Control[] settingsLabels = card.Controls.Find("hotkeySettingsLabel", false);
+                if (bendLabels.Length > 0) bendLabels[0].SetBounds(18, 44, 72, 18);
+                if (rollLabels.Length > 0) rollLabels[0].SetBounds(18, 80, 120, 18);
+                if (settingsLabels.Length > 0) settingsLabels[0].SetBounds(18, 116, 128, 18);
+                int buttonWidth = Math.Max(120, card.ClientSize.Width - 170);
+                _hotkeyBendButton.SetBounds(150, 40, buttonWidth, 28);
+                _hotkeyRollButton.SetBounds(150, 76, buttonWidth, 28);
+                _hotkeySettingsButton.SetBounds(150, 112, buttonWidth, 28);
             }
             if (_pauseStatusLabel != null && card.Controls.Contains(_pauseStatusLabel))
             {
@@ -834,8 +857,12 @@ namespace Okna
             };
             Label ph1 = AddLabel(statusCard, "Ручная пауза на 30 минут (трей/горячая клавиша). Автопауза действует отдельно.", 18, 42, Theme.FontTiny, Theme.Faint);
             ph1.AutoSize = false; ph1.Width = Math.Max(100, statusCard.Width - 36); ph1.Height = 14;
-            Label ph2 = AddLabel(statusCard, "Если нужно отключить эффекты для одной программы — «Исключения и правила».", 18, 58, Theme.FontTiny, Theme.Faint);
-            ph2.AutoSize = false; ph2.Width = Math.Max(100, statusCard.Width - 36); ph2.Height = 14;
+            _pauseProgramHint = AddLabel(statusCard, "Если нужно отключить эффекты для одной программы — «Исключения и правила».", 18, 58, Theme.FontTiny, Theme.Faint);
+            _pauseProgramHint.Name = "pauseProgramHint";
+            _pauseProgramHint.AutoSize = false;
+            _pauseProgramHint.AutoEllipsis = true;
+            _pauseProgramHint.Width = Math.Max(100, statusCard.Width - 36);
+            _pauseProgramHint.Height = 14;
 
             CardPanel cfgCard = AddCard(page, "Настраиваемые условия", 0, y, _contentHost.Width - 8, 282); y += 290;
             AddLabel(cfgCard, "Эффекты уступают место, когда вы заняты", 18, 14, Theme.FontSmall, Theme.Muted);
@@ -1135,13 +1162,16 @@ namespace Okna
 
             CardPanel hkExtra = AddCard(page, "Дополнительные горячие клавиши", 0, y, _contentHost.Width - 8, 150); y += 158;
             AddLabel(hkExtra, "Необязательно: изгиб, скатывание, открыть настройки", 18, 14, Theme.FontSmall, Theme.Muted);
-            AddLabel(hkExtra, "Изгиб:", 18, 44, Theme.FontSmall, Theme.Text);
+            Label bendLabel = AddLabel(hkExtra, "Изгиб:", 18, 44, Theme.FontSmall, Theme.Text);
+            bendLabel.Name = "hotkeyBendLabel";
             _hotkeyBendButton = MakeSmallButton(hkExtra, "Нет", 90, 40, 140); _hotkeyBendButton.Click += delegate { _hotkeyBendButton.Focus(); };
             HookHotkeyCapture(_hotkeyBendButton, delegate(int m, int k) { _settings.HotkeyBendModifiers = m; _settings.HotkeyBendKey = k; ApplyHotkey(); });
-            AddLabel(hkExtra, "Скатывание:", 248, 44, Theme.FontSmall, Theme.Text);
+            Label rollLabel = AddLabel(hkExtra, "Скатывание:", 248, 44, Theme.FontSmall, Theme.Text);
+            rollLabel.Name = "hotkeyRollLabel";
             _hotkeyRollButton = MakeSmallButton(hkExtra, "Нет", 330, 40, 140); _hotkeyRollButton.Click += delegate { _hotkeyRollButton.Focus(); };
             HookHotkeyCapture(_hotkeyRollButton, delegate(int m, int k) { _settings.HotkeyRollModifiers = m; _settings.HotkeyRollKey = k; ApplyHotkey(); });
-            AddLabel(hkExtra, "Открыть настройки:", 18, 80, Theme.FontSmall, Theme.Text);
+            Label settingsLabel = AddLabel(hkExtra, "Открыть настройки:", 18, 80, Theme.FontSmall, Theme.Text);
+            settingsLabel.Name = "hotkeySettingsLabel";
             _hotkeySettingsButton = MakeSmallButton(hkExtra, "Нет", 150, 76, 160); _hotkeySettingsButton.Click += delegate { _hotkeySettingsButton.Focus(); };
             HookHotkeyCapture(_hotkeySettingsButton, delegate(int m, int k) { _settings.HotkeySettingsModifiers = m; _settings.HotkeySettingsKey = k; ApplyHotkey(); });
 
@@ -1528,6 +1558,7 @@ namespace Okna
                 UpdatePresetStyles();
                 UpdateLanguageStyles();
                 UpdateHint();
+                UpdatePauseProgramHintToolTip();
                 _statusPill.SetStatus(_engine.PauseReason ?? _engine.Status);
                 UpdatePauseStatusLabel();
             }
@@ -1537,8 +1568,10 @@ namespace Okna
         private void UpdateHint()
         {
             if (_hintLabel == null) return;
-            _hintLabel.Text = Loc.T("Потяните это окно за заголовок — оно желейное  ·  Shift — обычное перетаскивание  ·  ") +
+            string hint = Loc.T("Потяните это окно за заголовок — оно желейное  ·  Shift — обычное перетаскивание  ·  ") +
                 _settings.HotkeyLabel + Loc.T(" — пауза");
+            _hintLabel.Text = hint;
+            if (_hintToolTip != null) _hintToolTip.SetToolTip(_hintLabel, hint);
         }
 
         private void UpdateVersionLabel()
@@ -1820,6 +1853,12 @@ namespace Okna
             Persist();
         }
 
+        private void UpdatePauseProgramHintToolTip()
+        {
+            if (_hintToolTip == null || _pauseProgramHint == null) return;
+            _hintToolTip.SetToolTip(_pauseProgramHint, Loc.T(_pauseProgramHint.Text));
+        }
+
         private void UpdateLanguageStyles()
         {
             JellyButton[] buttons = new JellyButton[] { _languageAuto, _languageRu, _languageEn };
@@ -2053,6 +2092,39 @@ namespace Okna
 
                 SelectPage(7); Application.DoEvents();
                 check("system page is last with updates", _autoUpdateSwitch != null && _checkUpdateButton != null && _skipResetUpdateButton != null);
+
+                Size originalSize = Size;
+                Size = MinimumSize;
+                Application.DoEvents();
+                SelectPage(4); Application.DoEvents();
+                int pauseContentBottom = 0;
+                foreach (Control c in _pages[4].Controls)
+                    if (c.Bottom > pauseContentBottom) pauseContentBottom = c.Bottom;
+                bool delayChoicesFit = true;
+                for (int i = 0; i < _resumeDelayChoices.Length; i++)
+                    if (_resumeDelayChoices[i].Right > _resumeDelayChoices[i].Parent.ClientSize.Width) delayChoicesFit = false;
+                check("pause page scrolls above the fixed footer at minimum size",
+                    _pages[4].AutoScroll && pauseContentBottom > _pages[4].ClientSize.Height &&
+                    _contentHost.Bottom <= _hintLabel.Top);
+                check("pause delay buttons fit at minimum size", delayChoicesFit);
+                check("pause program hint indicates truncation",
+                    _pauseProgramHint != null && _pauseProgramHint.AutoEllipsis);
+                check("pause program hint fits its card",
+                    _pauseProgramHint != null && _pauseProgramHint.Right <= _pauseProgramHint.Parent.ClientSize.Width);
+                check("pause program hint exposes its full text",
+                    _pauseProgramHint != null && _hintToolTip.GetToolTip(_pauseProgramHint) == Loc.T(_pauseProgramHint.Text));
+
+                SelectPage(7); Application.DoEvents();
+                check("extra hotkey buttons fit at minimum size",
+                    _hotkeyBendButton.Right <= _hotkeyBendButton.Parent.ClientSize.Width &&
+                    _hotkeyRollButton.Right <= _hotkeyRollButton.Parent.ClientSize.Width &&
+                    _hotkeySettingsButton.Right <= _hotkeySettingsButton.Parent.ClientSize.Width);
+                Control[] doneButtons = Controls.Find("doneButton", true);
+                check("footer hint truncation is indicated without overlapping Done",
+                    _hintLabel.AutoEllipsis && doneButtons.Length > 0 && _hintLabel.Right <= doneButtons[0].Left);
+                Size = originalSize;
+                Application.DoEvents();
+
                 SelectPage(0);
 
                 string report = Diagnostics.BuildReport(_settings, _engine, "smoke");
