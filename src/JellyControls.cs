@@ -84,8 +84,8 @@ namespace Okna
             else
             {
                 if (!Enabled) fill = Theme.Card;
-                else if (_pressed) fill = Color.FromArgb(235, 235, 235);
-                else if (_hover) fill = Color.FromArgb(246, 246, 246);
+                else if (_pressed) fill = Theme.CardAlt;
+                else if (_hover) fill = Theme.Blend(Theme.Card, Theme.Border, 0.35f);
                 else fill = Theme.Card;
                 textColor = Enabled ? Theme.Text : Theme.Faint;
             }
@@ -378,7 +378,7 @@ namespace Okna
             }
 
             float r = (_hover || _dragging) ? 8f : 7f;
-            Color thumbFill = Theme.DarkMode ? Color.FromArgb(245, 245, 245) : Color.White;
+            Color thumbFill = Theme.DarkMode ? Color.FromArgb(250, 250, 250) : Color.White;
             if (!Enabled) thumbFill = Theme.CardAlt;
             using (SolidBrush knob = new SolidBrush(thumbFill))
                 g.FillEllipse(knob, knobX - r, cy - r, r * 2, r * 2);
