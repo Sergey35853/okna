@@ -141,7 +141,9 @@ namespace Okna
                 WindowBoundsLockManager boundsLocks = new WindowBoundsLockManager();
                 try
                 {
+                    tray.BoundsLocks = boundsLocks;
                     boundsLocks.Start();
+                    tray.UpdateMenu();
                     Application.Run(tray);
                 }
                 finally

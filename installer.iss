@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "1.8.23"
+  #define MyAppVersion "1.8.24"
 #endif
 
 #define MyAppName "Окна"

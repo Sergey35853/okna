@@ -14,9 +14,12 @@ namespace Okna
         public const int WM_APP_ALREADY_RUNNING = WM_APP + 2;
         public const int EVENT_OBJECT_INVOKED = 0x8013;
         public const int EVENT_OBJECT_LOCATIONCHANGE = 0x800B;
+        public const int EVENT_SYSTEM_FOREGROUND = 0x0003;
         public const int OBJID_MENU = -3;
+        public const int OBJID_CLIENT = -4;
         public const int OBJID_SYSMENU = -1;
         public const uint MF_BYCOMMAND = 0x0000;
+        public const uint MF_BYPOSITION = 0x0400;
         public const uint MF_CHECKED = 0x0008;
         public const uint MF_STRING = 0x0000;
 

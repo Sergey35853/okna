@@ -42,6 +42,8 @@ namespace Okna
         private ToolStripMenuItem _autoStartElevatedItem;
         private ToolStripMenuItem _darkThemeItem;
         private ToolStripMenuItem _hotkeyChangeItem;
+        private ToolStripMenuItem _lockPositionItem;
+        private ToolStripMenuItem _lockSizeItem;
         private Timer _updateTimer;
         private Timer _firstCheck;
         private Timer _applyTimer;
@@ -56,6 +58,7 @@ namespace Okna
         internal bool SmokeMode;
 
         public DispatcherForm Dispatcher { get; set; }
+        internal WindowBoundsLockManager BoundsLocks { get; set; }
 
         public string HotkeyStatus
         {
@@ -263,6 +266,12 @@ namespace Okna
             _activeWindowItem = NewItem("Активное окно…");
             _activeWindowItem.Click += delegate { ShowActiveWindow(); };
             _menu.Items.Add(_activeWindowItem);
+            _lockPositionItem = NewItem("Зафиксировать положение активного окна");
+            _lockPositionItem.Click += delegate { ToggleActiveWindowLock(true); };
+            _menu.Items.Add(_lockPositionItem);
+            _lockSizeItem = NewItem("Зафиксировать размер активного окна");
+            _lockSizeItem.Click += delegate { ToggleActiveWindowLock(false); };
+            _menu.Items.Add(_lockSizeItem);
 
             _menu.Items.Add(new ToolStripSeparator());
 
@@ -463,6 +472,20 @@ namespace Okna
                 _closeNoneItem.Checked = !_settings.Shatter && !_settings.Burn;
                 _closeShatterItem.Checked = _settings.Shatter;
                 _closeBurnItem.Checked = _settings.Burn;
+            }
+            if (_lockPositionItem != null && _lockSizeItem != null)
+            {
+                bool positionLocked = false;
+                bool sizeLocked = false;
+                IntPtr active = BoundsLocks == null ? IntPtr.Zero : BoundsLocks.LastActiveWindow;
+                bool hasActive = BoundsLocks != null &&
+                    BoundsLocks.TryGetLockState(active, out positionLocked, out sizeLocked);
+                _lockPositionItem.Enabled = hasActive;
+                _lockSizeItem.Enabled = hasActive;
+                _lockPositionItem.Checked = hasActive && positionLocked;
+                _lockSizeItem.Checked = hasActive && sizeLocked;
+                SetText(_lockPositionItem, "Зафиксировать положение активного окна");
+                SetText(_lockSizeItem, "Зафиксировать размер активного окна");
             }
 
             _notify.Text = status.Length <= 63 ? status : status.Substring(0, 63);
@@ -991,6 +1014,17 @@ namespace Okna
                 Diagnostics.BuildActiveWindowReport(_settings, _engine, _hotkeyStatus));
         }
 
+        private void ToggleActiveWindowLock(bool position)
+        {
+            bool toggled = BoundsLocks != null &&
+                (position
+                    ? BoundsLocks.ToggleLastActivePosition()
+                    : BoundsLocks.ToggleLastActiveSize());
+            if (!toggled)
+                Balloon("Окно не найдено", "Выберите окно другой программы.", true);
+            UpdateMenu();
+        }
+
         internal void ShowProfileForActiveWindow()
         {
             IntPtr hwnd = Native.GetForegroundWindow();
@@ -1092,6 +1126,10 @@ namespace Okna
                     _pauseItem != null && _pauseItem.DropDownItems.Count == 6);
                 check("active-window diagnostics are available from the tray",
                     _activeWindowItem != null);
+                check("active-window position lock is available from the tray",
+                    _lockPositionItem != null);
+                check("active-window size lock is available from the tray",
+                    _lockSizeItem != null);
                 PauseFor(TimeSpan.FromMinutes(15), false);
                 check("manual pause starts for the selected duration",
                     _engine.ManuallyPaused && TimedPauseMinutesLeft == 15);
@@ -1113,6 +1151,7 @@ namespace Okna
                 {
                     check("the update dialog builds", dialog.Controls.Count >= 6);
                 }
+
             }
             catch (Exception ex)
             {
@@ -1129,6 +1168,19 @@ namespace Okna
                 ? "All " + lines.Count + " tray checks passed."
                 : failed + " of " + lines.Count + " tray checks failed.");
             return string.Join(Environment.NewLine, lines.ToArray());
+        }
+
+        internal void PerformBoundsLockItemForSmoke(bool position)
+        {
+            ToolStripMenuItem item = position ? _lockPositionItem : _lockSizeItem;
+            if (item == null) throw new InvalidOperationException("Bounds-lock tray item is missing.");
+            item.PerformClick();
+        }
+
+        internal bool IsBoundsLockItemCheckedForSmoke(bool position)
+        {
+            ToolStripMenuItem item = position ? _lockPositionItem : _lockSizeItem;
+            return item != null && item.Checked;
         }
 
         internal void DisposeForSmoke()

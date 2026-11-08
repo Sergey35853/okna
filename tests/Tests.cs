@@ -571,6 +571,8 @@ namespace Okna.Tests
 
         private static void WindowBoundsLocks()
         {
+            const uint positionCommand = 0xE100;
+            const uint sizeCommand = 0xE101;
             Native.RECT current = Rect(120, 180, 620, 580);
             Native.RECT position = Rect(20, 40, 420, 340);
             Native.RECT size = Rect(0, 0, 800, 700);
@@ -602,6 +604,23 @@ namespace Okna.Tests
                     result.Left == current.Left && result.Top == current.Top &&
                     result.Width == current.Width && result.Height == current.Height,
                 "unlocked bounds should remain unchanged");
+
+            uint resolvedCommand;
+            Check(WindowBoundsLockManager.TryResolveMenuCommand(Native.OBJID_MENU,
+                    (int)positionCommand, positionCommand, sizeCommand, IntPtr.Zero,
+                    out resolvedCommand) && resolvedCommand == positionCommand,
+                "system-menu invocation should resolve its command ID");
+            Check(WindowBoundsLockManager.TryResolveMenuCommand(Native.OBJID_SYSMENU,
+                    (int)sizeCommand, positionCommand, sizeCommand, IntPtr.Zero,
+                    out resolvedCommand) && resolvedCommand == sizeCommand,
+                "system-menu invocation should accept the system-menu object ID");
+            Check(!WindowBoundsLockManager.TryResolveMenuCommand(Native.OBJID_CLIENT,
+                    (int)positionCommand, positionCommand, sizeCommand, IntPtr.Zero,
+                    out resolvedCommand),
+                "a non-menu invocation must not toggle a bounds lock");
+            Check(!WindowBoundsLockManager.TryResolveMenuCommand(Native.OBJID_CLIENT,
+                    7, positionCommand, sizeCommand, IntPtr.Zero, out resolvedCommand),
+                "a non-menu child index must not map to a system-menu command");
         }
 
         private static void ResizeHitCodes()
@@ -967,6 +986,12 @@ namespace Okna.Tests
                 "combo dropdowns should not trigger an open effect");
             Check(!JellyEngine.IsTransientOpenWindowClass("Notepad"),
                 "ordinary application windows should not be treated as transient");
+            Check(!WindowBoundsLockManager.IsTrackableWindowClass("#32768"),
+                "popup menus must not replace the tray's last active window");
+            Check(!WindowBoundsLockManager.IsTrackableWindowClass("Shell_TrayWnd"),
+                "the taskbar must not be a bounds-lock target");
+            Check(WindowBoundsLockManager.IsTrackableWindowClass("Notepad"),
+                "ordinary foreground windows must be trackable for tray locks");
         }
 
         private static void TomorrowPauseSchedule()

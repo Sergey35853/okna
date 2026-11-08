@@ -23,6 +23,8 @@ namespace Okna
         private readonly Timer _timer;
         private IntPtr _invokeHook;
         private IntPtr _locationHook;
+        private IntPtr _foregroundHook;
+        private IntPtr _activeWindow;
         private DateTime _nextScan;
         private bool _disposed;
 
@@ -53,7 +55,7 @@ namespace Okna
         public void Start()
         {
             if (_disposed) throw new ObjectDisposedException("WindowBoundsLockManager");
-            if (_invokeHook != IntPtr.Zero) return;
+            if (_timer.Enabled) return;
 
             _invokeHook = Native.SetWinEventHook(
                 Native.EVENT_OBJECT_INVOKED, Native.EVENT_OBJECT_INVOKED,
@@ -62,7 +64,6 @@ namespace Okna
             {
                 Log.Error("Window bounds lock menu unavailable: SetWinEventHook failed with error " +
                     Marshal.GetLastWin32Error());
-                return;
             }
 
             _locationHook = Native.SetWinEventHook(
@@ -72,7 +73,15 @@ namespace Okna
                 Log.Debug("Window bounds lock is using timer-only enforcement; location hook failed with error " +
                     Marshal.GetLastWin32Error());
 
+            _foregroundHook = Native.SetWinEventHook(
+                Native.EVENT_SYSTEM_FOREGROUND, Native.EVENT_SYSTEM_FOREGROUND,
+                IntPtr.Zero, _eventCallback, 0, 0, Native.WINEVENT_OUTOFCONTEXT);
+            if (_foregroundHook == IntPtr.Zero)
+                Log.Debug("Window bounds lock is using timer-only active-window tracking; foreground hook failed with error " +
+                    Marshal.GetLastWin32Error());
+
             ScanWindows();
+            RememberForegroundWindow(Native.GetForegroundWindow());
             _nextScan = DateTime.UtcNow.AddMilliseconds(ScanIntervalMs);
             _timer.Start();
         }
@@ -85,6 +94,7 @@ namespace Okna
                 ScanWindows();
                 _nextScan = now.AddMilliseconds(ScanIntervalMs);
             }
+            RememberForegroundWindow(Native.GetForegroundWindow());
 
             foreach (WindowState state in _windows.Values)
                 EnforceBounds(state);
@@ -94,28 +104,7 @@ namespace Okna
         {
             Native.EnumWindowsProc callback = delegate(IntPtr hwnd, IntPtr unused)
             {
-                uint processId;
-                uint threadId = Native.GetWindowThreadProcessId(hwnd, out processId);
-                if (processId == 0 || processId == Native.GetCurrentProcessId())
-                    return true;
-
-                string className = Native.GetWindowClass(hwnd);
-                if (className == "Progman" || className == "WorkerW" ||
-                    className == "Shell_TrayWnd" || className == "Shell_SecondaryTrayWnd")
-                    return true;
-
-                WindowState state;
-                if (!_windows.TryGetValue(hwnd, out state) ||
-                    state.ProcessId != processId || state.ThreadId != threadId)
-                {
-                    state = new WindowState();
-                    state.Handle = hwnd;
-                    state.ProcessId = processId;
-                    state.ThreadId = threadId;
-                    _windows[hwnd] = state;
-                }
-
-                EnsureSystemMenu(state);
+                TrackWindow(hwnd);
                 return true;
             };
 
@@ -166,9 +155,9 @@ namespace Okna
 
             string positionLabel = Loc.T("Зафиксировать положение");
             string sizeLabel = Loc.T("Зафиксировать размер");
-            if (!EnsureMenuItem(menu, state.PositionCommand, positionLabel,
+            if (!EnsureMenuItem(menu, ref state.PositionCommand, positionLabel,
                     state.PositionLabel, "Зафиксировать положение") ||
-                !EnsureMenuItem(menu, state.SizeCommand, sizeLabel,
+                !EnsureMenuItem(menu, ref state.SizeCommand, sizeLabel,
                     state.SizeLabel, "Зафиксировать размер"))
             {
                 // A window can rebuild its system menu. Do not overwrite an
@@ -179,9 +168,9 @@ namespace Okna
                 state.PositionLabel = null;
                 state.SizeLabel = null;
                 if (!AllocateCommands(state, menu)) return;
-                if (!EnsureMenuItem(menu, state.PositionCommand, positionLabel,
+                if (!EnsureMenuItem(menu, ref state.PositionCommand, positionLabel,
                         null, "Зафиксировать положение") ||
-                    !EnsureMenuItem(menu, state.SizeCommand, sizeLabel,
+                    !EnsureMenuItem(menu, ref state.SizeCommand, sizeLabel,
                         null, "Зафиксировать размер"))
                     return;
             }
@@ -191,12 +180,18 @@ namespace Okna
             UpdateMenuChecks(state, menu);
         }
 
-        private static bool EnsureMenuItem(IntPtr menu, uint command, string label,
+        private static bool EnsureMenuItem(IntPtr menu, ref uint command, string label,
             string previousLabel, string russianLabel)
         {
             uint itemState = Native.GetMenuState(menu, command, Native.MF_BYCOMMAND);
             if (itemState == MenuNotFound)
             {
+                uint existingCommand = FindExistingCommand(menu, previousLabel, russianLabel);
+                if (existingCommand != 0)
+                {
+                    command = existingCommand;
+                    return true;
+                }
                 if (Native.AppendMenu(menu, Native.MF_STRING, new UIntPtr(command), label))
                     return true;
                 Log.Debug("Could not add a window bounds lock menu item; error=" +
@@ -219,18 +214,68 @@ namespace Okna
             return true;
         }
 
+        private static uint FindExistingCommand(IntPtr menu, string previousLabel,
+            string russianLabel)
+        {
+            int count = Native.GetMenuItemCount(menu);
+            for (int i = 0; i < count; i++)
+            {
+                StringBuilder text = new StringBuilder(256);
+                int length = Native.GetMenuString(menu, (uint)i, text, text.Capacity,
+                    Native.MF_BYPOSITION);
+                if (length <= 0 ||
+                    !IsOwnedLabel(text.ToString(), previousLabel, russianLabel))
+                    continue;
+
+                uint command = Native.GetMenuItemID(menu, i);
+                if (command != MenuNotFound) return command;
+            }
+            return 0;
+        }
+
         private static bool AllocateCommands(WindowState state, IntPtr menu)
         {
+            uint existingPosition = 0;
+            uint existingSize = 0;
+            int itemCount = Native.GetMenuItemCount(menu);
+            for (int i = 0; i < itemCount; i++)
+            {
+                StringBuilder text = new StringBuilder(256);
+                int length = Native.GetMenuString(menu, (uint)i, text, text.Capacity,
+                    Native.MF_BYPOSITION);
+                if (length <= 0) continue;
+
+                uint command = Native.GetMenuItemID(menu, i);
+                if (command == MenuNotFound) continue;
+                string label = text.ToString();
+                if (existingPosition == 0 &&
+                    IsOwnedLabel(label, null, "Зафиксировать положение"))
+                    existingPosition = command;
+                else if (existingSize == 0 &&
+                    IsOwnedLabel(label, null, "Зафиксировать размер"))
+                    existingSize = command;
+            }
+
+            state.PositionCommand = existingPosition;
+            state.SizeCommand = existingSize;
+            if (state.PositionCommand != 0 && state.SizeCommand != 0)
+                return true;
+
             for (uint positionCommand = PositionIdStart;
                  positionCommand <= PositionIdEnd; positionCommand += 2)
             {
                 uint sizeCommand = positionCommand + 1;
-                if (Native.GetMenuState(menu, positionCommand, Native.MF_BYCOMMAND) == MenuNotFound &&
-                    Native.GetMenuState(menu, sizeCommand, Native.MF_BYCOMMAND) == MenuNotFound)
+                if (state.PositionCommand == 0 &&
+                    Native.GetMenuState(menu, positionCommand, Native.MF_BYCOMMAND) == MenuNotFound)
                 {
                     state.PositionCommand = positionCommand;
+                    if (state.SizeCommand != 0) return true;
+                }
+                if (state.SizeCommand == 0 &&
+                    Native.GetMenuState(menu, sizeCommand, Native.MF_BYCOMMAND) == MenuNotFound)
+                {
                     state.SizeCommand = sizeCommand;
-                    return true;
+                    if (state.PositionCommand != 0) return true;
                 }
             }
 
@@ -253,6 +298,12 @@ namespace Okna
 
             try
             {
+                if (eventType == Native.EVENT_SYSTEM_FOREGROUND)
+                {
+                    RememberForegroundWindow(hwnd);
+                    return;
+                }
+
                 WindowState state;
                 if (!_windows.TryGetValue(hwnd, out state)) return;
                 if (!IsSameWindow(state))
@@ -266,26 +317,29 @@ namespace Okna
                     if (objectId == Native.OBJID_WINDOW) EnforceBounds(state);
                     return;
                 }
-                if (eventType != Native.EVENT_OBJECT_INVOKED ||
-                    (objectId != Native.OBJID_MENU && objectId != Native.OBJID_SYSMENU))
-                    return;
+                if (eventType != Native.EVENT_OBJECT_INVOKED) return;
 
                 IntPtr menu = Native.GetSystemMenu(hwnd, false);
                 if (menu == IntPtr.Zero) return;
 
-                uint command = unchecked((uint)childId);
-                if (command != state.PositionCommand && command != state.SizeCommand &&
-                    childId >= 0)
-                    command = Native.GetMenuItemID(menu, childId);
-
-                if (command == state.PositionCommand)
-                    TogglePosition(state);
-                else if (command == state.SizeCommand)
-                    ToggleSize(state);
-                else
+                uint command;
+                if (!TryResolveMenuCommand(objectId, childId, state.PositionCommand,
+                        state.SizeCommand, menu, out command))
                     return;
 
+                bool changed;
+                if (command == state.PositionCommand)
+                    changed = TogglePosition(state);
+                else if (command == state.SizeCommand)
+                    changed = ToggleSize(state);
+                else return;
+
                 UpdateMenuChecks(state, menu);
+                EnforceBounds(state);
+                Log.Debug("System-menu bounds command " + command + " invoked for " +
+                    state.Handle.ToInt64() + "; position=" + state.PositionLocked +
+                    "; size=" + state.SizeLocked + "; captured=" + changed +
+                    "; object=" + objectId + "; child=" + childId);
             }
             catch (Exception ex)
             {
@@ -293,36 +347,163 @@ namespace Okna
             }
         }
 
-        private static void TogglePosition(WindowState state)
+        internal static bool TryResolveMenuCommand(int objectId, int childId,
+            uint positionCommand, uint sizeCommand, IntPtr menu, out uint command)
         {
-            state.PositionLocked = !state.PositionLocked;
-            if (state.PositionLocked)
+            command = 0;
+            if (objectId != Native.OBJID_MENU && objectId != Native.OBJID_SYSMENU)
+                return false;
+
+            command = unchecked((uint)childId);
+            if (command != positionCommand && command != sizeCommand)
             {
-                Native.RECT bounds;
-                if (!Native.GetWindowRect(state.Handle, out bounds))
+                if (childId < 0 || menu == IntPtr.Zero ||
+                    childId >= Native.GetMenuItemCount(menu))
+                    return false;
+                command = Native.GetMenuItemID(menu, childId);
+            }
+            return command == positionCommand || command == sizeCommand;
+        }
+
+        private void RememberForegroundWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return;
+            IntPtr root = Native.GetAncestor(hwnd, Native.GA_ROOT);
+
+            RememberActiveWindow(root == IntPtr.Zero ? hwnd : root);
+        }
+
+        internal bool RememberActiveWindow(IntPtr hwnd)
+        {
+            WindowState state = TrackWindow(hwnd);
+            if (state == null) return false;
+            _activeWindow = state.Handle;
+            return true;
+        }
+
+        private WindowState TrackWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero || !Native.IsWindow(hwnd)) return null;
+            uint processId;
+            uint threadId = Native.GetWindowThreadProcessId(hwnd, out processId);
+            if (processId == 0 || processId == Native.GetCurrentProcessId()) return null;
+
+            string className = Native.GetWindowClass(hwnd);
+            if (!IsTrackableWindowClass(className))
+                return null;
+
+            WindowState state;
+            if (!_windows.TryGetValue(hwnd, out state) ||
+                state.ProcessId != processId || state.ThreadId != threadId)
+            {
+                state = new WindowState();
+                state.Handle = hwnd;
+                state.ProcessId = processId;
+                state.ThreadId = threadId;
+                _windows[hwnd] = state;
+            }
+            EnsureSystemMenu(state);
+            return state;
+        }
+
+        internal static bool IsTrackableWindowClass(string className)
+        {
+            return className != "Progman" && className != "WorkerW" &&
+                className != "Shell_TrayWnd" && className != "Shell_SecondaryTrayWnd" &&
+                !JellyEngine.IsTransientOpenWindowClass(className);
+        }
+
+        internal IntPtr LastActiveWindow
+        {
+            get
+            {
+                WindowState state;
+                if (_activeWindow == IntPtr.Zero ||
+                    !_windows.TryGetValue(_activeWindow, out state) ||
+                    !IsSameWindow(state))
                 {
-                    state.PositionLocked = false;
-                    Log.Debug("Could not capture window position for " + state.Handle.ToInt64());
-                    return;
+                    _activeWindow = IntPtr.Zero;
+                    return IntPtr.Zero;
                 }
-                state.PositionBounds = bounds;
+                return _activeWindow;
             }
         }
 
-        private static void ToggleSize(WindowState state)
+        internal bool TryGetLockState(IntPtr hwnd, out bool positionLocked,
+            out bool sizeLocked)
         {
-            state.SizeLocked = !state.SizeLocked;
+            positionLocked = false;
+            sizeLocked = false;
+            WindowState state;
+            if (hwnd == IntPtr.Zero || !_windows.TryGetValue(hwnd, out state) ||
+                !IsSameWindow(state))
+                return false;
+            positionLocked = state.PositionLocked;
+            sizeLocked = state.SizeLocked;
+            return true;
+        }
+
+        internal bool ToggleLastActivePosition()
+        {
+            return ToggleWindowLock(LastActiveWindow, true);
+        }
+
+        internal bool ToggleLastActiveSize()
+        {
+            return ToggleWindowLock(LastActiveWindow, false);
+        }
+
+        internal bool ToggleWindowLock(IntPtr hwnd, bool position)
+        {
+            WindowState state;
+            if (hwnd == IntPtr.Zero || !_windows.TryGetValue(hwnd, out state) ||
+                !IsSameWindow(state) || Native.IsIconic(hwnd))
+                return false;
+
+            bool toggled = position ? TogglePosition(state) : ToggleSize(state);
+            if (!toggled) return false;
+            IntPtr menu = Native.GetSystemMenu(hwnd, false);
+            if (menu != IntPtr.Zero) UpdateMenuChecks(state, menu);
+            EnforceBounds(state);
+            return true;
+        }
+
+        private static bool TogglePosition(WindowState state)
+        {
+            if (state.PositionLocked)
+            {
+                state.PositionLocked = false;
+                return true;
+            }
+
+            Native.RECT bounds;
+            if (!Native.GetWindowRect(state.Handle, out bounds))
+            {
+                Log.Debug("Could not capture window position for " + state.Handle.ToInt64());
+                return false;
+            }
+            state.PositionBounds = bounds;
+            state.PositionLocked = true;
+            return true;
+        }
+
+        private static bool ToggleSize(WindowState state)
+        {
             if (state.SizeLocked)
             {
-                Native.RECT bounds;
-                if (!Native.GetWindowRect(state.Handle, out bounds))
-                {
-                    state.SizeLocked = false;
-                    Log.Debug("Could not capture window size for " + state.Handle.ToInt64());
-                    return;
-                }
-                state.SizeBounds = bounds;
+                state.SizeLocked = false;
+                return true;
             }
+
+            Native.RECT bounds;
+            if (!Native.GetWindowRect(state.Handle, out bounds))
+            {
+                Log.Debug("Could not capture window size for " + state.Handle.ToInt64());
+                return false;
+            }
+            state.SizeBounds = bounds;
+            state.SizeLocked = true;
+            return true;
         }
 
         private static Native.RECT GetLockedBounds(Native.RECT current,
@@ -426,6 +607,11 @@ namespace Okna
             {
                 Native.UnhookWinEvent(_locationHook);
                 _locationHook = IntPtr.Zero;
+            }
+            if (_foregroundHook != IntPtr.Zero)
+            {
+                Native.UnhookWinEvent(_foregroundHook);
+                _foregroundHook = IntPtr.Zero;
             }
 
             foreach (WindowState state in _windows.Values)
