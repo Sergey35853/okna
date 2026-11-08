@@ -70,12 +70,11 @@ namespace Okna
 
             _menu = new ContextMenuStrip();
             _menu.Font = Theme.FontBody;
-            _menu.BackColor = Color.FromArgb(24, 30, 36);
-            _menu.ForeColor = Color.FromArgb(235, 240, 244);
+            _menu.BackColor = Color.FromArgb(17, 28, 36);
+            _menu.ForeColor = Color.FromArgb(232, 242, 243);
             _menu.ShowImageMargin = false;
-            _menu.Padding = new Padding(4, 3, 4, 3);
+            _menu.Padding = new Padding(2);
             _menu.Renderer = new ToolStripProfessionalRenderer(new JellyColorTable());
-            _menu.DropShadowEnabled = true;
 
             ToolStripLabel header = new ToolStripLabel("ОКНА");
             header.Font = new Font(Theme.FontSmall, FontStyle.Bold);
@@ -1098,26 +1097,25 @@ namespace Okna
 
     internal sealed class JellyColorTable : ProfessionalColorTable
     {
-        private static readonly Color Bg = Color.FromArgb(24, 30, 36);
-        private static readonly Color Sel = Color.FromArgb(42, 54, 66);
-        private static readonly Color Border = Color.FromArgb(48, 62, 74);
+        // Match earlier Okna tray menu appearance
+        private static readonly Color Bg = Color.FromArgb(17, 28, 36);
+        private static readonly Color Sel = Color.FromArgb(23, 37, 47);
+        private static readonly Color Sep = Color.FromArgb(33, 51, 63);
         public override Color ToolStripDropDownBackground { get { return Bg; } }
         public override Color ImageMarginGradientBegin { get { return Bg; } }
         public override Color ImageMarginGradientMiddle { get { return Bg; } }
         public override Color ImageMarginGradientEnd { get { return Bg; } }
-        public override Color MenuBorder { get { return Border; } }
-        public override Color MenuItemBorder { get { return Border; } }
+        public override Color MenuBorder { get { return Color.FromArgb(42, 64, 80); } }
+        public override Color MenuItemBorder { get { return Color.FromArgb(42, 64, 80); } }
         public override Color MenuItemSelected { get { return Sel; } }
         public override Color MenuItemSelectedGradientBegin { get { return Sel; } }
         public override Color MenuItemSelectedGradientEnd { get { return Sel; } }
-        public override Color SeparatorDark { get { return Border; } }
-        public override Color SeparatorLight { get { return Border; } }
+        public override Color SeparatorDark { get { return Sep; } }
+        public override Color SeparatorLight { get { return Sep; } }
         public override Color ButtonSelectedHighlight { get { return Sel; } }
-        public override Color ButtonSelectedHighlightBorder { get { return Border; } }
+        public override Color ButtonSelectedHighlightBorder { get { return Sep; } }
         public override Color ButtonPressedHighlight { get { return Sel; } }
-        public override Color ButtonPressedHighlightBorder { get { return Border; } }
-        public override Color MenuStripGradientBegin { get { return Bg; } }
-        public override Color MenuStripGradientEnd { get { return Bg; } }
+        public override Color ButtonPressedHighlightBorder { get { return Sep; } }
     }
 
     internal sealed class DispatcherForm : Form
