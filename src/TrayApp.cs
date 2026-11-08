@@ -68,13 +68,13 @@ namespace Okna
             _icon = icon;
             _showOnStart = showOnStart;
 
-            _menu = new JellyContextMenuStrip();
+            _menu = new ContextMenuStrip();
             _menu.Font = Theme.FontBody;
             _menu.BackColor = Color.FromArgb(17, 28, 36);
             _menu.ForeColor = Color.FromArgb(232, 242, 243);
             _menu.ShowImageMargin = false;
             _menu.Padding = new Padding(2);
-            _menu.Renderer = new JellyMenuRenderer();
+            _menu.Renderer = new ToolStripProfessionalRenderer(new JellyColorTable());
 
             ToolStripLabel header = new ToolStripLabel("ОКНА");
             header.Font = new Font(Theme.FontSmall, FontStyle.Bold);
@@ -1095,118 +1095,18 @@ namespace Okna
         }
     }
 
-    internal sealed class JellyContextMenuStrip : ContextMenuStrip
-    {
-        protected override void OnHandleCreated(EventArgs e)
-        {
-            base.OnHandleCreated(e);
-            TryEnableTranslucency();
-        }
-
-        protected override void OnOpening(System.ComponentModel.CancelEventArgs e)
-        {
-            base.OnOpening(e);
-            // Re-apply on open; popup HWNDs can be recreated
-            try { TryEnableTranslucency(); } catch { }
-        }
-
-        private void TryEnableTranslucency()
-        {
-            try
-            {
-                // Win11 transient backdrop (acrylic-like for popups) - best effort
-                int backdrop = Native.DWMSBT_TRANSIENTWINDOW;
-                Native.DwmSetWindowAttribute(Handle, Native.DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, 4);
-                int corner = 2; // rounded small
-                Native.DwmSetWindowAttribute(Handle, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, 4);
-                int dark = 1;
-                Native.DwmSetWindowAttribute(Handle, Native.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, 4);
-            }
-            catch { }
-            try
-            {
-                // Win10 blur/acrylic fallback (undocumented API, best-effort)
-                Native.AccentPolicy accent = new Native.AccentPolicy();
-                accent.AccentState = Native.ACCENT_ENABLE_ACRYLICBLURBEHIND;
-                accent.AccentFlags = 2;
-                accent.GradientColor = unchecked((int)0xA0101820); // dark tint + alpha for acrylic
-                int size = System.Runtime.InteropServices.Marshal.SizeOf(accent);
-                IntPtr p = System.Runtime.InteropServices.Marshal.AllocHGlobal(size);
-                try
-                {
-                    System.Runtime.InteropServices.Marshal.StructureToPtr(accent, p, false);
-                    Native.WindowCompositionAttributeData data = new Native.WindowCompositionAttributeData();
-                    data.Attribute = Native.WCA_ACCENT_POLICY;
-                    data.Data = p;
-                    data.SizeOfData = size;
-                    Native.SetWindowCompositionAttribute(Handle, ref data);
-                }
-                finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }
-            }
-            catch { }
-            try
-            {
-                // fallback blur
-                Native.AccentPolicy accent = new Native.AccentPolicy();
-                accent.AccentState = Native.ACCENT_ENABLE_BLURBEHIND;
-                accent.AccentFlags = 2;
-                accent.GradientColor = unchecked((int)0xCC101820);
-                int size = System.Runtime.InteropServices.Marshal.SizeOf(accent);
-                IntPtr p = System.Runtime.InteropServices.Marshal.AllocHGlobal(size);
-                try
-                {
-                    System.Runtime.InteropServices.Marshal.StructureToPtr(accent, p, false);
-                    Native.WindowCompositionAttributeData data = new Native.WindowCompositionAttributeData();
-                    data.Attribute = Native.WCA_ACCENT_POLICY;
-                    data.Data = p;
-                    data.SizeOfData = size;
-                    Native.SetWindowCompositionAttribute(Handle, ref data);
-                }
-                finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }
-            }
-            catch { }
-        }
-    }
-
-    internal sealed class JellyMenuRenderer : ToolStripProfessionalRenderer
-    {
-        public JellyMenuRenderer() : base(new JellyColorTable()) { }
-        protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
-        {
-            // Let DWM/system backdrop show through as much as possible
-            if (e.ToolStrip is ToolStripDropDown)
-            {
-                using (SolidBrush b = new SolidBrush(Color.FromArgb(80, 18, 26, 34)))
-                    e.Graphics.FillRectangle(b, e.AffectedBounds);
-                return;
-            }
-            base.OnRenderToolStripBackground(e);
-        }
-        protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
-        {
-            if (e.ToolStrip is ToolStripDropDown)
-            {
-                Rectangle r = e.AffectedBounds; r.Width -= 1; r.Height -= 1;
-                using (Pen p = new Pen(Color.FromArgb(70, 70, 100, 120)))
-                    e.Graphics.DrawRectangle(p, r);
-                return;
-            }
-            base.OnRenderToolStripBorder(e);
-        }
-    }
-
     internal sealed class JellyColorTable : ProfessionalColorTable
     {
-        // Dark translucent-friendly palette (early Okna style base)
-        private static readonly Color Bg = Color.FromArgb(28, 22, 30, 38);
+        // Match earlier Okna tray menu appearance (solid)
+        private static readonly Color Bg = Color.FromArgb(17, 28, 36);
         private static readonly Color Sel = Color.FromArgb(23, 37, 47);
         private static readonly Color Sep = Color.FromArgb(33, 51, 63);
         public override Color ToolStripDropDownBackground { get { return Bg; } }
         public override Color ImageMarginGradientBegin { get { return Bg; } }
         public override Color ImageMarginGradientMiddle { get { return Bg; } }
         public override Color ImageMarginGradientEnd { get { return Bg; } }
-        public override Color MenuBorder { get { return Color.FromArgb(90, 42, 64, 80); } }
-        public override Color MenuItemBorder { get { return Color.FromArgb(80, 42, 64, 80); } }
+        public override Color MenuBorder { get { return Color.FromArgb(42, 64, 80); } }
+        public override Color MenuItemBorder { get { return Color.FromArgb(42, 64, 80); } }
         public override Color MenuItemSelected { get { return Sel; } }
         public override Color MenuItemSelectedGradientBegin { get { return Sel; } }
         public override Color MenuItemSelectedGradientEnd { get { return Sel; } }
