@@ -68,7 +68,7 @@ namespace Okna
             _icon = icon;
             _showOnStart = showOnStart;
 
-            _menu = new ContextMenuStrip();
+            _menu = new JellyContextMenuStrip();
             _menu.Font = Theme.FontBody;
             _menu.BackColor = Color.FromArgb(17, 28, 36);
             _menu.ForeColor = Color.FromArgb(232, 242, 243);
@@ -1095,18 +1095,42 @@ namespace Okna
         }
     }
 
+    internal sealed class JellyContextMenuStrip : ContextMenuStrip
+    {
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            TryEnableTranslucency();
+        }
+
+        private void TryEnableTranslucency()
+        {
+            try
+            {
+                // Win11 transient backdrop (acrylic-like for popups) - best effort
+                int backdrop = Native.DWMSBT_TRANSIENTWINDOW;
+                Native.DwmSetWindowAttribute(Handle, Native.DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, 4);
+                int corner = 2; // rounded small
+                Native.DwmSetWindowAttribute(Handle, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, 4);
+                int dark = 1;
+                Native.DwmSetWindowAttribute(Handle, Native.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, 4);
+            }
+            catch { }
+        }
+    }
+
     internal sealed class JellyColorTable : ProfessionalColorTable
     {
-        // Match earlier Okna tray menu appearance
-        private static readonly Color Bg = Color.FromArgb(17, 28, 36);
+        // Dark translucent-friendly palette (early Okna style base)
+        private static readonly Color Bg = Color.FromArgb(28, 22, 30, 38);
         private static readonly Color Sel = Color.FromArgb(23, 37, 47);
         private static readonly Color Sep = Color.FromArgb(33, 51, 63);
         public override Color ToolStripDropDownBackground { get { return Bg; } }
         public override Color ImageMarginGradientBegin { get { return Bg; } }
         public override Color ImageMarginGradientMiddle { get { return Bg; } }
         public override Color ImageMarginGradientEnd { get { return Bg; } }
-        public override Color MenuBorder { get { return Color.FromArgb(42, 64, 80); } }
-        public override Color MenuItemBorder { get { return Color.FromArgb(42, 64, 80); } }
+        public override Color MenuBorder { get { return Color.FromArgb(90, 42, 64, 80); } }
+        public override Color MenuItemBorder { get { return Color.FromArgb(80, 42, 64, 80); } }
         public override Color MenuItemSelected { get { return Sel; } }
         public override Color MenuItemSelectedGradientBegin { get { return Sel; } }
         public override Color MenuItemSelectedGradientEnd { get { return Sel; } }

@@ -71,6 +71,9 @@ namespace Okna
         public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
         public const int DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19;
         public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+        public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+        public const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
+        public const int DWMSBT_TRANSIENTWINDOW = 3; // acrylic/transient for popups (Win11)
 
         [StructLayout(LayoutKind.Sequential)]
         public struct RECT
