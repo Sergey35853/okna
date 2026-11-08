@@ -4,7 +4,7 @@ param(
 )
 
 # Opens the real settings window and clicks through the real tray menu.
-# Writes %LOCALAPPDATA%\Okna\ui-smoke.txt and never saves the settings.
+# Uses an isolated data folder under the smoke temp directory.
 $ErrorActionPreference = "Stop"
 if (-not (Test-Path $Exe)) { throw "Build first: .\build.ps1" }
 
@@ -17,11 +17,23 @@ if ($running -and $StopRunning) {
 $dir = Join-Path $env:TEMP "okna-ui-smoke"
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 Copy-Item $Exe (Join-Path $dir "Okna.exe") -Force
+$dataDir = Join-Path $dir "data"
+New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
 
-$process = Start-Process -FilePath (Join-Path $dir "Okna.exe") `
-    -ArgumentList "--ui-smoke" -WorkingDirectory $dir -Wait -PassThru
+$previousDataDir = $env:OKNA_UI_SMOKE_DIR
+try {
+    $env:OKNA_UI_SMOKE_DIR = $dataDir
+    $process = Start-Process -FilePath (Join-Path $dir "Okna.exe") `
+        -ArgumentList "--ui-smoke" -WorkingDirectory $dir -Wait -PassThru
+} finally {
+    if ($null -eq $previousDataDir) {
+        Remove-Item Env:\OKNA_UI_SMOKE_DIR -ErrorAction SilentlyContinue
+    } else {
+        $env:OKNA_UI_SMOKE_DIR = $previousDataDir
+    }
+}
 
-$report = Join-Path $env:LOCALAPPDATA "Okna\ui-smoke.txt"
+$report = Join-Path $dataDir "ui-smoke.txt"
 if (Test-Path $report) {
     Get-Content $report
 } else {

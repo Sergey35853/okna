@@ -53,9 +53,16 @@ namespace Okna.Tests
             Run("autostart is not stolen by a second copy", AutoStartDecision);
             Run("autostart entry is parsed with quotes and arguments", AutoStartParsing);
             Run("settings survive an INI round-trip", IniRoundTrip);
+            Run("settings bounds require a usable window size", SettingsBoundsValidation);
             Run("broken INI is rejected", IniRejectsGarbage);
             Run("diagnostics report has the important sections", DiagnosticsReport);
             Run("safe mode starts after two failed starts", SafeModeDecision);
+            Run("safe mode recovers after three consecutive healthy starts", SafeModeHealthyStartRecovery);
+            Run("a crash resets the safe-mode healthy-start streak", SafeModeCrashResetsHealthyStreak);
+            Run("window-open effects respect mode and adaptive fallback", WindowOpenEffectSemantics);
+            Run("shell and transient windows are filtered", ShellWindowClassFiltering);
+            Run("tomorrow pause ends at 9 AM", TomorrowPauseSchedule);
+            Run("active-window diagnostic includes its supplied details", ActiveWindowDiagnosticReport);
             Run("localization switches between Russian and English", LocalizationSwitch);
             Run("adaptive quality reduces and restores strip detail", AdaptiveQualityLevels);
             Run("snapshot buffers are reused", SnapshotPoolReuse);
@@ -769,6 +776,12 @@ namespace Okna.Tests
                 a.RespectReduceMotion = false;
                 a.HotkeyModifiers = (int)(Native.MOD_CONTROL | Native.MOD_SHIFT);
                 a.HotkeyKey = 0x70;
+                a.PauseHotkeyModifiers = (int)(Native.MOD_CONTROL | Native.MOD_SHIFT);
+                a.PauseHotkeyKey = 0x71;
+                a.HotkeyProfileWindowModifiers = (int)(Native.MOD_CONTROL | Native.MOD_SHIFT);
+                a.HotkeyProfileWindowKey = 0x72;
+                a.WindowOpenEffect = 2;
+                a.SetSettingsBounds(120, 130, 900, 700);
                 a.AddExclude("steam*");
                 a.AddExclude("class:Progman");
                 a.SetCloseOverride("chrome.exe", 1);
@@ -792,6 +805,14 @@ namespace Okna.Tests
                 Check(!b.RespectReduceMotion, "reduce motion");
                 Check(b.HotkeyKey == 0x70, "hotkey key");
                 Check(b.HasHotkey, "hotkey should be enabled");
+                Check(b.HasPauseHotkey && b.PauseHotkeyKey == 0x71, "pause hotkey round-trip");
+                Check(b.HasHotkeyProfileWindow && b.HotkeyProfileWindowKey == 0x72,
+                    "profile hotkey round-trip");
+                Check(b.WindowOpenEffect == 2, "window-open effect round-trip");
+                int x, y, width, height;
+                Check(b.TryGetSettingsBounds(out x, out y, out width, out height) &&
+                    x == 120 && y == 130 && width == 900 && height == 700,
+                    "settings bounds round-trip");
                 Check(b.IsExcluded("steamwebhelper.exe"), "exclusion round-trip");
                 Check(b.IsExcluded(null, "Progman"), "class exclusion round-trip");
                 Check(b.GetCloseEffect("chrome.exe") == 1, "close override round-trip");
@@ -800,6 +821,18 @@ namespace Okna.Tests
             {
                 try { File.Delete(path); } catch { }
             }
+        }
+
+        private static void SettingsBoundsValidation()
+        {
+            AppSettings settings = new AppSettings();
+            settings.SetSettingsBounds(20, 30, 639, 600);
+            int x, y, width, height;
+            Check(!settings.TryGetSettingsBounds(out x, out y, out width, out height),
+                "a too-small window size must not be stored");
+            settings.SetSettingsBounds(20, 30, 640, 440);
+            Check(settings.TryGetSettingsBounds(out x, out y, out width, out height) &&
+                width == 640 && height == 440, "minimum usable dimensions should be accepted");
         }
 
         private static void IniRejectsGarbage()
@@ -837,6 +870,101 @@ namespace Okna.Tests
             Check(!StartupGuard.Decide(1), "one failed start is not enough");
             Check(StartupGuard.Decide(2), "two failed starts enter safe mode");
             Check(StartupGuard.Decide(9), "more failures stay in safe mode");
+        }
+
+        private static void SafeModeHealthyStartRecovery()
+        {
+            int failures = 2;
+            int healthyStarts = 0;
+            int savedFailures = 0;
+            for (int i = 0; i < 3; i++)
+            {
+                Check(StartupGuard.Decide(failures), "safe mode should continue before the third healthy run");
+                healthyStarts = StartupGuard.HealthyStartsForRun(
+                    failures, savedFailures, healthyStarts, true);
+                failures++;
+                healthyStarts++;
+                savedFailures = failures;
+                if (healthyStarts >= 3)
+                {
+                    failures = 0;
+                    healthyStarts = 0;
+                }
+            }
+            Check(failures == 0 && !StartupGuard.Decide(failures),
+                "the third healthy safe-mode start should clear the next-run guard");
+        }
+
+        private static void SafeModeCrashResetsHealthyStreak()
+        {
+            Check(StartupGuard.HealthyStartsForRun(4, 3, 1, true) == 0,
+                "a crash after the last healthy marker should reset the streak");
+            Check(StartupGuard.HealthyStartsForRun(4, 4, 1, true) == 1,
+                "a healthy previous run should preserve the streak");
+        }
+
+        private static void WindowOpenEffectSemantics()
+        {
+            Check(!JellyEngine.UsesLightWindowOpenEffect(0, false, 0), "off mode must not use a light effect");
+            Check(JellyEngine.UsesLightWindowOpenEffect(2, false, 0), "light mode must use a shake");
+            Check(!JellyEngine.UsesLightWindowOpenEffect(1, false, 0), "jelly mode uses the jelly effect when healthy");
+            Check(JellyEngine.UsesLightWindowOpenEffect(1, true, 0), "economy mode falls back from jelly to shake");
+            Check(!JellyEngine.UsesLightWindowOpenEffect(3, false, 0), "auto mode uses jelly when healthy");
+            Check(JellyEngine.UsesLightWindowOpenEffect(3, false, 1), "auto mode falls back when adaptive quality is reduced");
+            Check(JellyEngine.UsesLightWindowOpenEffect(3, true, 0), "auto mode uses the light effect in economy mode");
+        }
+
+        private static void ShellWindowClassFiltering()
+        {
+            Check(JellyEngine.IsShellWindowClass("Progman"), "desktop class should be filtered");
+            Check(JellyEngine.IsShellWindowClass("CoreWindow"), "shell core windows should be filtered");
+            Check(JellyEngine.IsShellWindowClass("TopLevelWindowForOverflowXamlIsland"),
+                "overflow island windows should be filtered");
+            Check(JellyEngine.IsShellWindowClass("NotifyIconOverflowWindow"),
+                "notification overflow windows should be filtered");
+            Check(!JellyEngine.IsShellWindowClass("Notepad"), "ordinary application windows should not be filtered");
+            Check(JellyEngine.IsTransientOpenWindowClass("#32768"),
+                "popup menus should not trigger an open effect");
+            Check(JellyEngine.IsTransientOpenWindowClass("tooltips_class32"),
+                "tooltips should not trigger an open effect");
+            Check(JellyEngine.IsTransientOpenWindowClass("ComboLBox"),
+                "combo dropdowns should not trigger an open effect");
+            Check(!JellyEngine.IsTransientOpenWindowClass("Notepad"),
+                "ordinary application windows should not be treated as transient");
+        }
+
+        private static void TomorrowPauseSchedule()
+        {
+            DateTime morning = TrayApp.NextPauseResumeTime(new DateTime(2026, 3, 5, 8, 15, 0));
+            DateTime evening = TrayApp.NextPauseResumeTime(new DateTime(2026, 3, 5, 22, 30, 0));
+            Check(morning == new DateTime(2026, 3, 6, 9, 0, 0), "morning pause should end at 9 AM tomorrow");
+            Check(evening == new DateTime(2026, 3, 6, 9, 0, 0), "evening pause should end at 9 AM tomorrow");
+        }
+
+        private static void ActiveWindowDiagnosticReport()
+        {
+            Native.RECT bounds = new Native.RECT { Left = 10, Top = 20, Right = 910, Bottom = 620 };
+            string report = Diagnostics.BuildActiveWindowReport(
+                "Test window", "test.exe", "TestClass", bounds, true, false);
+            Check(report.Contains("Test window"), "window title should be reported");
+            Check(report.Contains("test.exe"), "process should be reported");
+            Check(report.Contains("TestClass"), "window class should be reported");
+            Check(report.Contains("900x600"), "window bounds should be reported");
+
+            string detailed = Diagnostics.BuildActiveWindowDiagnosticReport(
+                new IntPtr(42), "Test window", "test.exe", "TestClass", bounds,
+                true, false, false, false, false, true, true, false, null,
+                false, false, true, true, 2, false, false, true);
+            Check(detailed.Contains("HWND: 0x2A"), "window handle should be reported");
+            Check(detailed.Contains("Причина блокировки:") &&
+                detailed.Contains("ручная пауза") && detailed.Contains("правило исключения"),
+                "diagnostic should explain active blockers");
+
+            string activeReport = Diagnostics.BuildActiveWindowReport("Ctrl+Alt+J — работает", detailed);
+            Check(activeReport.Contains(Updater.CurrentLabel) &&
+                activeReport.Contains("Ctrl+Alt+J — работает") &&
+                activeReport.Contains(detailed),
+                "active-window report should include version, hotkey, and engine details");
         }
 
         private static void LocalizationSwitch()

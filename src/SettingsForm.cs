@@ -57,6 +57,9 @@ namespace Okna
         private JellyButton _hotkeyBendButton;
         private JellyButton _hotkeyRollButton;
         private JellyButton _hotkeySettingsButton;
+        private JellyButton _pauseHotkeyButton;
+        private JellyButton _profileWindowHotkeyButton;
+        private JellyButton[] _windowOpenEffectButtons;
         private ToolTip _hintToolTip;
         private ListBox _excludeList;
         private TextBox _excludeMask;
@@ -115,6 +118,8 @@ namespace Okna
             BuildUi();
             Loc.Apply(this);
             WireEvents();
+            Move += delegate { RememberSettingsBounds(); };
+            ResizeEnd += delegate { RememberSettingsBounds(); };
 
             _statusTimer = new Timer();
             _statusTimer.Interval = 350;
@@ -161,7 +166,36 @@ namespace Okna
             int height = Math.Min(ClientSize.Height, maxHeight);
             if (width != ClientSize.Width || height != ClientSize.Height)
                 ClientSize = new Size(width, height);
+            RestoreSettingsBounds();
             LayoutChrome();
+        }
+
+        private void RestoreSettingsBounds()
+        {
+            int x, y, width, height;
+            if (!_settings.TryGetSettingsBounds(out x, out y, out width, out height)) return;
+            Rectangle bounds = new Rectangle(x, y, width, height);
+            Screen[] screens = Screen.AllScreens;
+            bool visible = false;
+            for (int i = 0; i < screens.Length; i++)
+            {
+                Rectangle overlap = Rectangle.Intersect(bounds, screens[i].WorkingArea);
+                if (overlap.Width >= 100 && overlap.Height >= 100)
+                {
+                    visible = true;
+                    break;
+                }
+            }
+            if (!visible) return;
+            StartPosition = FormStartPosition.Manual;
+            Bounds = bounds;
+        }
+
+        private void RememberSettingsBounds()
+        {
+            if (_settings == null || !Visible || WindowState != FormWindowState.Normal) return;
+            _settings.SetSettingsBounds(Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
+            SaveSoon();
         }
 
         protected override void WndProc(ref Message m)
@@ -188,6 +222,7 @@ namespace Okna
             }
             if (m.Msg == WM_CLOSE && !ReallyExit && !Environment.HasShutdownStarted)
             {
+                RememberSettingsBounds();
                 Persist();
                 BeginInvoke(new MethodInvoker(delegate { Hide(); }));
                 return;
@@ -625,13 +660,25 @@ namespace Okna
                 Control[] bendLabels = card.Controls.Find("hotkeyBendLabel", false);
                 Control[] rollLabels = card.Controls.Find("hotkeyRollLabel", false);
                 Control[] settingsLabels = card.Controls.Find("hotkeySettingsLabel", false);
+                Control[] pauseLabels = card.Controls.Find("pauseHotkeyLabel", false);
+                Control[] profileLabels = card.Controls.Find("profileWindowHotkeyLabel", false);
                 if (bendLabels.Length > 0) bendLabels[0].SetBounds(18, 44, 72, 18);
                 if (rollLabels.Length > 0) rollLabels[0].SetBounds(18, 80, 120, 18);
                 if (settingsLabels.Length > 0) settingsLabels[0].SetBounds(18, 116, 128, 18);
+                if (pauseLabels.Length > 0) pauseLabels[0].SetBounds(18, 152, 72, 18);
+                if (profileLabels.Length > 0) profileLabels[0].SetBounds(18, 188, 128, 18);
                 int buttonWidth = Math.Max(120, card.ClientSize.Width - 170);
                 _hotkeyBendButton.SetBounds(150, 40, buttonWidth, 28);
                 _hotkeyRollButton.SetBounds(150, 76, buttonWidth, 28);
                 _hotkeySettingsButton.SetBounds(150, 112, buttonWidth, 28);
+                _pauseHotkeyButton.SetBounds(150, 148, buttonWidth, 28);
+                _profileWindowHotkeyButton.SetBounds(150, 184, buttonWidth, 28);
+            }
+            if (_pauseHotkeyButton != null && card.Controls.Contains(_pauseHotkeyButton) &&
+                card.ClientSize.Width >= 500)
+            {
+                _pauseHotkeyButton.SetBounds(330, 76, 140, 28);
+                _profileWindowHotkeyButton.SetBounds(150, 112, 160, 28);
             }
             if (_pauseStatusLabel != null && card.Controls.Contains(_pauseStatusLabel))
             {
@@ -789,6 +836,28 @@ namespace Okna
             ry = AddSwitchRow(card, "Гнуть окна по инерции", "Края изгибаются при разгоне и торможении", ry, out _bendSwitch);
             AddDivider(card, 18, ry, card.Width - 36); ry += 10;
             AddSwitchRow(card, "Тряска при разворачивании", "Качается при развороте, восстановлении", ry, out _maxShakeSwitch);
+
+            CardPanel openEffectCard = AddCard(page, "Эффект при появлении окна", 0, 214, _contentHost.Width - 8, 94);
+            AddLabel(openEffectCard, "Обычные окна, не системные меню и подсказки", 18, 12, Theme.FontSmall, Theme.Muted);
+            string[] names = new string[] { "Выкл", "Лёгкий", "Желе", "Авто" };
+            int[] effects = new int[] { 0, 2, 1, 3 };
+            _windowOpenEffectButtons = new JellyButton[effects.Length];
+            int buttonWidth = (openEffectCard.Width - 36 - 12) / effects.Length;
+            for (int i = 0; i < effects.Length; i++)
+            {
+                int effect = effects[i];
+                JellyButton button = MakeChoice(openEffectCard, Loc.T(names[i]),
+                    18 + i * (buttonWidth + 4), 42, buttonWidth, 30);
+                button.Name = "windowOpenEffect" + effect;
+                button.Tag = effect;
+                button.Click += delegate
+                {
+                    _settings.WindowOpenEffect = effect;
+                    SaveSoon();
+                    SyncWindowOpenEffectButtons();
+                };
+                _windowOpenEffectButtons[i] = button;
+            }
         }
 
         private void BuildRollPage(Panel page)
@@ -976,7 +1045,10 @@ namespace Okna
             string reason = _engine == null ? null : _engine.PauseReason;
             if (_tray != null && _tray.TimedPauseActive)
             {
-                _pauseStatusLabel.Text = Loc.T("Ручная пауза: ещё ") + _tray.TimedPauseMinutesLeft + Loc.T(" мин");
+                int minutes = _tray.TimedPauseMinutesLeft;
+                _pauseStatusLabel.Text = minutes > 0
+                    ? Loc.T("Ручная пауза: ещё ") + minutes + Loc.T(" мин")
+                    : Loc.T("Ручная пауза до перезапуска");
                 _pauseStatusLabel.ForeColor = Theme.Accent;
             }
             else if (reason != null)
@@ -995,7 +1067,8 @@ namespace Okna
                 _pauseStatusLabel.ForeColor = Theme.Accent;
             }
             if (_timedPauseButton != null)
-                _timedPauseButton.Text = (_tray != null && _tray.TimedPauseActive) ? Loc.T("Возобновить") : Loc.T("Пауза на 30 мин");
+                _timedPauseButton.Text = (_tray != null && _tray.TimedPauseActive)
+                    ? Loc.T("Возобновить") : Loc.T("Пауза на 30 мин");
         }
 
         private void UpdateResumeDelayLabel()
@@ -1160,7 +1233,7 @@ namespace Okna
             _hotkeyStatus.Size = new Size(hkCard.Width - 226, 18);
             hkCard.Controls.Add(_hotkeyStatus);
 
-            CardPanel hkExtra = AddCard(page, "Дополнительные горячие клавиши", 0, y, _contentHost.Width - 8, 150); y += 158;
+            CardPanel hkExtra = AddCard(page, "Дополнительные горячие клавиши", 0, y, _contentHost.Width - 8, 226); y += 234;
             AddLabel(hkExtra, "Необязательно: изгиб, скатывание, открыть настройки", 18, 14, Theme.FontSmall, Theme.Muted);
             Label bendLabel = AddLabel(hkExtra, "Изгиб:", 18, 44, Theme.FontSmall, Theme.Text);
             bendLabel.Name = "hotkeyBendLabel";
@@ -1174,6 +1247,16 @@ namespace Okna
             settingsLabel.Name = "hotkeySettingsLabel";
             _hotkeySettingsButton = MakeSmallButton(hkExtra, "Нет", 150, 76, 160); _hotkeySettingsButton.Click += delegate { _hotkeySettingsButton.Focus(); };
             HookHotkeyCapture(_hotkeySettingsButton, delegate(int m, int k) { _settings.HotkeySettingsModifiers = m; _settings.HotkeySettingsKey = k; ApplyHotkey(); });
+            Label pauseLabel = AddLabel(hkExtra, "Пауза:", 248, 80, Theme.FontSmall, Theme.Text);
+            pauseLabel.Name = "pauseHotkeyLabel";
+            _pauseHotkeyButton = MakeSmallButton(hkExtra, "Нет", 330, 76, 140);
+            _pauseHotkeyButton.Click += delegate { _pauseHotkeyButton.Focus(); };
+            HookHotkeyCapture(_pauseHotkeyButton, delegate(int m, int k) { _settings.PauseHotkeyModifiers = m; _settings.PauseHotkeyKey = k; ApplyHotkey(); });
+            Label profileLabel = AddLabel(hkExtra, "Профиль окна:", 18, 116, Theme.FontSmall, Theme.Text);
+            profileLabel.Name = "profileWindowHotkeyLabel";
+            _profileWindowHotkeyButton = MakeSmallButton(hkExtra, "Нет", 150, 112, 160);
+            _profileWindowHotkeyButton.Click += delegate { _profileWindowHotkeyButton.Focus(); };
+            HookHotkeyCapture(_profileWindowHotkeyButton, delegate(int m, int k) { _settings.HotkeyProfileWindowModifiers = m; _settings.HotkeyProfileWindowKey = k; ApplyHotkey(); });
 
             CardPanel updCard = AddCard(page, "Обновления", 0, y, _contentHost.Width - 8, 184); y += 192;
             ry = AddSwitchRow(updCard, "Проверять обновления автоматически", "Фоновая проверка через GitHub Releases", 14, out _autoUpdateSwitch);
@@ -1511,6 +1594,20 @@ namespace Okna
             if (_hotkeyBendButton != null) _hotkeyBendButton.Text = _settings.HasHotkeyBend ? _settings.HotkeyBendLabel : Loc.T("Нет");
             if (_hotkeyRollButton != null) _hotkeyRollButton.Text = _settings.HasHotkeyRoll ? _settings.HotkeyRollLabel : Loc.T("Нет");
             if (_hotkeySettingsButton != null) _hotkeySettingsButton.Text = _settings.HasHotkeySettings ? _settings.HotkeySettingsLabel : Loc.T("Нет");
+            if (_pauseHotkeyButton != null) _pauseHotkeyButton.Text = _settings.HasPauseHotkey ? _settings.PauseHotkeyLabel : Loc.T("Нет");
+            if (_profileWindowHotkeyButton != null) _profileWindowHotkeyButton.Text =
+                _settings.HasHotkeyProfileWindow ? _settings.HotkeyProfileWindowLabel : Loc.T("Нет");
+        }
+
+        private void SyncWindowOpenEffectButtons()
+        {
+            if (_windowOpenEffectButtons == null) return;
+            for (int i = 0; i < _windowOpenEffectButtons.Length; i++)
+            {
+                _windowOpenEffectButtons[i].Accent =
+                    Convert.ToInt32(_windowOpenEffectButtons[i].Tag) == _settings.WindowOpenEffect;
+                _windowOpenEffectButtons[i].Invalidate();
+            }
         }
 
         public void SyncFromSettings()
@@ -1549,6 +1646,7 @@ namespace Okna
                 _hotkeyStatus.Text = _tray != null ? _tray.HotkeyStatus : "";
                 _hotkeyStatus.ForeColor = Theme.Muted;
                 SyncExtraHotkeyLabels();
+                SyncWindowOpenEffectButtons();
                 RefreshExcludeList();
                 RefreshOverrideList();
                 RefreshCallAppsList();
@@ -2059,6 +2157,18 @@ namespace Okna
 
                 SelectPage(1); Application.DoEvents();
                 bool bend = _settings.Bend; _bendSwitch.Checked = !bend; Application.DoEvents(); check("the bend switch changes the setting", _settings.Bend == !bend); _bendSwitch.Checked = bend;
+                int originalOpenEffect = _settings.WindowOpenEffect;
+                int[] openEffects = new int[] { 0, 2, 1, 3 };
+                for (int i = 0; i < _windowOpenEffectButtons.Length; i++)
+                {
+                    _windowOpenEffectButtons[i].PerformClick(); Application.DoEvents();
+                    check("window-open effect " + openEffects[i] + " applies",
+                        _settings.WindowOpenEffect == openEffects[i]);
+                }
+                _settings.WindowOpenEffect = originalOpenEffect;
+                SyncWindowOpenEffectButtons();
+                check("window-open watcher runs without a shake-pending transition",
+                    _engine.SmokeIdleWindowOpenWatcherRuns());
 
                 SelectPage(2); Application.DoEvents();
                 bool roll = _settings.Roll; _rollSwitch.Checked = !roll; Application.DoEvents(); check("the roll switch changes the setting", _settings.Roll == !roll); _rollSwitch.Checked = roll;
@@ -2118,7 +2228,11 @@ namespace Okna
                 check("extra hotkey buttons fit at minimum size",
                     _hotkeyBendButton.Right <= _hotkeyBendButton.Parent.ClientSize.Width &&
                     _hotkeyRollButton.Right <= _hotkeyRollButton.Parent.ClientSize.Width &&
-                    _hotkeySettingsButton.Right <= _hotkeySettingsButton.Parent.ClientSize.Width);
+                    _hotkeySettingsButton.Right <= _hotkeySettingsButton.Parent.ClientSize.Width &&
+                    _pauseHotkeyButton.Right <= _pauseHotkeyButton.Parent.ClientSize.Width &&
+                    _profileWindowHotkeyButton.Right <= _profileWindowHotkeyButton.Parent.ClientSize.Width);
+                check("pause and profile hotkey controls exist",
+                    _pauseHotkeyButton != null && _profileWindowHotkeyButton != null);
                 Control[] doneButtons = Controls.Find("doneButton", true);
                 check("footer hint truncation is indicated without overlapping Done",
                     _hintLabel.AutoEllipsis && doneButtons.Length > 0 && _hintLabel.Right <= doneButtons[0].Left);
@@ -2151,8 +2265,8 @@ namespace Okna
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             if (!ReallyExit && e.CloseReason != CloseReason.WindowsShutDown && e.CloseReason != CloseReason.TaskManagerClosing)
-            { e.Cancel = true; Persist(); BeginInvoke(new MethodInvoker(delegate { Hide(); })); return; }
-            Persist(); base.OnFormClosing(e);
+            { e.Cancel = true; RememberSettingsBounds(); Persist(); BeginInvoke(new MethodInvoker(delegate { Hide(); })); return; }
+            RememberSettingsBounds(); Persist(); base.OnFormClosing(e);
         }
 
         protected override void Dispose(bool disposing)

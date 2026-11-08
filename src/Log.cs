@@ -11,7 +11,7 @@ namespace Okna
         private static readonly string ExeFallback =
             Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Okna.log");
         private static readonly string TempFallback =
-            Path.Combine(Path.GetTempPath(), "Okna.log");
+            Path.Combine(UiSmoke.IsIsolatedRun ? UiSmoke.IsolatedDirectory : Path.GetTempPath(), "Okna.log");
         private static readonly bool DebugEnabled =
             string.Equals(Environment.GetEnvironmentVariable("OKNA_DEBUG"), "1", StringComparison.Ordinal);
 
@@ -24,6 +24,8 @@ namespace Okna
         {
             try
             {
+                if (UiSmoke.IsIsolatedRun)
+                    return Path.Combine(UiSmoke.IsolatedDirectory, "Okna.log");
                 string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 if (!string.IsNullOrEmpty(local))
                     return Path.Combine(Path.Combine(local, "Okna"), "okna.log");

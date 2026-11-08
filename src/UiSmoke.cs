@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Text;
@@ -13,13 +14,34 @@ namespace Okna
     /// </summary>
     internal static class UiSmoke
     {
+        internal static bool IsIsolatedRun
+        {
+            get
+            {
+                string[] args = Environment.GetCommandLineArgs();
+                for (int i = 0; i < args.Length; i++)
+                    if (string.Equals(args[i], "--ui-smoke", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                return false;
+            }
+        }
+
+        internal static string IsolatedDirectory
+        {
+            get
+            {
+                string configured = Environment.GetEnvironmentVariable("OKNA_UI_SMOKE_DIR");
+                return string.IsNullOrEmpty(configured)
+                    ? Path.Combine(Path.GetTempPath(), "okna-ui-smoke-" + Process.GetCurrentProcess().Id)
+                    : configured;
+            }
+        }
+
         public static string ReportPath
         {
             get
             {
-                string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                if (string.IsNullOrEmpty(local)) local = Path.GetTempPath();
-                return Path.Combine(Path.Combine(local, "Okna"), "ui-smoke.txt");
+                return Path.Combine(IsolatedDirectory, "ui-smoke.txt");
             }
         }
 
@@ -99,6 +121,7 @@ namespace Okna
 
             try
             {
+                Directory.CreateDirectory(IsolatedDirectory);
                 string folder = Path.GetDirectoryName(ReportPath);
                 if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
                 File.WriteAllText(ReportPath, report.ToString(), new UTF8Encoding(true));

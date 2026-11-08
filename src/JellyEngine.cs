@@ -8,6 +8,15 @@ namespace Okna
 {
     internal sealed partial class JellyEngine : IDisposable
     {
+        private static readonly string[] ShellWindowClasses = new string[]
+        {
+            "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd",
+            "NotifyIconOverflowWindow", "CoreWindow", "TaskListThumbnailWnd",
+            "SystemTray_Main", "ToolbarWindow32", "TrayNotifyWnd",
+            "TopLevelWindowForOverflowXamlIsland", "XamlExplorerHostIslandWindow",
+            "Xaml_WindowedPopupClass"
+        };
+
         private enum Mode
         {
             Idle,
@@ -209,6 +218,7 @@ namespace Okna
         public JellyEngine(AppSettings settings)
         {
             _settings = settings;
+            _windowShowCallback = OnWindowShown;
             _autoPause = new AutoPause(settings);
             _overlay = new BendOverlay();
             string park = Environment.GetEnvironmentVariable("OKNA_PARK");
@@ -263,6 +273,37 @@ namespace Okna
         {
             get { return _manualPause; }
             set { _manualPause = value; }
+        }
+
+        internal string GetActiveWindowDiagnostic()
+        {
+            return GetActiveWindowDiagnostic(IntPtr.Zero);
+        }
+
+        internal string GetActiveWindowDiagnostic(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) hwnd = Native.GetForegroundWindow();
+            if (hwnd == IntPtr.Zero || !Native.IsWindow(hwnd))
+                return Loc.T("Нет активного окна.");
+
+            string title = Native.GetWindowTitle(hwnd);
+            string process = Native.GetWindowProcessName(hwnd);
+            string cls = Native.GetWindowClass(hwnd);
+            Native.RECT bounds = new Native.RECT();
+            Native.GetWindowRect(hwnd, out bounds);
+            int profileEffect;
+            bool profileBend;
+            bool profileShake;
+            bool profileRoll;
+            bool hasProfile = _settings.GetAppProfile(process, out profileEffect,
+                out profileBend, out profileShake, out profileRoll);
+            return Diagnostics.BuildActiveWindowDiagnosticReport(hwnd, title, process,
+                cls, bounds, Native.IsWindowVisible(hwnd), Native.IsIconic(hwnd),
+                Native.IsZoomed(hwnd), Native.IsCloaked(hwnd),
+                Native.IsOwnProcessWindow(hwnd), _settings.Enabled, _manualPause,
+                _autoPause.Paused, _autoPause.Reason, _settings.Economy,
+                IsShellWindowClass(cls), _settings.IsExcluded(process, cls),
+                hasProfile, profileEffect, profileBend, profileShake, profileRoll);
         }
 
         /// <summary>
@@ -448,6 +489,9 @@ namespace Okna
             double last = clock.Elapsed.TotalSeconds;
             try
             {
+                Native.MSG initialMessage;
+                Native.PeekMessage(out initialMessage, IntPtr.Zero, 0, 0, Native.PM_REMOVE);
+                InstallWindowOpenHook(clock);
                 while (!_stopping)
                 {
                     Native.MSG msg;
@@ -494,6 +538,7 @@ namespace Okna
             }
             finally
             {
+                UninstallWindowOpenHook();
                 try
                 {
                     // Safety net: never leave a foreign window transparent or
@@ -627,6 +672,8 @@ namespace Okna
                         }
                     }
                 }
+                if (_mode == Mode.Idle)
+                    WatchWindowOpen(foreground, now);
             }
 
             if (_mode == Mode.Shaking)
@@ -950,20 +997,14 @@ namespace Okna
             return (Native.GetAsyncKeyState(key) & 0x8000) != 0;
         }
 
-        private static bool IsShellWindowClass(string cls)
+        internal static bool IsShellWindowClass(string cls)
         {
             if (string.IsNullOrEmpty(cls)) return true;
-            switch (cls)
-            {
-                case "Progman":
-                case "WorkerW":
-                case "Shell_TrayWnd":
-                case "Shell_SecondaryTrayWnd":
-                case "NotifyIconOverflowWindow":
+            for (int i = 0; i < ShellWindowClasses.Length; i++)
+                if (string.Equals(cls, ShellWindowClasses[i], StringComparison.OrdinalIgnoreCase))
                     return true;
-                default:
-                    return false;
-            }
+            return cls.StartsWith("NotifyIcon", StringComparison.OrdinalIgnoreCase) ||
+                   cls.IndexOf("OverflowXamlIsland", StringComparison.OrdinalIgnoreCase) >= 0;
         }
     }
 }

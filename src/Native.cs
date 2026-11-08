@@ -17,11 +17,14 @@ namespace Okna
         public const int HTMINBUTTON = 8;
         public const int GWL_STYLE = -16;
         public const int GWL_EXSTYLE = -20;
+        public const int GW_OWNER = 4;
         public const long WS_CAPTION = 0x00C00000L;
         public const long WS_THICKFRAME = 0x00040000L;
         public const long WS_MAXIMIZEBOX = 0x00010000L;
         public const long WS_MINIMIZEBOX = 0x00020000L;
+        public const long WS_CHILD = 0x40000000L;
         public const long WS_EX_TOOLWINDOW = 0x00000080L;
+        public const long WS_EX_APPWINDOW = 0x00040000L;
         public const long WS_EX_NOACTIVATE = 0x08000000L;
         public const long WS_EX_TRANSPARENT = 0x00000020L;
 
@@ -50,6 +53,10 @@ namespace Okna
         public const uint WHITENESS = 0x00FF0062;
         public const uint PW_RENDERFULLCONTENT = 2;
         public const uint PM_REMOVE = 1;
+        public const uint EVENT_OBJECT_SHOW = 0x8002;
+        public const int OBJID_WINDOW = 0;
+        public const int CHILDID_SELF = 0;
+        public const uint WINEVENT_OUTOFCONTEXT = 0;
 
         public const uint SMTO_BLOCK = 0x0001;
         public const uint SMTO_ABORTIFHUNG = 0x0002;
@@ -143,6 +150,9 @@ namespace Okna
             public uint time;
             public POINT pt;
         }
+
+        public delegate void WinEventProc(IntPtr hook, uint eventType, IntPtr hwnd,
+            int objectId, int childId, uint eventThread, uint eventTime);
 
         [StructLayout(LayoutKind.Sequential)]
         public struct TOKEN_ELEVATION
@@ -304,6 +314,13 @@ namespace Okna
 
         [DllImport("user32.dll")]
         public static extern bool PeekMessage(out MSG msg, IntPtr hwnd, uint min, uint max, uint remove);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr module,
+            WinEventProc callback, uint processId, uint threadId, uint flags);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool UnhookWinEvent(IntPtr hook);
 
         [DllImport("user32.dll")]
         public static extern bool TranslateMessage(ref MSG msg);

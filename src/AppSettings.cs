@@ -46,6 +46,15 @@ namespace Okna
         private volatile bool _respectReduceMotion = true;
         private volatile bool _pauseOnFullscreen = true;
         private volatile int _autoPauseResumeDelaySeconds = 3;
+        private volatile int _windowOpenEffect;
+        private volatile int _pauseHotkeyModifiers;
+        private volatile int _pauseHotkeyKey;
+        private volatile int _hotkeyProfileWindowModifiers;
+        private volatile int _hotkeyProfileWindowKey;
+        private volatile int _boundsX = int.MinValue;
+        private volatile int _boundsY = int.MinValue;
+        private volatile int _boundsWidth;
+        private volatile int _boundsHeight;
         private volatile string[] _callApps = new string[0];
         private volatile int _hotkeyModifiers = (int)(Native.MOD_CONTROL | Native.MOD_ALT);
         private volatile int _hotkeyKey = Native.VK_J;
@@ -96,12 +105,44 @@ namespace Okna
         public int HotkeyRollKey { get { return _hotkeyRollKey; } set { _hotkeyRollKey = value; } }
         public int HotkeySettingsModifiers { get { return _hotkeySettingsModifiers; } set { _hotkeySettingsModifiers = value; } }
         public int HotkeySettingsKey { get { return _hotkeySettingsKey; } set { _hotkeySettingsKey = value; } }
+        public int PauseHotkeyModifiers { get { return _pauseHotkeyModifiers; } set { _pauseHotkeyModifiers = value; } }
+        public int PauseHotkeyKey { get { return _pauseHotkeyKey; } set { _pauseHotkeyKey = value; } }
+        public int HotkeyProfileWindowModifiers { get { return _hotkeyProfileWindowModifiers; } set { _hotkeyProfileWindowModifiers = value; } }
+        public int HotkeyProfileWindowKey { get { return _hotkeyProfileWindowKey; } set { _hotkeyProfileWindowKey = value; } }
         public bool HasHotkeyBend { get { return _hotkeyBendKey != 0 && _hotkeyBendModifiers != 0; } }
         public bool HasHotkeyRoll { get { return _hotkeyRollKey != 0 && _hotkeyRollModifiers != 0; } }
         public bool HasHotkeySettings { get { return _hotkeySettingsKey != 0 && _hotkeySettingsModifiers != 0; } }
+        public bool HasPauseHotkey { get { return _pauseHotkeyKey != 0 && _pauseHotkeyModifiers != 0; } }
+        public bool HasHotkeyProfileWindow { get { return _hotkeyProfileWindowKey != 0 && _hotkeyProfileWindowModifiers != 0; } }
         public string HotkeyBendLabel { get { return FormatHotkey(_hotkeyBendModifiers, _hotkeyBendKey); } }
         public string HotkeyRollLabel { get { return FormatHotkey(_hotkeyRollModifiers, _hotkeyRollKey); } }
         public string HotkeySettingsLabel { get { return FormatHotkey(_hotkeySettingsModifiers, _hotkeySettingsKey); } }
+        public string PauseHotkeyLabel { get { return FormatHotkey(_pauseHotkeyModifiers, _pauseHotkeyKey); } }
+        public string HotkeyProfileWindowLabel { get { return FormatHotkey(_hotkeyProfileWindowModifiers, _hotkeyProfileWindowKey); } }
+
+        public int WindowOpenEffect
+        {
+            get { return _windowOpenEffect; }
+            set { _windowOpenEffect = value < 0 || value > 3 ? 0 : value; }
+        }
+
+        public bool TryGetSettingsBounds(out int x, out int y, out int width, out int height)
+        {
+            x = _boundsX;
+            y = _boundsY;
+            width = _boundsWidth;
+            height = _boundsHeight;
+            return width >= 640 && height >= 440 && x > -32000 && y > -32000;
+        }
+
+        public void SetSettingsBounds(int x, int y, int width, int height)
+        {
+            if (width < 640 || height < 440) return;
+            _boundsX = x;
+            _boundsY = y;
+            _boundsWidth = width;
+            _boundsHeight = height;
+        }
         private bool _portable;
         private string _portablePath;
 
@@ -887,11 +928,17 @@ namespace Okna
             _hotkeyBendModifiers = 0; _hotkeyBendKey = 0;
             _hotkeyRollModifiers = 0; _hotkeyRollKey = 0;
             _hotkeySettingsModifiers = 0; _hotkeySettingsKey = 0;
+            _pauseHotkeyModifiers = 0; _pauseHotkeyKey = 0;
+            _hotkeyProfileWindowModifiers = 0; _hotkeyProfileWindowKey = 0;
+            _windowOpenEffect = 0;
+            _boundsX = int.MinValue; _boundsY = int.MinValue;
+            _boundsWidth = 0; _boundsHeight = 0;
         }
 
         public static AppSettings Load()
         {
             AppSettings s = new AppSettings();
+            if (UiSmoke.IsIsolatedRun) return s;
             try
             {
                 string portable = FindPortableFile();
@@ -990,6 +1037,15 @@ namespace Okna
                         v = key.GetValue("HotkeyRollKey"); if (v != null) s.HotkeyRollKey = Convert.ToInt32(v);
                         v = key.GetValue("HotkeySettingsModifiers"); if (v != null) s.HotkeySettingsModifiers = Convert.ToInt32(v);
                         v = key.GetValue("HotkeySettingsKey"); if (v != null) s.HotkeySettingsKey = Convert.ToInt32(v);
+                        v = key.GetValue("PauseHotkeyModifiers"); if (v != null) s.PauseHotkeyModifiers = Convert.ToInt32(v);
+                        v = key.GetValue("PauseHotkeyKey"); if (v != null) s.PauseHotkeyKey = Convert.ToInt32(v);
+                        v = key.GetValue("HotkeyProfileWindowModifiers"); if (v != null) s.HotkeyProfileWindowModifiers = Convert.ToInt32(v);
+                        v = key.GetValue("HotkeyProfileWindowKey"); if (v != null) s.HotkeyProfileWindowKey = Convert.ToInt32(v);
+                        v = key.GetValue("WindowOpenEffect"); if (v != null) s.WindowOpenEffect = Convert.ToInt32(v);
+                        v = key.GetValue("BoundsX"); if (v != null) s._boundsX = Convert.ToInt32(v);
+                        v = key.GetValue("BoundsY"); if (v != null) s._boundsY = Convert.ToInt32(v);
+                        v = key.GetValue("BoundsWidth"); if (v != null) s._boundsWidth = Convert.ToInt32(v);
+                        v = key.GetValue("BoundsHeight"); if (v != null) s._boundsHeight = Convert.ToInt32(v);
                     }
                 }
 
@@ -1305,6 +1361,15 @@ namespace Okna
                     key.SetValue("HotkeyRollKey", _hotkeyRollKey, RegistryValueKind.DWord);
                     key.SetValue("HotkeySettingsModifiers", _hotkeySettingsModifiers, RegistryValueKind.DWord);
                     key.SetValue("HotkeySettingsKey", _hotkeySettingsKey, RegistryValueKind.DWord);
+                    key.SetValue("PauseHotkeyModifiers", _pauseHotkeyModifiers, RegistryValueKind.DWord);
+                    key.SetValue("PauseHotkeyKey", _pauseHotkeyKey, RegistryValueKind.DWord);
+                    key.SetValue("HotkeyProfileWindowModifiers", _hotkeyProfileWindowModifiers, RegistryValueKind.DWord);
+                    key.SetValue("HotkeyProfileWindowKey", _hotkeyProfileWindowKey, RegistryValueKind.DWord);
+                    key.SetValue("WindowOpenEffect", _windowOpenEffect, RegistryValueKind.DWord);
+                    key.SetValue("BoundsX", _boundsX, RegistryValueKind.DWord);
+                    key.SetValue("BoundsY", _boundsY, RegistryValueKind.DWord);
+                    key.SetValue("BoundsWidth", _boundsWidth, RegistryValueKind.DWord);
+                    key.SetValue("BoundsHeight", _boundsHeight, RegistryValueKind.DWord);
                 }
                 WriteBackup(BackupPath);
             }
@@ -1372,6 +1437,15 @@ namespace Okna
             HotkeyRollKey = GetInt(map, "HotkeyRollKey", HotkeyRollKey);
             HotkeySettingsModifiers = GetInt(map, "HotkeySettingsModifiers", HotkeySettingsModifiers);
             HotkeySettingsKey = GetInt(map, "HotkeySettingsKey", HotkeySettingsKey);
+            PauseHotkeyModifiers = GetInt(map, "PauseHotkeyModifiers", PauseHotkeyModifiers);
+            PauseHotkeyKey = GetInt(map, "PauseHotkeyKey", PauseHotkeyKey);
+            HotkeyProfileWindowModifiers = GetInt(map, "HotkeyProfileWindowModifiers", HotkeyProfileWindowModifiers);
+            HotkeyProfileWindowKey = GetInt(map, "HotkeyProfileWindowKey", HotkeyProfileWindowKey);
+            WindowOpenEffect = GetInt(map, "WindowOpenEffect", WindowOpenEffect);
+            _boundsX = GetInt(map, "BoundsX", _boundsX);
+            _boundsY = GetInt(map, "BoundsY", _boundsY);
+            _boundsWidth = GetInt(map, "BoundsWidth", _boundsWidth);
+            _boundsHeight = GetInt(map, "BoundsHeight", _boundsHeight);
             Economy = GetBool(map, "Economy", Economy);
             PauseOnBattery = GetBool(map, "PauseOnBattery", PauseOnBattery);
             PauseOnCall = GetBool(map, "PauseOnCall", PauseOnCall);
@@ -1437,6 +1511,15 @@ namespace Okna
                 sb.AppendLine("HotkeyRollKey=" + _hotkeyRollKey);
                 sb.AppendLine("HotkeySettingsModifiers=" + _hotkeySettingsModifiers);
                 sb.AppendLine("HotkeySettingsKey=" + _hotkeySettingsKey);
+                sb.AppendLine("PauseHotkeyModifiers=" + _pauseHotkeyModifiers);
+                sb.AppendLine("PauseHotkeyKey=" + _pauseHotkeyKey);
+                sb.AppendLine("HotkeyProfileWindowModifiers=" + _hotkeyProfileWindowModifiers);
+                sb.AppendLine("HotkeyProfileWindowKey=" + _hotkeyProfileWindowKey);
+                sb.AppendLine("WindowOpenEffect=" + _windowOpenEffect);
+                sb.AppendLine("BoundsX=" + _boundsX);
+                sb.AppendLine("BoundsY=" + _boundsY);
+                sb.AppendLine("BoundsWidth=" + _boundsWidth);
+                sb.AppendLine("BoundsHeight=" + _boundsHeight);
                 sb.AppendLine("Economy=" + (_economy ? 1 : 0));
                 sb.AppendLine("PauseOnBattery=" + (_pauseOnBattery ? 1 : 0));
                 sb.AppendLine("PauseOnCall=" + (_pauseOnCall ? 1 : 0));
@@ -1465,6 +1548,7 @@ namespace Okna
 
         public static bool IsAutoStartEnabled()
         {
+            if (UiSmoke.IsIsolatedRun) return false;
             try
             {
                 using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RunKey, false))
@@ -1523,6 +1607,7 @@ namespace Okna
         /// <summary>True when a scheduled task starts Okna elevated at logon.</summary>
         public static bool IsAutoStartElevatedEnabled()
         {
+            if (UiSmoke.IsIsolatedRun) return false;
             try
             {
                 using (var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo

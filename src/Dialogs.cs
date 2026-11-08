@@ -461,6 +461,112 @@ namespace Okna
     /// </summary>
     internal static class Diagnostics
     {
+        internal static string BuildActiveWindowReport(string title, string process,
+            string className, Native.RECT bounds, bool visible, bool minimized)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine(Loc.T("Активное окно:"));
+            sb.AppendLine(Loc.T("Заголовок: ") + (string.IsNullOrEmpty(title) ? Loc.T("(без заголовка)") : title));
+            sb.AppendLine(Loc.T("Программа: ") + (string.IsNullOrEmpty(process) ? Loc.T("(неизвестно)") : process));
+            sb.AppendLine(Loc.T("Класс: ") + (string.IsNullOrEmpty(className) ? Loc.T("(неизвестно)") : className));
+            sb.AppendLine(Loc.T("Видимость: ") + Loc.T(visible ? "видимо" : "скрыто"));
+            sb.AppendLine(Loc.T("Состояние: ") + Loc.T(minimized ? "свёрнуто" : "обычное"));
+            sb.AppendLine(Loc.T("Положение: ") + bounds.Left + "," + bounds.Top +
+                " " + bounds.Width + "x" + bounds.Height);
+            return sb.ToString();
+        }
+
+        internal static string BuildActiveWindowReport(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) hwnd = Native.GetForegroundWindow();
+            if (hwnd == IntPtr.Zero || !Native.IsWindow(hwnd))
+                return Loc.T("Нет активного окна.");
+
+            Native.RECT bounds = new Native.RECT();
+            Native.GetWindowRect(hwnd, out bounds);
+            return BuildActiveWindowReport(Native.GetWindowTitle(hwnd),
+                Native.GetWindowProcessName(hwnd), Native.GetWindowClass(hwnd), bounds,
+                Native.IsWindowVisible(hwnd), Native.IsIconic(hwnd));
+        }
+
+        internal static string BuildActiveWindowDiagnosticReport(IntPtr hwnd,
+            string title, string process, string className, Native.RECT bounds,
+            bool visible, bool minimized, bool maximized, bool cloaked, bool ownProcess,
+            bool enabled, bool manuallyPaused, bool autoPaused, string autoPauseReason,
+            bool economy, bool shellWindow, bool excluded, bool hasProfile,
+            int profileEffect, bool profileBend, bool profileShake, bool profileRoll)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine(Loc.T("Активное окно:"));
+            sb.AppendLine("HWND: 0x" + hwnd.ToInt64().ToString("X"));
+            sb.AppendLine(Loc.T("Заголовок: ") +
+                (string.IsNullOrEmpty(title) ? Loc.T("(без заголовка)") : title));
+            sb.AppendLine(Loc.T("Программа: ") +
+                (string.IsNullOrEmpty(process) ? Loc.T("(неизвестно)") : process));
+            sb.AppendLine(Loc.T("Класс: ") +
+                (string.IsNullOrEmpty(className) ? Loc.T("(неизвестно)") : className));
+            sb.AppendLine(Loc.T("Видимость: ") + Loc.T(visible ? "видимо" : "скрыто"));
+            sb.AppendLine(Loc.T("Состояние: ") + Loc.T(minimized ? "свёрнуто" :
+                (maximized ? "развёрнуто" : "обычное")));
+            sb.AppendLine(Loc.T("Скрыто системой: ") + Loc.T(cloaked ? "да" : "нет"));
+            sb.AppendLine(Loc.T("Собственное окно Okna: ") + Loc.T(ownProcess ? "да" : "нет"));
+            sb.AppendLine(Loc.T("Положение: ") + bounds.Left + "," + bounds.Top +
+                " " + bounds.Width + "x" + bounds.Height);
+            sb.AppendLine();
+            sb.AppendLine(Loc.T("Проверки эффектов:"));
+            sb.AppendLine(Loc.T("Желеобразные окна: ") + Loc.T(enabled ? "вкл" : "выкл"));
+            sb.AppendLine(Loc.T("Ручная пауза: ") + Loc.T(manuallyPaused ? "да" : "нет"));
+            sb.AppendLine(Loc.T("Автопауза: ") + Loc.T(autoPaused ? "да" : "нет") +
+                (autoPaused && !string.IsNullOrEmpty(autoPauseReason)
+                    ? " (" + Loc.Status(autoPauseReason) + ")" : ""));
+            sb.AppendLine(Loc.T("Экономия: ") + Loc.T(economy ? "да" : "нет"));
+            sb.AppendLine(Loc.T("Окно оболочки: ") + Loc.T(shellWindow ? "да" : "нет"));
+            sb.AppendLine(Loc.T("Исключено: ") + Loc.T(excluded ? "да" : "нет"));
+            if (hasProfile)
+                sb.AppendLine(Loc.T("Профиль приложения: ") + profileEffect +
+                    " bend=" + profileBend + " shake=" + profileShake + " roll=" + profileRoll);
+            else
+                sb.AppendLine(Loc.T("Профиль приложения: ") + Loc.T("нет"));
+
+            List<string> reasons = new List<string>();
+            if (!enabled) reasons.Add(Loc.T("эффекты выключены"));
+            if (manuallyPaused) reasons.Add(Loc.T("ручная пауза"));
+            if (autoPaused) reasons.Add(Loc.T("автопауза"));
+            if (ownProcess) reasons.Add(Loc.T("собственное окно"));
+            if (shellWindow) reasons.Add(Loc.T("окно оболочки"));
+            if (excluded) reasons.Add(Loc.T("правило исключения"));
+            if (!visible) reasons.Add(Loc.T("окно скрыто"));
+            if (minimized) reasons.Add(Loc.T("окно свёрнуто"));
+            if (maximized) reasons.Add(Loc.T("окно развёрнуто"));
+            if (cloaked) reasons.Add(Loc.T("окно скрыто системой"));
+            if (hasProfile && !profileBend && !profileShake)
+                reasons.Add(Loc.T("профиль отключает эффекты"));
+            sb.AppendLine();
+            sb.AppendLine(Loc.T("Причина блокировки: ") +
+                (reasons.Count == 0 ? Loc.T("не обнаружена") : string.Join(", ", reasons)));
+            return sb.ToString();
+        }
+
+        internal static string BuildActiveWindowReport(string hotkeyStatus, string diagnostic)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("Okna " + Updater.CurrentLabel + "  " +
+                DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+            sb.AppendLine(Loc.T("Горячая клавиша: ") +
+                (hotkeyStatus ?? string.Empty));
+            sb.AppendLine();
+            sb.AppendLine(diagnostic ?? Loc.T("Движок недоступен."));
+            return sb.ToString();
+        }
+
+        internal static string BuildActiveWindowReport(AppSettings settings,
+            JellyEngine engine, string hotkeyStatus)
+        {
+            return BuildActiveWindowReport(hotkeyStatus, engine == null
+                ? Loc.T("Движок недоступен.")
+                : engine.GetActiveWindowDiagnostic(IntPtr.Zero));
+        }
+
         public static string BuildReport(AppSettings settings, JellyEngine engine, string hotkeyStatus)
         {
             StringBuilder sb = new StringBuilder();
@@ -530,6 +636,7 @@ namespace Okna
 
         private static string AutoStartDescription()
         {
+            if (UiSmoke.IsIsolatedRun) return Loc.T("выключен");
             try
             {
                 object value = Registry.GetValue(
@@ -566,6 +673,15 @@ namespace Okna
             using (DiagnosticsForm form = new DiagnosticsForm(
                 BuildReport(settings, engine, hotkeyStatus)))
                 form.ShowDialog(owner);
+        }
+
+        public static void ShowActiveWindow(IWin32Window owner, string report)
+        {
+            using (DiagnosticsForm form = new DiagnosticsForm(report))
+            {
+                form.Text = "Почему не применяется — активное окно";
+                form.ShowDialog(owner);
+            }
         }
     }
 

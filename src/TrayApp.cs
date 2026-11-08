@@ -22,6 +22,7 @@ namespace Okna
         private readonly ToolStripMenuItem _rollItem;
         private ToolStripMenuItem[] _presetItems;
         private readonly ToolStripMenuItem _closeNoneItem;
+        private ToolStripMenuItem _activeWindowItem;
         private readonly ToolStripMenuItem _closeShatterItem;
         private readonly ToolStripMenuItem _closeBurnItem;
         private readonly bool _showOnStart;
@@ -94,6 +95,16 @@ namespace Okna
 
             _pauseItem = NewItem("Пауза на 30 минут");
             _pauseItem.Click += delegate { ToggleTimedPause(); };
+            _pauseItem.DropDownItems.Add(NewPauseChoice("15 минут", 15));
+            _pauseItem.DropDownItems.Add(NewPauseChoice("30 минут", 30));
+            _pauseItem.DropDownItems.Add(NewPauseChoice("1 час", 60));
+            _pauseItem.DropDownItems.Add(NewPauseChoice("3 часа", 180));
+            ToolStripMenuItem untilTomorrow = NewItem("До завтра, 09:00");
+            untilTomorrow.Click += delegate { PauseUntilTomorrow(true); };
+            _pauseItem.DropDownItems.Add(untilTomorrow);
+            ToolStripMenuItem untilRestart = NewItem("До перезапуска");
+            untilRestart.Click += delegate { PauseFor(TimeSpan.Zero, true); };
+            _pauseItem.DropDownItems.Add(untilRestart);
             _menu.Items.Add(_pauseItem);
 
             _menu.Items.Add(new ToolStripSeparator());
@@ -249,6 +260,9 @@ namespace Okna
                 Diagnostics.Show(_form, _settings, _engine, _hotkeyStatus);
             };
             _menu.Items.Add(diagnosticsItem);
+            _activeWindowItem = NewItem("Активное окно…");
+            _activeWindowItem.Click += delegate { ShowActiveWindow(); };
+            _menu.Items.Add(_activeWindowItem);
 
             _menu.Items.Add(new ToolStripSeparator());
 
@@ -390,13 +404,16 @@ namespace Okna
 
             if (_pauseItem != null)
             {
-                if (_pauseTimer != null)
+                if (_engine.ManuallyPaused)
                 {
-                    int minutes = (int)Math.Ceiling((_pauseUntil - DateTime.UtcNow).TotalMinutes);
-                    if (minutes < 1) minutes = 1;
-                    string source = "Возобновить (ещё " + minutes + " мин)";
+                    int minutes = TimedPauseMinutesLeft;
+                    string source = minutes > 0
+                        ? "Возобновить (ещё " + minutes + " мин)"
+                        : "Возобновить (до перезапуска)";
                     _pauseItem.AccessibleDescription = source;
-                    _pauseItem.Text = Loc.T("Возобновить (ещё ") + minutes + Loc.T(" мин)");
+                    _pauseItem.Text = minutes > 0
+                        ? Loc.T("Возобновить (ещё ") + minutes + Loc.T(" мин)")
+                        : Loc.T("Возобновить (до перезапуска)");
                     _pauseItem.ForeColor = Theme.Accent;
                 }
                 else
@@ -573,6 +590,19 @@ namespace Okna
             ToggleTimedPause(true);
         }
 
+        internal void ToggleTimedPause(bool notify)
+        {
+            if (_engine.ManuallyPaused)
+            {
+                ClearTimedPause();
+                UpdateMenu();
+                SyncForm();
+                if (notify) Balloon("Окна включены", "Пауза снята.", true);
+                return;
+            }
+            PauseFor(TimeSpan.FromMinutes(30), notify);
+        }
+
         internal void ToggleBendHotkey()
         {
             _settings.Bend = !_settings.Bend;
@@ -591,33 +621,61 @@ namespace Okna
             Log.Debug("Roll hotkey -> " + _settings.Roll);
         }
 
-        private void ToggleTimedPause(bool notify)
+        private ToolStripMenuItem NewPauseChoice(string text, int minutes)
         {
-            if (_pauseTimer != null)
-            {
-                ClearTimedPause();
-                UpdateMenu();
-                SyncForm();
-                if (notify) Balloon("Окна включены", "Пауза снята.", true);
-                return;
-            }
+            ToolStripMenuItem item = NewItem(text);
+            item.Click += delegate { PauseFor(TimeSpan.FromMinutes(minutes), true); };
+            return item;
+        }
 
+        private void PauseUntilTomorrow(bool notify)
+        {
+            DateTime now = DateTime.Now;
+            PauseFor(NextPauseResumeTime(now).ToUniversalTime() - DateTime.UtcNow, notify);
+        }
+
+        internal static DateTime NextPauseResumeTime(DateTime now)
+        {
+            return now.Date.AddDays(1).AddHours(9);
+        }
+
+        private void PauseFor(TimeSpan duration, bool notify)
+        {
+            ClearTimedPause();
             _engine.ManuallyPaused = true;
-            _pauseUntil = DateTime.UtcNow.AddMinutes(30);
-            Log.Debug("Manual pause for 30 minutes");
-            _pauseTimer = new Timer();
-            _pauseTimer.Interval = 30 * 60 * 1000;
-            _pauseTimer.Tick += delegate
+            if (duration > TimeSpan.Zero)
             {
-                ClearTimedPause();
-                UpdateMenu();
-                SyncForm();
-                if (notify) Balloon("Окна включены", "Пауза на 30 минут закончилась.", true);
-            };
-            _pauseTimer.Start();
+                _pauseUntil = DateTime.UtcNow.Add(duration);
+                _pauseTimer = new Timer();
+                _pauseTimer.Interval = Math.Max(1, (int)Math.Min(int.MaxValue, duration.TotalMilliseconds));
+                _pauseTimer.Tick += delegate
+                {
+                    TimeSpan remaining = _pauseUntil - DateTime.UtcNow;
+                    if (remaining > TimeSpan.Zero)
+                    {
+                        _pauseTimer.Interval = Math.Max(1, (int)Math.Min(int.MaxValue, remaining.TotalMilliseconds));
+                        return;
+                    }
+                    ClearTimedPause();
+                    UpdateMenu();
+                    SyncForm();
+                    if (notify) Balloon("Окна включены", "Время паузы закончилось.", true);
+                };
+                _pauseTimer.Start();
+            }
+            else
+            {
+                _pauseUntil = DateTime.MaxValue;
+            }
+            Log.Debug(duration > TimeSpan.Zero
+                ? "Manual pause until " + _pauseUntil.ToString("o")
+                : "Manual pause until restart");
             UpdateMenu();
             SyncForm();
-            if (notify) Balloon("Окна на паузе", "Эффекты вернутся через 30 минут.", true);
+            if (notify)
+                Balloon("Окна на паузе", duration > TimeSpan.Zero
+                    ? "Эффекты вернутся по окончании паузы."
+                    : "Эффекты вернутся после перезапуска.", true);
         }
 
         private void ClearTimedPause()
@@ -629,6 +687,7 @@ namespace Okna
                 _pauseTimer = null;
                 Log.Debug("Manual pause cleared");
             }
+            _pauseUntil = DateTime.MinValue;
             _engine.ManuallyPaused = false;
         }
 
@@ -913,17 +972,51 @@ namespace Okna
 
         internal bool TimedPauseActive
         {
-            get { return _pauseTimer != null; }
+            get { return _engine.ManuallyPaused; }
         }
 
         internal int TimedPauseMinutesLeft
         {
             get
             {
-                if (_pauseTimer == null) return 0;
+                if (_pauseTimer == null || !_engine.ManuallyPaused) return 0;
                 int m = (int)Math.Ceiling((_pauseUntil - DateTime.UtcNow).TotalMinutes);
                 return m < 1 ? 1 : m;
             }
+        }
+
+        internal void ShowActiveWindow()
+        {
+            Diagnostics.ShowActiveWindow(_form,
+                Diagnostics.BuildActiveWindowReport(_settings, _engine, _hotkeyStatus));
+        }
+
+        internal void ShowProfileForActiveWindow()
+        {
+            IntPtr hwnd = Native.GetForegroundWindow();
+            if (hwnd == IntPtr.Zero || Native.IsOwnProcessWindow(hwnd))
+            {
+                Balloon("Нет активного окна", "Выберите окно другой программы.", true);
+                return;
+            }
+
+            string exe = Native.GetWindowProcessName(hwnd);
+            if (string.IsNullOrEmpty(exe))
+            {
+                Balloon("Не удалось определить программу", Native.GetWindowTitle(hwnd), true);
+                return;
+            }
+
+            string program;
+            int effect;
+            bool bend, shake, roll;
+            if (!CloseOverrideDialog.ShowFor(_form, _settings, exe,
+                    out program, out effect, out bend, out shake, out roll))
+                return;
+            _settings.SetAppProfile(program, effect, bend, shake, roll);
+            Persist();
+            UpdateMenu();
+            SyncForm();
         }
 
         internal void ClearSkippedUpdateUi()
@@ -995,6 +1088,19 @@ namespace Okna
                 UpdateMenu();
                 check("the status line is filled", _statusItem.Text.Length > 0);
                 check("the pause item is present", _pauseItem != null);
+                check("the pause menu offers all restored durations",
+                    _pauseItem != null && _pauseItem.DropDownItems.Count == 6);
+                check("active-window diagnostics are available from the tray",
+                    _activeWindowItem != null);
+                PauseFor(TimeSpan.FromMinutes(15), false);
+                check("manual pause starts for the selected duration",
+                    _engine.ManuallyPaused && TimedPauseMinutesLeft == 15);
+                ClearTimedPause();
+                PauseFor(TimeSpan.Zero, false);
+                check("manual pause can last until restart",
+                    _engine.ManuallyPaused && TimedPauseMinutesLeft == 0);
+                ToggleTimedPause(false);
+                check("pause hotkey toggle resumes manual pause", !_engine.ManuallyPaused);
                 check("the update item is present", _updateItem != null);
                 check("the what's new item is present", _notesItem != null);
                 check("the skip version item is present", _skipItem != null);
@@ -1139,6 +1245,8 @@ namespace Okna
         private const int HotkeyIdBend = 0x4F4C;
         private const int HotkeyIdRoll = 0x4F4D;
         private const int HotkeyIdSettings = 0x4F4E;
+        private const int HotkeyIdPause = 0x4F4F;
+        private const int HotkeyIdProfileWindow = 0x4F50;
         private readonly System.Collections.Generic.List<int> _registeredIds = new System.Collections.Generic.List<int>();
 
         public TrayApp Tray { get; set; }
@@ -1190,6 +1298,8 @@ namespace Okna
                 if (settings.HasHotkeyBend) RegisterOne(HotkeyIdBend, settings.HotkeyBendModifiers, settings.HotkeyBendKey, settings.HotkeyBendLabel, out e2);
                 if (settings.HasHotkeyRoll) RegisterOne(HotkeyIdRoll, settings.HotkeyRollModifiers, settings.HotkeyRollKey, settings.HotkeyRollLabel, out e2);
                 if (settings.HasHotkeySettings) RegisterOne(HotkeyIdSettings, settings.HotkeySettingsModifiers, settings.HotkeySettingsKey, settings.HotkeySettingsLabel, out e2);
+                if (settings.HasPauseHotkey) RegisterOne(HotkeyIdPause, settings.PauseHotkeyModifiers, settings.PauseHotkeyKey, settings.PauseHotkeyLabel, out e2);
+                if (settings.HasHotkeyProfileWindow) RegisterOne(HotkeyIdProfileWindow, settings.HotkeyProfileWindowModifiers, settings.HotkeyProfileWindowKey, settings.HotkeyProfileWindowLabel, out e2);
             }
             return mainOk;
         }
@@ -1245,6 +1355,8 @@ namespace Okna
                 if (id == HotkeyIdBend) { Tray.ToggleBendHotkey(); return; }
                 if (id == HotkeyIdRoll) { Tray.ToggleRollHotkey(); return; }
                 if (id == HotkeyIdSettings) { Tray.ShowSettings(); return; }
+                if (id == HotkeyIdPause) { Tray.ToggleTimedPause(false); return; }
+                if (id == HotkeyIdProfileWindow) { Tray.ShowProfileForActiveWindow(); return; }
             }
             base.WndProc(ref m);
         }
