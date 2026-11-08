@@ -74,11 +74,11 @@ namespace Okna
             _menu.ForeColor = Color.FromArgb(232, 242, 243);
             _menu.ShowImageMargin = false;
             _menu.Padding = new Padding(2);
-            _menu.Renderer = new ToolStripProfessionalRenderer(new JellyColorTable());
+            _menu.Renderer = new TrayMenuRenderer();
 
             ToolStripLabel header = new ToolStripLabel("ОКНА");
             header.Font = new Font(Theme.FontSmall, FontStyle.Bold);
-            header.ForeColor = Theme.Accent;
+            header.ForeColor = TrayAccent;
             header.Margin = new Padding(6, 3, 6, 3);
             _menu.Items.Add(header);
             _menu.Items.Add(new ToolStripSeparator());
@@ -305,10 +305,14 @@ namespace Okna
             }
         }
 
+        private static readonly Color TrayText = Color.FromArgb(232, 242, 243);
+        private static readonly Color TrayMuted = Color.FromArgb(139, 160, 171);
+        private static readonly Color TrayAccent = Color.FromArgb(45, 212, 166);
+
         private static ToolStripMenuItem NewItem(string text)
         {
             ToolStripMenuItem item = new ToolStripMenuItem(text);
-            item.ForeColor = Theme.Text;
+            item.ForeColor = TrayText;
             item.Padding = new Padding(4, 3, 4, 3);
             return item;
         }
@@ -1092,6 +1096,17 @@ namespace Okna
                 Dispatcher = null;
             }
             ExitThread();
+        }
+    }
+
+    internal sealed class TrayMenuRenderer : ToolStripProfessionalRenderer
+    {
+        public TrayMenuRenderer() : base(new JellyColorTable()) { }
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+        {
+            if (!e.Item.Enabled)
+                e.TextColor = Color.FromArgb(139, 160, 171);
+            base.OnRenderItemText(e);
         }
     }
 
