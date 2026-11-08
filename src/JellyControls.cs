@@ -128,7 +128,7 @@ namespace Okna
                      ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw |
                      ControlStyles.SupportsTransparentBackColor, true);
             Size = new Size(50, 28);
-            BackColor = Theme.Card;
+            BackColor = Color.Transparent;
             Cursor = Cursors.Hand;
             TabStop = true;
             _knob = 0f;
