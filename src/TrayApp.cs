@@ -1116,6 +1116,27 @@ namespace Okna
                 Native.DwmSetWindowAttribute(Handle, Native.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, 4);
             }
             catch { }
+            try
+            {
+                // Win10 blur/acrylic fallback (undocumented API, best-effort)
+                Native.AccentPolicy accent = new Native.AccentPolicy();
+                accent.AccentState = Native.ACCENT_ENABLE_BLURBEHIND;
+                accent.AccentFlags = 2;
+                accent.GradientColor = 0x01000000; // minimal alpha hint
+                int size = System.Runtime.InteropServices.Marshal.SizeOf(accent);
+                IntPtr p = System.Runtime.InteropServices.Marshal.AllocHGlobal(size);
+                try
+                {
+                    System.Runtime.InteropServices.Marshal.StructureToPtr(accent, p, false);
+                    Native.WindowCompositionAttributeData data = new Native.WindowCompositionAttributeData();
+                    data.Attribute = Native.WCA_ACCENT_POLICY;
+                    data.Data = p;
+                    data.SizeOfData = size;
+                    Native.SetWindowCompositionAttribute(Handle, ref data);
+                }
+                finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }
+            }
+            catch { }
         }
     }
 

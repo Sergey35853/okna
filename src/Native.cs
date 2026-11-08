@@ -368,6 +368,30 @@ namespace Okna
         [DllImport("dwmapi.dll")]
         public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
+        [DllImport("user32.dll")]
+        internal static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct WindowCompositionAttributeData
+        {
+            public int Attribute;
+            public IntPtr Data;
+            public int SizeOfData;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct AccentPolicy
+        {
+            public int AccentState;
+            public int AccentFlags;
+            public int GradientColor;
+            public int AnimationId;
+        }
+
+        internal const int WCA_ACCENT_POLICY = 19;
+        internal const int ACCENT_ENABLE_BLURBEHIND = 3;
+        internal const int ACCENT_ENABLE_ACRYLICBLURBEHIND = 4;
+
         [DllImport("winmm.dll")]
         public static extern uint timeBeginPeriod(uint period);
 
