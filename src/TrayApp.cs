@@ -74,7 +74,7 @@ namespace Okna
             _menu.ForeColor = Color.FromArgb(232, 242, 243);
             _menu.ShowImageMargin = false;
             _menu.Padding = new Padding(2);
-            _menu.Renderer = new ToolStripProfessionalRenderer(new JellyColorTable());
+            _menu.Renderer = new JellyMenuRenderer();
 
             ToolStripLabel header = new ToolStripLabel("ОКНА");
             header.Font = new Font(Theme.FontSmall, FontStyle.Bold);
@@ -1103,6 +1103,13 @@ namespace Okna
             TryEnableTranslucency();
         }
 
+        protected override void OnOpening(System.ComponentModel.CancelEventArgs e)
+        {
+            base.OnOpening(e);
+            // Re-apply on open; popup HWNDs can be recreated
+            try { TryEnableTranslucency(); } catch { }
+        }
+
         private void TryEnableTranslucency()
         {
             try
@@ -1120,9 +1127,9 @@ namespace Okna
             {
                 // Win10 blur/acrylic fallback (undocumented API, best-effort)
                 Native.AccentPolicy accent = new Native.AccentPolicy();
-                accent.AccentState = Native.ACCENT_ENABLE_BLURBEHIND;
+                accent.AccentState = Native.ACCENT_ENABLE_ACRYLICBLURBEHIND;
                 accent.AccentFlags = 2;
-                accent.GradientColor = 0x01000000; // minimal alpha hint
+                accent.GradientColor = unchecked((int)0xA0101820); // dark tint + alpha for acrylic
                 int size = System.Runtime.InteropServices.Marshal.SizeOf(accent);
                 IntPtr p = System.Runtime.InteropServices.Marshal.AllocHGlobal(size);
                 try
@@ -1137,6 +1144,54 @@ namespace Okna
                 finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }
             }
             catch { }
+            try
+            {
+                // fallback blur
+                Native.AccentPolicy accent = new Native.AccentPolicy();
+                accent.AccentState = Native.ACCENT_ENABLE_BLURBEHIND;
+                accent.AccentFlags = 2;
+                accent.GradientColor = unchecked((int)0xCC101820);
+                int size = System.Runtime.InteropServices.Marshal.SizeOf(accent);
+                IntPtr p = System.Runtime.InteropServices.Marshal.AllocHGlobal(size);
+                try
+                {
+                    System.Runtime.InteropServices.Marshal.StructureToPtr(accent, p, false);
+                    Native.WindowCompositionAttributeData data = new Native.WindowCompositionAttributeData();
+                    data.Attribute = Native.WCA_ACCENT_POLICY;
+                    data.Data = p;
+                    data.SizeOfData = size;
+                    Native.SetWindowCompositionAttribute(Handle, ref data);
+                }
+                finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }
+            }
+            catch { }
+        }
+    }
+
+    internal sealed class JellyMenuRenderer : ToolStripProfessionalRenderer
+    {
+        public JellyMenuRenderer() : base(new JellyColorTable()) { }
+        protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
+        {
+            // Let DWM/system backdrop show through as much as possible
+            if (e.ToolStrip is ToolStripDropDown)
+            {
+                using (SolidBrush b = new SolidBrush(Color.FromArgb(80, 18, 26, 34)))
+                    e.Graphics.FillRectangle(b, e.AffectedBounds);
+                return;
+            }
+            base.OnRenderToolStripBackground(e);
+        }
+        protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
+        {
+            if (e.ToolStrip is ToolStripDropDown)
+            {
+                Rectangle r = e.AffectedBounds; r.Width -= 1; r.Height -= 1;
+                using (Pen p = new Pen(Color.FromArgb(70, 70, 100, 120)))
+                    e.Graphics.DrawRectangle(p, r);
+                return;
+            }
+            base.OnRenderToolStripBorder(e);
         }
     }
 
