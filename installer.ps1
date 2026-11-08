@@ -23,6 +23,7 @@ function Find-Iscc {
     $roots = @(
         "${env:ProgramFiles(x86)}\Inno Setup 6",
         "$env:ProgramFiles\Inno Setup 6",
+        "$env:LOCALAPPDATA\Programs\Inno Setup 6",
         "${env:ProgramFiles(x86)}\Inno Setup 5",
         "$env:ProgramFiles\Inno Setup 5"
     )

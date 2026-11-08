@@ -138,8 +138,10 @@ namespace Okna
                 };
                 _healthTimer.Start();
 
+                WindowBoundsLockManager boundsLocks = new WindowBoundsLockManager();
                 try
                 {
+                    boundsLocks.Start();
                     Application.Run(tray);
                 }
                 finally
@@ -150,6 +152,7 @@ namespace Okna
                         _healthTimer.Dispose();
                         _healthTimer = null;
                     }
+                    boundsLocks.Dispose();
                     engine.Stop();
                     Log.Info("Application exit.");
                     try { if (dispatcher != null && !dispatcher.IsDisposed) dispatcher.Dispose(); } catch { }

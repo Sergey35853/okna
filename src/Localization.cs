@@ -25,6 +25,8 @@ namespace Okna
             {
                 // Window and cards.
                 { "Окна", "Okna" },
+                { "Зафиксировать положение", "Lock position" },
+                { "Зафиксировать размер", "Lock size" },
                 { "Инерционные окна для Windows", "Inertial windows for Windows" },
                 { "Эффект", "Effect" },
                 { "Движение", "Motion" },

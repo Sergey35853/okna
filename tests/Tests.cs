@@ -41,6 +41,7 @@ namespace Okna.Tests
             Run("DPI scaling and monitor coordinates stay exact", MonitorGeometry);
             Run("an edge press is told apart from a drag", ResizeEdgeDetection);
             Run("frameless windows report their resize borders", ResizeHitCodes);
+            Run("position and size locks preserve independent bounds", WindowBoundsLocks);
             Run("the resize wave follows distance as well as speed", ResizeWaveStrength);
             Run("the bend strip grows only for large windows", StripHeightBudget);
             Run("the rotated log keeps its name readable", LogRotationName);
@@ -568,6 +569,41 @@ namespace Okna.Tests
                     new Native.RECT(), 10), "a degenerate rectangle should be rejected");
         }
 
+        private static void WindowBoundsLocks()
+        {
+            Native.RECT current = Rect(120, 180, 620, 580);
+            Native.RECT position = Rect(20, 40, 420, 340);
+            Native.RECT size = Rect(0, 0, 800, 700);
+            Native.RECT result;
+
+            Check(WindowBoundsLockManager.TryGetLockedBounds(current, position, size,
+                    true, false, out result),
+                "position lock should produce a correction");
+            Check(result.Left == 20 && result.Top == 40 &&
+                    result.Width == current.Width && result.Height == current.Height,
+                "position lock should restore coordinates and preserve the current size");
+
+            Check(WindowBoundsLockManager.TryGetLockedBounds(current, position, size,
+                    false, true, out result),
+                "size lock should produce a correction");
+            Check(result.Left == current.Left && result.Top == current.Top &&
+                    result.Width == size.Width && result.Height == size.Height,
+                "size lock should restore dimensions and preserve the current position");
+
+            Check(WindowBoundsLockManager.TryGetLockedBounds(current, position, size,
+                    true, true, out result),
+                "both locks should produce a correction");
+            Check(result.Left == position.Left && result.Top == position.Top &&
+                    result.Width == size.Width && result.Height == size.Height,
+                "both locks should combine the independently captured bounds");
+
+            Check(!WindowBoundsLockManager.TryGetLockedBounds(current, position, size,
+                    false, false, out result) &&
+                    result.Left == current.Left && result.Top == current.Top &&
+                    result.Width == current.Width && result.Height == current.Height,
+                "unlocked bounds should remain unchanged");
+        }
+
         private static void ResizeHitCodes()
         {
             for (int hit = 10; hit <= 17; hit++)
@@ -971,11 +1007,17 @@ namespace Okna.Tests
         {
             Loc.Configure((int)UiLanguage.Russian);
             Check(Loc.T("Готово") == "Готово", "Russian keeps the source text");
+            Check(Loc.T("Зафиксировать положение") == "Зафиксировать положение" &&
+                    Loc.T("Зафиксировать размер") == "Зафиксировать размер",
+                "Russian system-menu labels stay in Russian");
             Check(Loc.T("Желеобразные окна: вкл") == "Желеобразные окна: вкл",
                 "Russian keeps the tray text");
 
             Loc.Configure((int)UiLanguage.English);
             Check(Loc.T("Готово") == "Done", "button text is translated");
+            Check(Loc.T("Зафиксировать положение") == "Lock position" &&
+                    Loc.T("Зафиксировать размер") == "Lock size",
+                "system-menu labels are translated");
             Check(Loc.T("Активно") == "Active", "status text is translated");
             Check(Loc.T("Желеобразные окна: вкл") == "Jelly windows: on",
                 "tray text is translated");

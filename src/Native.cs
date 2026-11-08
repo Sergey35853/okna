@@ -12,6 +12,13 @@ namespace Okna
         public const int WM_APP = 0x8000;
         public const int WM_APP_SHOW = WM_APP + 1;
         public const int WM_APP_ALREADY_RUNNING = WM_APP + 2;
+        public const int EVENT_OBJECT_INVOKED = 0x8013;
+        public const int EVENT_OBJECT_LOCATIONCHANGE = 0x800B;
+        public const int OBJID_MENU = -3;
+        public const int OBJID_SYSMENU = -1;
+        public const uint MF_BYCOMMAND = 0x0000;
+        public const uint MF_CHECKED = 0x0008;
+        public const uint MF_STRING = 0x0000;
 
         public const int HTCAPTION = 2;
         public const int HTMINBUTTON = 8;
@@ -279,6 +286,41 @@ namespace Okna
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+        public delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern IntPtr GetSystemMenu(IntPtr hwnd, bool revert);
+
+        [DllImport("user32.dll", EntryPoint = "AppendMenuW", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool AppendMenu(IntPtr menu, uint flags, UIntPtr itemId, string itemText);
+
+        [DllImport("user32.dll", EntryPoint = "DeleteMenu", SetLastError = true)]
+        public static extern bool DeleteMenu(IntPtr menu, uint item, uint flags);
+
+        [DllImport("user32.dll", EntryPoint = "CheckMenuItem", SetLastError = true)]
+        public static extern uint CheckMenuItem(IntPtr menu, uint item, uint flags);
+
+        [DllImport("user32.dll", EntryPoint = "GetMenuState", SetLastError = true)]
+        public static extern uint GetMenuState(IntPtr menu, uint item, uint flags);
+
+        [DllImport("user32.dll", EntryPoint = "GetMenuStringW", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern int GetMenuString(IntPtr menu, uint item, StringBuilder text, int maxCount, uint flags);
+
+        [DllImport("user32.dll", EntryPoint = "ModifyMenuW", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool ModifyMenu(IntPtr menu, uint item, uint flags, UIntPtr newItemId, string itemText);
+
+        [DllImport("user32.dll")]
+        public static extern uint GetMenuItemID(IntPtr menu, int position);
+
+        [DllImport("user32.dll")]
+        public static extern int GetMenuItemCount(IntPtr menu);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern void NotifyWinEvent(uint eventType, IntPtr hwnd, int objectId, int childId);
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
