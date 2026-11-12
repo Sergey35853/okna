@@ -37,14 +37,17 @@ namespace Okna
         /// Starts the animation. <paramref name="shot"/> is the window picture
         /// and is owned (and disposed) by the animation thread.
         /// </summary>
-        public static void Play(Bitmap shot, Native.RECT frame, Native.POINT impact)
+        public static void Play(Bitmap shot, Native.RECT frame, Native.POINT impact,
+            double speed)
         {
             if (shot == null) return;
+            if (speed < 0.5) speed = 0.5;
+            if (speed > 1.5) speed = 1.5;
             Thread thread = new Thread(delegate()
             {
                 try
                 {
-                    Run(shot, frame, impact);
+                    Run(shot, frame, impact, speed);
                 }
                 catch (Exception ex)
                 {
@@ -58,7 +61,8 @@ namespace Okna
             thread.Start();
         }
 
-        private static void Run(Bitmap shot, Native.RECT frame, Native.POINT impact)
+        private static void Run(Bitmap shot, Native.RECT frame, Native.POINT impact,
+            double speed)
         {
             // The virtual desktop can start at negative coordinates and can
             // span several monitors; clipping to the primary one would cut the
@@ -132,7 +136,7 @@ namespace Okna
                 double last = 0;
                 while (true)
                 {
-                    double t = clock.Elapsed.TotalSeconds;
+                    double t = clock.Elapsed.TotalSeconds * speed;
                     if (t >= Duration) break;
 
                     // The picture is already cracked for a blink before the

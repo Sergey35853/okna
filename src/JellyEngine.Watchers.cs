@@ -38,17 +38,18 @@ namespace Okna
                         if (effect == 3)
                         {
                             Log.Debug("Fade " + gone.ToInt64() + " '" + Native.GetWindowTitle(gone) + "'");
-                            FadeOverlay.Play(shot, _closeFrame);
+                            FadeOverlay.Play(shot, _closeFrame, _settings.EffectSpeedFactor);
                         }
                         else if (effect == 2)
                         {
                             Log.Debug("Burn " + gone.ToInt64() + " '" + Native.GetWindowTitle(gone) + "'");
-                            BurnOverlay.Play(shot, _closeFrame);
+                            BurnOverlay.Play(shot, _closeFrame, _settings.EffectSpeedFactor);
                         }
                         else if (effect == 1)
                         {
                             Log.Debug("Shatter " + gone.ToInt64() + " '" + Native.GetWindowTitle(gone) + "'");
-                            ShatterOverlay.Play(shot, _closeFrame, _closePoint);
+                            ShatterOverlay.Play(shot, _closeFrame, _closePoint,
+                                _settings.EffectSpeedFactor);
                         }
                         else
                         {
@@ -79,7 +80,8 @@ namespace Okna
                         Log.Debug("Roll to tray " + hidden.ToInt64() + " '" +
                             Native.GetWindowTitle(hidden) + "'");
                         if (RollAllowed(_closeExe))
-                            RollOverlay.PlayToTray(hiddenShot, _closeFrame, _settings.RollDirection);
+                            RollOverlay.PlayToTray(hiddenShot, _closeFrame,
+                                _settings.RollDirection, _settings.EffectSpeedFactor);
                         else
                             ShotPool.Return(hiddenShot);
                     }
@@ -245,7 +247,8 @@ namespace Okna
                     ClearCloseWatch();
                     Log.Debug("Roll " + target.ToInt64());
                     if (RollAllowed(Native.GetWindowProcessName(target)))
-                        RollOverlay.Play(shot, frame, target, _settings.RollDirection);
+                        RollOverlay.Play(shot, frame, target, _settings.RollDirection,
+                            _settings.EffectSpeedFactor);
                     else if (shot != null)
                         ShotPool.Return(shot);
                     return;

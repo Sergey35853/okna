@@ -201,7 +201,11 @@ namespace Okna
         public bool Shatter
         {
             get { return _shatter; }
-            set { _shatter = value; }
+            set
+            {
+                _shatter = value;
+                if (value) { _burn = false; _fade = false; }
+            }
         }
 
         /// <summary>
@@ -211,14 +215,22 @@ namespace Okna
         public bool Burn
         {
             get { return _burn; }
-            set { _burn = value; }
+            set
+            {
+                _burn = value;
+                if (value) { _shatter = false; _fade = false; }
+            }
         }
 
         /// <summary>Fade the window out on close instead of shards or fire.</summary>
         public bool Fade
         {
             get { return _fade; }
-            set { _fade = value; }
+            set
+            {
+                _fade = value;
+                if (value) { _shatter = false; _burn = false; }
+            }
         }
 
         /// <summary>
@@ -611,7 +623,7 @@ namespace Okna
 
         /// <summary>
         /// -1 when the program has no profile and the global close effect
-        /// applies; otherwise 0 = none, 1 = shards, 2 = fire.
+        /// applies; otherwise 0 = none, 1 = shards, 2 = fire, 3 = fade.
         /// </summary>
         public int GetCloseEffect(string executableName)
         {
@@ -716,7 +728,7 @@ namespace Okna
             string name = CleanPattern(executableName);
             if (name == null || name.StartsWith("class:", StringComparison.OrdinalIgnoreCase)) return;
             if (effect < 0) effect = 0;
-            if (effect > 2) effect = 2;
+            if (effect > 3) effect = 3;
 
             string value = name + "=" + effect + "," + (bend ? 1 : 0) + "," +
                            (shake ? 1 : 0) + "," + (roll ? 1 : 0);
@@ -1564,84 +1576,207 @@ namespace Okna
 
         public static void SetAutoStart(bool enabled, string executablePath)
         {
+            string error;
+            SetAutoStart(enabled, executablePath, out error);
+        }
+
+        /// <summary>
+        /// Enables or disables the plain registry Run entry. Enabling removes
+        /// the elevated scheduled task first: keeping both entries would start
+        /// Okna twice at logon. Returns false and an explanation when the task
+        /// cannot be removed, so the caller can show the real state instead of
+        /// leaving two autostart entries behind.
+        /// </summary>
+        public static bool SetAutoStart(bool enabled, string executablePath,
+            out string error)
+        {
+            error = null;
             try
             {
+                if (enabled && IsScheduledTaskPresent())
+                {
+                    string taskError;
+                    if (!RemoveScheduledTask(out taskError))
+                    {
+                        error = taskError ??
+                            "не удалось удалить задание автозапуска с правами администратора";
+                        Log.Error("Autostart task removal failed: " + error);
+                        return false;
+                    }
+                    Log.Info("Elevated autostart task removed for plain autostart");
+                }
+
                 using (RegistryKey key = Registry.CurrentUser.CreateSubKey(RunKey))
                 {
-                    if (key == null) return;
+                    if (key == null)
+                    {
+                        error = "не удалось открыть раздел автозапуска";
+                        Log.Error("Autostart update failed: Run key unavailable");
+                        return false;
+                    }
                     if (enabled)
                         key.SetValue(RunValue, "\"" + executablePath + "\" --silent", RegistryValueKind.String);
                     else
                         key.DeleteValue(RunValue, false);
                 }
-                // When starting via the normal Run key, remove the elevated
-                // scheduled task so Okna does not start twice.
-                if (enabled)
-                {
-                    try
-                    {
-                        using (var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                        {
-                            FileName = "schtasks.exe",
-                            Arguments = "/Delete /TN \"" + TaskName + "\" /F",
-                            UseShellExecute = false,
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true,
-                            CreateNoWindow = true
-                        }))
-                        {
-                            proc.WaitForExit(5000);
-                        }
-                    }
-                    catch { }
-                }
+                return true;
             }
             catch (Exception ex)
             {
+                error = ex.Message;
                 Log.Error("Autostart update failed: " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Puts back a plain Run entry captured before an elevated autostart
+        /// attempt, so a failed task creation does not leave the user with no
+        /// autostart at all.
+        /// </summary>
+        private static void RestoreRunValue(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return;
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(RunKey))
+                {
+                    if (key != null)
+                        key.SetValue(RunValue, value, RegistryValueKind.String);
+                }
+                Log.Info("Plain autostart restored after failed elevated task");
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Autostart rollback failed: " + ex.Message);
             }
         }
 
         private const string TaskName = "Okna";
 
-        /// <summary>True when a scheduled task starts Okna elevated at logon.</summary>
+        /// <summary>
+        /// True when a scheduled task starts Okna elevated at logon. The task
+        /// is queried as XML because the human-readable /FO LIST output is
+        /// localized and does not contain the privilege level on all Windows
+        /// versions.
+        /// </summary>
         public static bool IsAutoStartElevatedEnabled()
         {
             if (UiSmoke.IsIsolatedRun) return false;
+            string output;
+            string error;
+            if (!RunScheduledTask("/Query /TN \"" + TaskName + "\" /XML",
+                    out output, out error))
+                return false;
+            return output != null &&
+                output.IndexOf("<RunLevel>HighestAvailable</RunLevel>",
+                    StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool IsScheduledTaskPresent()
+        {
+            string output;
+            string error;
+            return RunScheduledTask("/Query /TN \"" + TaskName + "\"",
+                out output, out error);
+        }
+
+        /// <summary>
+        /// Deletes the elevated logon task and verifies that it is really
+        /// gone. Returns false with an explanation when it survives.
+        /// </summary>
+        private static bool RemoveScheduledTask(out string error)
+        {
+            error = null;
+            if (!IsScheduledTaskPresent()) return true;
+            string output;
+            string detail;
+            if (!RunScheduledTask("/Delete /TN \"" + TaskName + "\" /F",
+                    out output, out detail) || IsScheduledTaskPresent())
+            {
+                error = FirstLine(detail) ?? FirstLine(output) ??
+                    "не удалось удалить задание планировщика";
+                return false;
+            }
+            return true;
+        }
+
+        private static bool RunScheduledTask(string arguments,
+            out string output, out string error)
+        {
+            output = null;
+            error = null;
             try
             {
                 using (var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = "schtasks.exe",
-                    Arguments = "/Query /TN \"" + TaskName + "\" /FO LIST",
+                    Arguments = arguments,
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     CreateNoWindow = true
                 }))
                 {
-                    string output = proc.StandardOutput.ReadToEnd();
-                    proc.WaitForExit(5000);
-                    return output.Contains("Okna") && output.Contains("Highest Available");
+                    output = proc.StandardOutput.ReadToEnd();
+                    error = proc.StandardError.ReadToEnd();
+                    if (!proc.WaitForExit(10000))
+                    {
+                        try { proc.Kill(); } catch { }
+                        error = "планировщик заданий не ответил";
+                        return false;
+                    }
+                    return proc.ExitCode == 0;
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                error = ex.Message;
                 return false;
             }
+        }
+
+        private static string FirstLine(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+            string[] lines = text.Split(new[] { '\r', '\n' },
+                StringSplitOptions.RemoveEmptyEntries);
+            return lines.Length > 0 ? lines[0].Trim() : null;
         }
 
         /// <summary>
         /// Creates a scheduled task that starts Okna with --silent at logon
         /// using the highest available privilege level (administrator).
         /// Removes any previous registry Run entry to avoid double start.
+        /// Returns false and an explanation when the task cannot be created.
         /// </summary>
-        public static void SetAutoStartElevated(bool enabled, string executablePath)
+        public static bool SetAutoStartElevated(bool enabled, string executablePath)
         {
+            string error;
+            return SetAutoStartElevated(enabled, executablePath, out error);
+        }
+
+        public static bool SetAutoStartElevated(bool enabled, string executablePath,
+            out string error)
+        {
+            error = null;
             try
             {
                 if (enabled)
                 {
+                    // Remember the plain Run entry: if the elevated task
+                    // cannot be created, restoring it keeps at least one
+                    // working autostart instead of silently losing both.
+                    string previousRun = null;
+                    try
+                    {
+                        using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RunKey, false))
+                        {
+                            if (key != null) previousRun = key.GetValue(RunValue) as string;
+                        }
+                    }
+                    catch { }
+
                     // Remove the plain registry Run entry so Okna does not start twice.
                     try
                     {
@@ -1652,45 +1787,58 @@ namespace Okna
                     }
                     catch { }
 
+                    string taskCommand = "\"" + executablePath + "\" --silent";
                     string args = "/Create /TN \"" + TaskName + "\" /TR \"" +
-                        executablePath + " --silent\" /SC ONLOGON /RL HIGHEST /F";
-                    using (var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        taskCommand.Replace("\"", "\\\"") +
+                        "\" /SC ONLOGON /RL HIGHEST /F";
+                    string output;
+                    string detail;
+                    if (!RunScheduledTask(args, out output, out detail))
                     {
-                        FileName = "schtasks.exe",
-                        Arguments = args,
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true
-                    }))
-                    {
-                        proc.WaitForExit(10000);
-                        string err = proc.StandardError.ReadToEnd();
-                        if (proc.ExitCode != 0)
-                            Log.Error("Elevated autostart task failed: " + err);
-                        else
-                            Log.Info("Elevated autostart task created");
+                        error = FirstLine(detail) ?? FirstLine(output) ??
+                            "не удалось создать задание планировщика";
+                        // A previous task may have survived the overwrite. Do
+                        // not restore the Run entry while it exists, otherwise
+                        // Okna would start twice at logon.
+                        string cleanupError;
+                        if (RemoveScheduledTask(out cleanupError))
+                            RestoreRunValue(previousRun);
+                        else if (!string.IsNullOrEmpty(cleanupError))
+                            error += "; " + cleanupError;
+                        Log.Error("Elevated autostart task failed: " + error);
+                        return false;
                     }
+                    if (!IsAutoStartElevatedEnabled())
+                    {
+                        error = "задание создано, но Windows не подтвердила запуск с правами администратора";
+                        string cleanupError;
+                        if (RemoveScheduledTask(out cleanupError))
+                            RestoreRunValue(previousRun);
+                        else if (!string.IsNullOrEmpty(cleanupError))
+                            error += "; " + cleanupError;
+                        Log.Error("Elevated autostart task failed verification");
+                        return false;
+                    }
+                    Log.Info("Elevated autostart task created");
+                    return true;
                 }
-                else
+
+                if (!IsScheduledTaskPresent()) return true;
+                string removeError;
+                if (!RemoveScheduledTask(out removeError))
                 {
-                    using (var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                    {
-                        FileName = "schtasks.exe",
-                        Arguments = "/Delete /TN \"" + TaskName + "\" /F",
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true
-                    }))
-                    {
-                        proc.WaitForExit(5000);
-                    }
+                    error = removeError ?? "не удалось удалить задание планировщика";
+                    Log.Error("Elevated autostart removal failed: " + error);
+                    return false;
                 }
+                Log.Info("Elevated autostart task removed");
+                return true;
             }
             catch (Exception ex)
             {
+                error = ex.Message;
                 Log.Error("Elevated autostart update failed: " + ex.Message);
+                return false;
             }
         }
 

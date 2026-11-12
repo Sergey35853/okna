@@ -204,7 +204,7 @@ WinEvent-маршрут, не выдавая его за реальный щел
 
 ### Установщик и подпись
 
-- [ ] `installer.ps1` собирает `dist\Okna-Setup-1.8.24.exe`.
+- [ ] `installer.ps1` собирает `dist\Okna-Setup-1.8.25.exe`.
 - [ ] Установщик ставит программу, создаёт ярлыки и запускает её.
 - [ ] При заданных `SIGN_PFX_BASE64`/`SIGN_PFX_PASSWORD` или `SIGN_CERT_SHA1`
       `Get-AuthenticodeSignature` показывает `Valid` у exe и установщика.

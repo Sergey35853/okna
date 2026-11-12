@@ -25,6 +25,7 @@ namespace Okna
         private ToolStripMenuItem _activeWindowItem;
         private readonly ToolStripMenuItem _closeShatterItem;
         private readonly ToolStripMenuItem _closeBurnItem;
+        private readonly ToolStripMenuItem _closeFadeItem;
         private readonly bool _showOnStart;
         private SettingsForm _form;
         private bool _exiting;
@@ -72,7 +73,7 @@ namespace Okna
             _icon = icon;
             _showOnStart = showOnStart;
 
-            _menu = new ContextMenuStrip();
+            _menu = new JellyContextMenuStrip();
             _menu.Font = Theme.FontBody;
             _menu.BackColor = Color.FromArgb(17, 28, 36);
             _menu.ForeColor = Color.FromArgb(232, 242, 243);
@@ -155,12 +156,15 @@ namespace Okna
             _closeNoneItem = NewItem("Без эффекта");
             _closeShatterItem = NewItem("Осколки");
             _closeBurnItem = NewItem("Сгорание");
+            _closeFadeItem = NewItem("Затухание");
             _closeNoneItem.Click += delegate { SetCloseEffect(0); };
             _closeShatterItem.Click += delegate { SetCloseEffect(1); };
             _closeBurnItem.Click += delegate { SetCloseEffect(2); };
+            _closeFadeItem.Click += delegate { SetCloseEffect(3); };
             closeMenu.DropDownItems.Add(_closeNoneItem);
             closeMenu.DropDownItems.Add(_closeShatterItem);
             closeMenu.DropDownItems.Add(_closeBurnItem);
+            closeMenu.DropDownItems.Add(_closeFadeItem);
             _menu.Items.Add(closeMenu);
 
             _menu.Items.Add(new ToolStripSeparator());
@@ -175,8 +179,25 @@ namespace Okna
             _startupItem.Click += delegate
             {
                 bool enable = !AppSettings.IsAutoStartEnabled();
-                AppSettings.SetAutoStart(enable, Application.ExecutablePath);
-                _settings.StartWithWindows = enable;
+                string error;
+                bool ok = AppSettings.SetAutoStart(enable, Application.ExecutablePath,
+                    out error);
+                if (ok)
+                {
+                    _settings.StartWithWindows = enable;
+                    // The normal Run entry and the elevated task are mutually
+                    // exclusive, so enabling autostart removes the task.
+                    if (enable) _settings.AutoStartElevated = false;
+                }
+                else
+                {
+                    // Report the real state instead of a menu item that claims
+                    // the change succeeded while both entries may still exist.
+                    _settings.StartWithWindows = AppSettings.IsAutoStartEnabled();
+                    _settings.AutoStartElevated = AppSettings.IsAutoStartElevatedEnabled();
+                    BalloonWarning("Окна",
+                        Loc.T("Не удалось изменить автозапуск: ") + error);
+                }
                 Persist();
                 UpdateMenu();
                 SyncForm();
@@ -187,8 +208,24 @@ namespace Okna
             _autoStartElevatedItem.Click += delegate
             {
                 bool enable = !AppSettings.IsAutoStartElevatedEnabled();
-                AppSettings.SetAutoStartElevated(enable, Application.ExecutablePath);
-                _settings.AutoStartElevated = enable;
+                string error;
+                bool ok = AppSettings.SetAutoStartElevated(enable,
+                    Application.ExecutablePath, out error);
+                if (ok)
+                {
+                    _settings.AutoStartElevated = enable;
+                    if (enable) _settings.StartWithWindows = false;
+                }
+                else
+                {
+                    // Report the real state instead of pretending the task
+                    // was created; schtasks often fails silently for users
+                    // without the right to create elevated logon tasks.
+                    _settings.AutoStartElevated = AppSettings.IsAutoStartElevatedEnabled();
+                    _settings.StartWithWindows = AppSettings.IsAutoStartEnabled();
+                    BalloonWarning("Окна",
+                        Loc.T("Не удалось изменить автозапуск с правами администратора: ") + error);
+                }
                 Persist();
                 UpdateMenu();
                 SyncForm();
@@ -364,6 +401,7 @@ namespace Okna
         {
             _settings.Shatter = effect == 1;
             _settings.Burn = effect == 2;
+            _settings.Fade = effect == 3;
             Persist();
             UpdateMenu();
             SyncForm();
@@ -469,9 +507,11 @@ namespace Okna
             }
             if (_closeNoneItem != null)
             {
-                _closeNoneItem.Checked = !_settings.Shatter && !_settings.Burn;
+                _closeNoneItem.Checked =
+                    !_settings.Shatter && !_settings.Burn && !_settings.Fade;
                 _closeShatterItem.Checked = _settings.Shatter;
                 _closeBurnItem.Checked = _settings.Burn;
+                if (_closeFadeItem != null) _closeFadeItem.Checked = _settings.Fade;
             }
             if (_lockPositionItem != null && _lockSizeItem != null)
             {
@@ -552,9 +592,10 @@ namespace Okna
         public bool ApplyHotkey(bool notify)
         {
             string error = null;
+            string[] warnings = null;
             bool ok = false;
             if (Dispatcher != null)
-                ok = Dispatcher.ApplyHotkey(_settings, out error);
+                ok = Dispatcher.ApplyHotkey(_settings, out error, out warnings);
             if (Dispatcher == null)
             {
                 _hotkeyStatus = "диспетчер ещё не создан";
@@ -573,6 +614,19 @@ namespace Okna
                 if (notify || _showOnStart)
                     Balloon("Горячая клавиша занята", error +
                         Loc.T(". Выберите другую в настройках или закройте программу, которая её использует."), true);
+            }
+
+            // Additional hotkeys used to fail silently: a conflict was visible
+            // only in the debug log, so the user wondered why the key did
+            // nothing. Report it in the settings status and in a balloon.
+            if (warnings != null && warnings.Length > 0)
+            {
+                string text = string.Join("; ", warnings);
+                _hotkeyStatus = _hotkeyStatus + " · " + text;
+                Log.Error("Hotkey: " + text);
+                if (notify || _showOnStart)
+                    Balloon("Часть горячих клавиш занята", text + Loc.T(
+                        ". Выберите другое сочетание в настройках."), true);
             }
             UpdateMenu();
             return ok;
@@ -821,8 +875,11 @@ namespace Okna
 
             if (error != null)
             {
-                // Keep a previously ready update if we only failed a re-check; discard partial new state.
-                if (found != null && !downloaded) Updater.Discard();
+                // A failed re-check must not destroy the release that is
+                // already verified and ready; only the unfinished download is
+                // thrown away.
+                Updater.DiscardPartial();
+                if (!Updater.HasPending) _ready = null;
                 UpdateMenu();
                 if (manual) Balloon(Loc.T("Не удалось обновить/проверить"), error, true);
                 return;
@@ -1102,11 +1159,17 @@ namespace Okna
                 _rollItem.PerformClick();
 
                 _closeBurnItem.PerformClick();
-                check("the tray burn item is exclusive", _settings.Burn && !_settings.Shatter);
+                check("the tray burn item is exclusive",
+                    _settings.Burn && !_settings.Shatter && !_settings.Fade);
                 _closeShatterItem.PerformClick();
-                check("the tray shard item is exclusive", _settings.Shatter && !_settings.Burn);
+                check("the tray shard item is exclusive",
+                    _settings.Shatter && !_settings.Burn && !_settings.Fade);
+                _closeFadeItem.PerformClick();
+                check("the tray fade item is exclusive",
+                    _settings.Fade && !_settings.Shatter && !_settings.Burn);
                 _closeNoneItem.PerformClick();
-                check("the tray none item clears both", !_settings.Shatter && !_settings.Burn);
+                check("the tray none item clears every effect",
+                    !_settings.Shatter && !_settings.Burn && !_settings.Fade);
 
                 bool enabled = _settings.Enabled;
                 _toggleItem.PerformClick();
@@ -1209,6 +1272,16 @@ namespace Okna
             _notify.ShowBalloonTip(force ? 6000 : 4500);
         }
 
+        /// <summary>A warning that is shown even when notifications are quiet.</summary>
+        internal void BalloonWarning(string title, string text)
+        {
+            if (_notify == null) return;
+            _notify.BalloonTipTitle = Loc.T(title);
+            _notify.BalloonTipText = Loc.T(text);
+            _notify.BalloonTipIcon = ToolTipIcon.Warning;
+            _notify.ShowBalloonTip(6000);
+        }
+
         private void Post(MethodInvoker action)
         {
             try
@@ -1254,6 +1327,83 @@ namespace Okna
                 Dispatcher = null;
             }
             ExitThread();
+        }
+    }
+
+    /// <summary>
+    /// The tray menu used to be solid. A layered popup gives it a light
+    /// see-through look while the dark palette keeps the text readable; the
+    /// same alpha is applied to every submenu when it opens.
+    /// </summary>
+    internal sealed class JellyContextMenuStrip : ContextMenuStrip
+    {
+        private const byte MenuAlpha = 232; // ~91%
+
+        private bool _submenusHooked;
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            ApplyTranslucency(this);
+        }
+
+        protected override void OnOpening(System.ComponentModel.CancelEventArgs e)
+        {
+            base.OnOpening(e);
+            ApplyTranslucency(this);
+            if (!_submenusHooked)
+            {
+                _submenusHooked = true;
+                HookSubmenus(Items);
+            }
+        }
+
+        private static void HookSubmenus(ToolStripItemCollection items)
+        {
+            foreach (ToolStripItem item in items)
+            {
+                ToolStripMenuItem menuItem = item as ToolStripMenuItem;
+                if (menuItem == null || menuItem.DropDownItems.Count == 0) continue;
+                ToolStripDropDown dropDown = menuItem.DropDown;
+                if (dropDown == null) continue;
+
+                // Submenus are separate popup windows, so each one has to be
+                // made layered on its own; the main menu's alpha does not
+                // reach them.
+                dropDown.BackColor = Color.FromArgb(17, 28, 36);
+                dropDown.ForeColor = Color.FromArgb(232, 242, 243);
+                dropDown.Padding = new Padding(2);
+                if (!(dropDown.Renderer is TrayMenuRenderer))
+                    dropDown.Renderer = new TrayMenuRenderer();
+
+                dropDown.HandleCreated += delegate { ApplyTranslucency(dropDown); };
+                dropDown.Opening += delegate { ApplyTranslucency(dropDown); };
+                dropDown.Opened += delegate { ApplyTranslucency(dropDown); };
+                HookSubmenus(menuItem.DropDownItems);
+            }
+        }
+
+        private static void ApplyTranslucency(ToolStripDropDown dropDown)
+        {
+            try
+            {
+                IntPtr handle = dropDown.Handle;
+                if (handle == IntPtr.Zero) return;
+
+                int dark = 1;
+                Native.DwmSetWindowAttribute(handle,
+                    Native.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, 4);
+                int corner = 2; // rounded popup corners on Windows 11
+                Native.DwmSetWindowAttribute(handle,
+                    Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, 4);
+
+                long style = Native.GetWindowLongPtr(handle, Native.GWL_EXSTYLE);
+                if ((style & Native.WS_EX_LAYERED) == 0)
+                    Native.SetWindowLongPtr(handle, Native.GWL_EXSTYLE,
+                        style | Native.WS_EX_LAYERED);
+                Native.SetWindowAlpha(handle, MenuAlpha);
+            }
+            catch { }
         }
     }
 
@@ -1331,10 +1481,24 @@ namespace Okna
         /// </summary>
         public bool ApplyHotkey(AppSettings settings, out string error)
         {
+            string[] ignored;
+            return ApplyHotkey(settings, out error, out ignored);
+        }
+
+        /// <summary>
+        /// Registers hotkeys from settings. Main toggle conflict is reported via <paramref name="error"/>.
+        /// Additional hotkey conflicts are collected in <paramref name="warnings"/> but do not block
+        /// the main toggle.
+        /// </summary>
+        public bool ApplyHotkey(AppSettings settings, out string error, out string[] warnings)
+        {
             error = null;
+            System.Collections.Generic.List<string> problems =
+                new System.Collections.Generic.List<string>();
             if (!IsHandleCreated)
             {
                 error = "окно диспетчера ещё не создано";
+                warnings = problems.ToArray();
                 return false;
             }
 
@@ -1347,12 +1511,18 @@ namespace Okna
             if (settings != null)
             {
                 string e2;
-                if (settings.HasHotkeyBend) RegisterOne(HotkeyIdBend, settings.HotkeyBendModifiers, settings.HotkeyBendKey, settings.HotkeyBendLabel, out e2);
-                if (settings.HasHotkeyRoll) RegisterOne(HotkeyIdRoll, settings.HotkeyRollModifiers, settings.HotkeyRollKey, settings.HotkeyRollLabel, out e2);
-                if (settings.HasHotkeySettings) RegisterOne(HotkeyIdSettings, settings.HotkeySettingsModifiers, settings.HotkeySettingsKey, settings.HotkeySettingsLabel, out e2);
-                if (settings.HasPauseHotkey) RegisterOne(HotkeyIdPause, settings.PauseHotkeyModifiers, settings.PauseHotkeyKey, settings.PauseHotkeyLabel, out e2);
-                if (settings.HasHotkeyProfileWindow) RegisterOne(HotkeyIdProfileWindow, settings.HotkeyProfileWindowModifiers, settings.HotkeyProfileWindowKey, settings.HotkeyProfileWindowLabel, out e2);
+                if (settings.HasHotkeyBend && !RegisterOne(HotkeyIdBend, settings.HotkeyBendModifiers, settings.HotkeyBendKey, settings.HotkeyBendLabel, out e2))
+                    problems.Add(e2);
+                if (settings.HasHotkeyRoll && !RegisterOne(HotkeyIdRoll, settings.HotkeyRollModifiers, settings.HotkeyRollKey, settings.HotkeyRollLabel, out e2))
+                    problems.Add(e2);
+                if (settings.HasHotkeySettings && !RegisterOne(HotkeyIdSettings, settings.HotkeySettingsModifiers, settings.HotkeySettingsKey, settings.HotkeySettingsLabel, out e2))
+                    problems.Add(e2);
+                if (settings.HasPauseHotkey && !RegisterOne(HotkeyIdPause, settings.PauseHotkeyModifiers, settings.PauseHotkeyKey, settings.PauseHotkeyLabel, out e2))
+                    problems.Add(e2);
+                if (settings.HasHotkeyProfileWindow && !RegisterOne(HotkeyIdProfileWindow, settings.HotkeyProfileWindowModifiers, settings.HotkeyProfileWindowKey, settings.HotkeyProfileWindowLabel, out e2))
+                    problems.Add(e2);
             }
+            warnings = problems.ToArray();
             return mainOk;
         }
 

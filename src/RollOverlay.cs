@@ -507,45 +507,49 @@ namespace Okna
         /// Starts the animation. <paramref name="shot"/> is the window picture
         /// and is owned (and disposed) by the animation thread.
         /// </summary>
-        public static void Play(Bitmap shot, Native.RECT frame, IntPtr hwnd)
+        public static void Play(Bitmap shot, Native.RECT frame, IntPtr hwnd, double speed)
         {
-            PlayCore(shot, frame, hwnd, false, RollDirection.Auto);
+            PlayCore(shot, frame, hwnd, false, RollDirection.Auto, speed);
         }
 
         /// <summary>
         /// Plays the roll with a chosen direction. Auto follows the edge of the
         /// screen the taskbar is docked to.
         /// </summary>
-        public static void Play(Bitmap shot, Native.RECT frame, IntPtr hwnd, RollDirection direction)
+        public static void Play(Bitmap shot, Native.RECT frame, IntPtr hwnd,
+            RollDirection direction, double speed)
         {
-            PlayCore(shot, frame, hwnd, false, direction);
+            PlayCore(shot, frame, hwnd, false, direction, speed);
         }
 
         /// <summary>
         /// Rolls the copy into the notification area: used when closing a
         /// window only hides it because its program keeps running in the tray.
         /// </summary>
-        public static void PlayToTray(Bitmap shot, Native.RECT frame)
+        public static void PlayToTray(Bitmap shot, Native.RECT frame, double speed)
         {
-            PlayCore(shot, frame, IntPtr.Zero, true, RollDirection.Auto);
+            PlayCore(shot, frame, IntPtr.Zero, true, RollDirection.Auto, speed);
         }
 
-        public static void PlayToTray(Bitmap shot, Native.RECT frame, RollDirection direction)
+        public static void PlayToTray(Bitmap shot, Native.RECT frame,
+            RollDirection direction, double speed)
         {
-            PlayCore(shot, frame, IntPtr.Zero, true, direction);
+            PlayCore(shot, frame, IntPtr.Zero, true, direction, speed);
         }
 
         private static void PlayCore(Bitmap shot, Native.RECT frame, IntPtr hwnd, bool toTray,
-            RollDirection direction)
+            RollDirection direction, double speed)
         {
             if (shot == null) return;
             if (shot.Width < 60 || shot.Height < 60) { shot.Dispose(); return; }
+            if (speed < 0.5) speed = 0.5;
+            if (speed > 1.5) speed = 1.5;
 
             Thread thread = new Thread(delegate()
             {
                 try
                 {
-                    Run(shot, frame, hwnd, toTray, direction);
+                    Run(shot, frame, hwnd, toTray, direction, speed);
                 }
                 catch (Exception ex)
                 {
@@ -560,7 +564,7 @@ namespace Okna
         }
 
         private static void Run(Bitmap shot, Native.RECT frame, IntPtr hwnd, bool toTray,
-            RollDirection requested)
+            RollDirection requested, double speed)
         {
             int vx = Native.GetSystemMetrics(Native.SM_XVIRTUALSCREEN);
             int vy = Native.GetSystemMetrics(Native.SM_YVIRTUALSCREEN);
@@ -654,7 +658,7 @@ namespace Okna
                 double last = 0;
                 while (true)
                 {
-                    double t = clock.Elapsed.TotalSeconds;
+                    double t = clock.Elapsed.TotalSeconds * speed;
                     if (t >= Total) break;
 
                     // The window may have been restored (or closed) while the

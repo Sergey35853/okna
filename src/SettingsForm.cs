@@ -450,8 +450,6 @@ namespace Okna
                         y = c.Bottom + gap;
                     }
                 }
-                // ensure scroll range
-                Panel pad = null;
             }
         }
 
@@ -1452,15 +1450,73 @@ namespace Okna
 
             _startupSwitch.CheckedChanged += delegate
             {
-                _settings.StartWithWindows = _startupSwitch.Checked;
-                AppSettings.SetAutoStart(_startupSwitch.Checked, Application.ExecutablePath);
+                if (_syncing) return;
+                bool enable = _startupSwitch.Checked;
+                string error;
+                bool ok = AppSettings.SetAutoStart(enable,
+                    Application.ExecutablePath, out error);
+                if (!ok)
+                {
+                    // SetAutoStart could not remove the elevated task, so
+                    // put the switch back to the state that actually exists.
+                    _syncing = true;
+                    _startupSwitch.Checked = AppSettings.IsAutoStartEnabled();
+                    _syncing = false;
+                    _settings.StartWithWindows = _startupSwitch.Checked;
+                    _settings.AutoStartElevated = AppSettings.IsAutoStartElevatedEnabled();
+                    SaveSoon();
+                    MessageBox.Show(this,
+                        Loc.T("Не удалось изменить автозапуск: ") + error,
+                        Loc.T("Окна"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                _settings.StartWithWindows = enable;
+                if (enable && _settings.AutoStartElevated)
+                {
+                    // SetAutoStart removed the elevated task, so reflect that
+                    // instead of leaving a switch that claims otherwise.
+                    _settings.AutoStartElevated = false;
+                    _syncing = true;
+                    _autoStartElevatedSwitch.Checked = false;
+                    _syncing = false;
+                }
                 SaveSoon();
             };
 
             _autoStartElevatedSwitch.CheckedChanged += delegate
             {
-                _settings.AutoStartElevated = _autoStartElevatedSwitch.Checked;
-                AppSettings.SetAutoStartElevated(_autoStartElevatedSwitch.Checked, Application.ExecutablePath);
+                if (_syncing) return;
+                bool enable = _autoStartElevatedSwitch.Checked;
+                string error;
+                bool ok = AppSettings.SetAutoStartElevated(enable,
+                    Application.ExecutablePath, out error);
+                if (!ok)
+                {
+                    _syncing = true;
+                    _autoStartElevatedSwitch.Checked =
+                        AppSettings.IsAutoStartElevatedEnabled();
+                    _syncing = false;
+                    _settings.AutoStartElevated = _autoStartElevatedSwitch.Checked;
+                    // A failed task creation may also have touched the plain
+                    // Run entry, so show what really exists now.
+                    _settings.StartWithWindows = AppSettings.IsAutoStartEnabled();
+                    _syncing = true;
+                    _startupSwitch.Checked = _settings.StartWithWindows;
+                    _syncing = false;
+                    SaveSoon();
+                    MessageBox.Show(this,
+                        Loc.T("Не удалось изменить автозапуск с правами администратора: ") + error,
+                        Loc.T("Окна"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                _settings.AutoStartElevated = enable;
+                if (enable && _settings.StartWithWindows)
+                {
+                    _settings.StartWithWindows = false;
+                    _syncing = true;
+                    _startupSwitch.Checked = false;
+                    _syncing = false;
+                }
                 SaveSoon();
             };
             if (_quietNotificationsSwitch != null)
@@ -1623,6 +1679,9 @@ namespace Okna
                 _rollSwitch.Checked = _settings.Roll;
                 UpdateDirectionStyles();
                 _startupSwitch.Checked = _settings.StartWithWindows;
+                // Trust the task that really exists, not the saved flag: a
+                // failed schtasks call used to leave the switch checked.
+                _settings.AutoStartElevated = AppSettings.IsAutoStartElevatedEnabled();
                 _autoStartElevatedSwitch.Checked = _settings.AutoStartElevated;
                 if (_quietNotificationsSwitch != null) _quietNotificationsSwitch.Checked = _settings.QuietNotifications;
                 _darkThemeSwitch.Checked = _settings.DarkTheme;
@@ -1824,18 +1883,18 @@ namespace Okna
 
                 if (_settings.Burn)
                 {
-                    BurnOverlay.Play(shot, frame);
+                    BurnOverlay.Play(shot, frame, _settings.EffectSpeedFactor);
                 }
                 else if (_settings.Shatter)
                 {
                     Native.POINT impact = new Native.POINT();
                     impact.X = frame.Right - 18;
                     impact.Y = frame.Top + 14;
-                    ShatterOverlay.Play(shot, frame, impact);
+                    ShatterOverlay.Play(shot, frame, impact, _settings.EffectSpeedFactor);
                 }
                 else if (_settings.Fade)
                 {
-                    FadeOverlay.Play(shot, frame);
+                    FadeOverlay.Play(shot, frame, _settings.EffectSpeedFactor);
                 }
                 else
                 {
@@ -1892,7 +1951,8 @@ namespace Okna
                             TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak);
                 }
 
-                RollOverlay.Play(shot, frame, IntPtr.Zero, _settings.RollDirection);
+                RollOverlay.Play(shot, frame, IntPtr.Zero, _settings.RollDirection,
+                    _settings.EffectSpeedFactor);
             }
             catch (Exception ex)
             {
@@ -1902,7 +1962,7 @@ namespace Okna
 
         private void UpdateCloseStyles()
         {
-            int selected = _settings.Burn ? 2 : (_settings.Shatter ? 1 : (_settings.Fade ? 3 : 0));
+            int selected = _settings.CloseEffect;
             JellyButton[] buttons = new JellyButton[] { _closeNone, _closeShatter, _closeBurn, _closeFade };
             for (int i = 0; i < buttons.Length; i++)
             {
@@ -2022,7 +2082,10 @@ namespace Okna
             {
                 string mask; int effect; bool bend; bool shake; bool roll;
                 if (!AppSettings.ParseProfile(list[i], out mask, out effect, out bend, out shake, out roll)) continue;
-                string label = effect == 2 ? "сгорание" : (effect == 1 ? "осколки" : "без эффекта");
+                string label =
+                    effect == 3 ? Loc.T("затухание") :
+                    effect == 2 ? Loc.T("сгорание") :
+                    effect == 1 ? Loc.T("осколки") : Loc.T("без эффекта");
                 string notes = "";
                 if (!bend) notes += " · без изгиба";
                 if (!shake) notes += " · без тряски";

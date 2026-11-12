@@ -22,14 +22,16 @@ namespace Okna
         /// Starts the animation. <paramref name="shot"/> is the window picture
         /// and is owned (and disposed) by the animation thread.
         /// </summary>
-        public static void Play(Bitmap shot, Native.RECT frame)
+        public static void Play(Bitmap shot, Native.RECT frame, double speed)
         {
             if (shot == null) return;
+            if (speed < 0.5) speed = 0.5;
+            if (speed > 1.5) speed = 1.5;
             Thread thread = new Thread(delegate()
             {
                 try
                 {
-                    Run(shot, frame);
+                    Run(shot, frame, speed);
                 }
                 catch (Exception ex)
                 {
@@ -43,7 +45,7 @@ namespace Okna
             thread.Start();
         }
 
-        private static void Run(Bitmap shot, Native.RECT frame)
+        private static void Run(Bitmap shot, Native.RECT frame, double speed)
         {
             int vx = Native.GetSystemMetrics(Native.SM_XVIRTUALSCREEN);
             int vy = Native.GetSystemMetrics(Native.SM_YVIRTUALSCREEN);
@@ -114,7 +116,9 @@ namespace Okna
                 double last = 0;
                 while (true)
                 {
-                    double t = clock.Elapsed.TotalSeconds;
+                    // Effect speed scales the animation clock, so 150% fades
+                    // out 1.5x faster and 50% twice as slow.
+                    double t = clock.Elapsed.TotalSeconds * speed;
                     if (t >= Duration) break;
 
                     double dt = t - last;

@@ -20,13 +20,35 @@ namespace Okna
         private readonly Dictionary<IntPtr, WindowState> _windows =
             new Dictionary<IntPtr, WindowState>();
         private readonly Native.WinEventProc _eventCallback;
+        private readonly Native.HookProc _mouseCallback;
+        private readonly Native.HookProc _keyboardCallback;
         private readonly Timer _timer;
         private IntPtr _invokeHook;
+        private IntPtr _focusHook;
+        private IntPtr _menuHook;
         private IntPtr _locationHook;
         private IntPtr _foregroundHook;
+        private IntPtr _mouseHook;
+        private IntPtr _keyboardHook;
         private IntPtr _activeWindow;
         private DateTime _nextScan;
         private bool _disposed;
+
+        // System menus do not raise EVENT_OBJECT_INVOKED on current Windows
+        // versions, so a real mouse click is observed with a low-level hook.
+        // Keyboard activation is tracked through menu focus events + Enter.
+        private IntPtr _pressedOwner;
+        private uint _pressedCommand;
+        private bool _pressedValid;
+        private IntPtr _keyboardOwner;
+        private uint _keyboardCommand;
+        private bool _keyboardValid;
+        private WindowState _pendingState;
+        private uint _pendingCommand;
+        private string _pendingSource;
+        private IntPtr _lastInputOwner;
+        private uint _lastInputCommand;
+        private DateTime _lastInputAt;
 
         private sealed class WindowState
         {
@@ -42,11 +64,16 @@ namespace Okna
             public Native.RECT PositionBounds;
             public Native.RECT SizeBounds;
             public DateTime LastFailureLog;
+            public DateTime MenuRetryAfter;
+            public DateTime LastMenuFailureLog;
+            public int MenuFailures;
         }
 
         public WindowBoundsLockManager()
         {
             _eventCallback = OnWinEvent;
+            _mouseCallback = OnMouseHook;
+            _keyboardCallback = OnKeyboardHook;
             _timer = new Timer();
             _timer.Interval = 30;
             _timer.Tick += OnTimer;
@@ -66,6 +93,17 @@ namespace Okna
                     Marshal.GetLastWin32Error());
             }
 
+            _focusHook = Native.SetWinEventHook(
+                Native.EVENT_OBJECT_FOCUS, Native.EVENT_OBJECT_FOCUS,
+                IntPtr.Zero, _eventCallback, 0, 0, Native.WINEVENT_OUTOFCONTEXT);
+            if (_focusHook == IntPtr.Zero)
+                Log.Debug("Window bounds lock cannot track keyboard menu focus; error=" +
+                    Marshal.GetLastWin32Error());
+
+            _menuHook = Native.SetWinEventHook(
+                Native.EVENT_SYSTEM_MENUSTART, Native.EVENT_SYSTEM_MENUPOPUPEND,
+                IntPtr.Zero, _eventCallback, 0, 0, Native.WINEVENT_OUTOFCONTEXT);
+
             _locationHook = Native.SetWinEventHook(
                 Native.EVENT_OBJECT_LOCATIONCHANGE, Native.EVENT_OBJECT_LOCATIONCHANGE,
                 IntPtr.Zero, _eventCallback, 0, 0, Native.WINEVENT_OUTOFCONTEXT);
@@ -80,6 +118,18 @@ namespace Okna
                 Log.Debug("Window bounds lock is using timer-only active-window tracking; foreground hook failed with error " +
                     Marshal.GetLastWin32Error());
 
+            _mouseHook = Native.SetWindowsHookEx(Native.WH_MOUSE_LL,
+                _mouseCallback, IntPtr.Zero, 0);
+            if (_mouseHook == IntPtr.Zero)
+                Log.Error("Window bounds lock cannot detect menu clicks; mouse hook failed with error " +
+                    Marshal.GetLastWin32Error());
+
+            _keyboardHook = Native.SetWindowsHookEx(Native.WH_KEYBOARD_LL,
+                _keyboardCallback, IntPtr.Zero, 0);
+            if (_keyboardHook == IntPtr.Zero)
+                Log.Debug("Window bounds lock cannot detect keyboard menu activation; error=" +
+                    Marshal.GetLastWin32Error());
+
             ScanWindows();
             RememberForegroundWindow(Native.GetForegroundWindow());
             _nextScan = DateTime.UtcNow.AddMilliseconds(ScanIntervalMs);
@@ -88,6 +138,8 @@ namespace Okna
 
         private void OnTimer(object sender, EventArgs e)
         {
+            ProcessPendingToggle();
+
             DateTime now = DateTime.UtcNow;
             if (now >= _nextScan)
             {
@@ -98,6 +150,47 @@ namespace Okna
 
             foreach (WindowState state in _windows.Values)
                 EnforceBounds(state);
+        }
+
+        /// <summary>
+        /// Applies a lock toggle that was queued by the mouse or keyboard
+        /// hook. Runs on the UI thread, so the hooks themselves stay short.
+        /// </summary>
+        private void ProcessPendingToggle()
+        {
+            WindowState state = _pendingState;
+            if (state == null) return;
+            uint command = _pendingCommand;
+            string source = _pendingSource;
+            _pendingState = null;
+            _pendingCommand = 0;
+            _pendingSource = null;
+
+            if (!IsSameWindow(state) || Native.IsIconic(state.Handle)) return;
+            if (command != state.PositionCommand && command != state.SizeCommand) return;
+
+            bool changed = command == state.PositionCommand
+                ? TogglePosition(state)
+                : ToggleSize(state);
+            if (!changed) return;
+
+            IntPtr menu = Native.GetSystemMenu(state.Handle, false);
+            if (menu != IntPtr.Zero) UpdateMenuChecks(state, menu);
+            EnforceBounds(state);
+            Log.Debug("System-menu bounds command " + command + " invoked for " +
+                state.Handle.ToInt64() + " via " + source + "; position=" +
+                state.PositionLocked + "; size=" + state.SizeLocked);
+        }
+
+        private void QueueToggle(WindowState state, uint command, string source)
+        {
+            if (state == null || command == 0) return;
+            _pendingState = state;
+            _pendingCommand = command;
+            _pendingSource = source;
+            _lastInputOwner = state.Handle;
+            _lastInputCommand = command;
+            _lastInputAt = DateTime.UtcNow;
         }
 
         private void ScanWindows()
@@ -145,12 +238,19 @@ namespace Okna
 
         private void EnsureSystemMenu(WindowState state)
         {
+            DateTime now = DateTime.UtcNow;
+            if (now < state.MenuRetryAfter) return;
+
             IntPtr menu = Native.GetSystemMenu(state.Handle, false);
             if (menu == IntPtr.Zero) return;
 
             if (state.PositionCommand == 0 || state.SizeCommand == 0)
             {
-                if (!AllocateCommands(state, menu)) return;
+                if (!AllocateCommands(state, menu))
+                {
+                    MarkMenuUnavailable(state, 0);
+                    return;
+                }
             }
 
             string positionLabel = Loc.T("Зафиксировать положение");
@@ -167,17 +267,41 @@ namespace Okna
                 state.SizeCommand = 0;
                 state.PositionLabel = null;
                 state.SizeLabel = null;
-                if (!AllocateCommands(state, menu)) return;
+                if (!AllocateCommands(state, menu))
+                {
+                    MarkMenuUnavailable(state, 0);
+                    return;
+                }
                 if (!EnsureMenuItem(menu, ref state.PositionCommand, positionLabel,
                         null, "Зафиксировать положение") ||
                     !EnsureMenuItem(menu, ref state.SizeCommand, sizeLabel,
                         null, "Зафиксировать размер"))
+                {
+                    MarkMenuUnavailable(state, Marshal.GetLastWin32Error());
                     return;
+                }
             }
 
             state.PositionLabel = positionLabel;
             state.SizeLabel = sizeLabel;
+            state.MenuFailures = 0;
             UpdateMenuChecks(state, menu);
+        }
+
+        /// <summary>
+        /// Backs off from a window whose system menu cannot be modified (for
+        /// example an elevated process while Okna runs unelevated) instead of
+        /// retrying every second and flooding the log.
+        /// </summary>
+        private static void MarkMenuUnavailable(WindowState state, int error)
+        {
+            DateTime now = DateTime.UtcNow;
+            state.MenuRetryAfter = now.AddSeconds(60);
+            state.MenuFailures++;
+            if (now - state.LastMenuFailureLog < TimeSpan.FromMinutes(5)) return;
+            state.LastMenuFailureLog = now;
+            Log.Debug("Window bounds lock menu skipped for " + state.Handle.ToInt64() +
+                "; error=" + error + "; attempts=" + state.MenuFailures);
         }
 
         private static bool EnsureMenuItem(IntPtr menu, ref uint command, string label,
@@ -194,8 +318,6 @@ namespace Okna
                 }
                 if (Native.AppendMenu(menu, Native.MF_STRING, new UIntPtr(command), label))
                     return true;
-                Log.Debug("Could not add a window bounds lock menu item; error=" +
-                    Marshal.GetLastWin32Error());
                 return false;
             }
 
@@ -207,8 +329,6 @@ namespace Okna
                 if (Native.ModifyMenu(menu, command,
                         Native.MF_BYCOMMAND | Native.MF_STRING, new UIntPtr(command), label))
                     return true;
-                Log.Debug("Could not update a window bounds lock menu item; error=" +
-                    Marshal.GetLastWin32Error());
                 return false;
             }
             return true;
@@ -298,6 +418,20 @@ namespace Okna
 
             try
             {
+                if (eventType == Native.EVENT_OBJECT_FOCUS)
+                {
+                    TrackMenuFocus(hwnd, childId, eventThread);
+                    return;
+                }
+                if (eventType == Native.EVENT_SYSTEM_MENUEND ||
+                    eventType == Native.EVENT_SYSTEM_MENUPOPUPEND)
+                {
+                    _keyboardValid = false;
+                    return;
+                }
+                if (eventType == Native.EVENT_SYSTEM_MENUSTART)
+                    return;
+
                 if (eventType == Native.EVENT_SYSTEM_FOREGROUND)
                 {
                     RememberForegroundWindow(hwnd);
@@ -327,6 +461,14 @@ namespace Okna
                         state.SizeCommand, menu, out command))
                     return;
 
+                // Newer Windows versions do not raise EVENT_OBJECT_INVOKED for
+                // system-menu items. Keep supporting environments that do, but
+                // ignore the event when the low-level hook has already handled
+                // the same click / keystroke.
+                if (hwnd == _lastInputOwner && command == _lastInputCommand &&
+                    DateTime.UtcNow - _lastInputAt < TimeSpan.FromSeconds(2))
+                    return;
+
                 bool changed;
                 if (command == state.PositionCommand)
                     changed = TogglePosition(state);
@@ -345,6 +487,193 @@ namespace Okna
             {
                 Log.Error("Window bounds lock menu event failed: " + ex);
             }
+        }
+
+        /// <summary>
+        /// Remembers which of our items is focused in an open system menu so a
+        /// subsequent Enter or Space can toggle it. Mouse clicks are handled by
+        /// the low-level hook, not by this method.
+        /// </summary>
+        private void TrackMenuFocus(IntPtr popup, int childId, uint eventThread)
+        {
+            if (popup == IntPtr.Zero || childId <= 0) return;
+            if (Native.GetWindowClass(popup) != "#32768") return;
+
+            Native.GUITHREADINFO info = new Native.GUITHREADINFO();
+            info.cbSize = Marshal.SizeOf(typeof(Native.GUITHREADINFO));
+            uint threadId = eventThread;
+            if (threadId == 0)
+            {
+                uint processId;
+                threadId = Native.GetWindowThreadProcessId(popup, out processId);
+            }
+            if (threadId == 0 || !Native.GetGUIThreadInfo(threadId, ref info)) return;
+            if ((info.flags & Native.GUI_INMENUMODE) == 0) return;
+
+            IntPtr owner = info.hwndMenuOwner;
+            if (owner == IntPtr.Zero) owner = Native.GetWindow(popup, Native.GW_OWNER);
+            WindowState state;
+            if (owner == IntPtr.Zero || !_windows.TryGetValue(owner, out state) ||
+                !IsSameWindow(state))
+                return;
+
+            IntPtr menu = Native.GetSystemMenu(owner, false);
+            int count = menu == IntPtr.Zero ? 0 : Native.GetMenuItemCount(menu);
+            int index = childId - 1;
+            if (index < 0 || index >= count) return;
+
+            uint command = Native.GetMenuItemID(menu, index);
+            if (command != state.PositionCommand && command != state.SizeCommand)
+                return;
+            _keyboardOwner = owner;
+            _keyboardCommand = command;
+            _keyboardValid = true;
+        }
+
+        private IntPtr OnMouseHook(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0 && !_disposed)
+            {
+                try
+                {
+                    int message = wParam.ToInt32();
+                    if (message == Native.WM_LBUTTONDOWN || message == Native.WM_LBUTTONUP)
+                    {
+                        Native.MSLLHOOKSTRUCT data = (Native.MSLLHOOKSTRUCT)
+                            Marshal.PtrToStructure(lParam, typeof(Native.MSLLHOOKSTRUCT));
+                        WindowState state;
+                        uint command;
+                        bool hit = TryHitOwnedMenuItem(data.pt, out state, out command);
+                        if (message == Native.WM_LBUTTONDOWN)
+                        {
+                            _pressedValid = hit;
+                            _pressedOwner = hit ? state.Handle : IntPtr.Zero;
+                            _pressedCommand = command;
+                        }
+                        else if (_pressedValid)
+                        {
+                            if (hit && state.Handle == _pressedOwner &&
+                                command == _pressedCommand)
+                                QueueToggle(state, command, "mouse");
+                            _pressedValid = false;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Debug("Window bounds lock mouse hook failed: " + ex.Message);
+                }
+            }
+            return Native.CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
+        }
+
+        private IntPtr OnKeyboardHook(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0 && !_disposed)
+            {
+                try
+                {
+                    int message = wParam.ToInt32();
+                    if (message == Native.WM_KEYDOWN || message == Native.WM_SYSKEYDOWN)
+                    {
+                        Native.KBDLLHOOKSTRUCT data = (Native.KBDLLHOOKSTRUCT)
+                            Marshal.PtrToStructure(lParam, typeof(Native.KBDLLHOOKSTRUCT));
+                        if (data.vkCode == Native.VK_RETURN || data.vkCode == Native.VK_SPACE)
+                        {
+                            if (_keyboardValid)
+                            {
+                                WindowState state;
+                                if (_windows.TryGetValue(_keyboardOwner, out state) &&
+                                    IsSameWindow(state) && _keyboardCommand != 0)
+                                    QueueToggle(state, _keyboardCommand, "keyboard");
+                                _keyboardValid = false;
+                            }
+                        }
+                        else if (data.vkCode == Native.VK_ESCAPE)
+                        {
+                            _keyboardValid = false;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Debug("Window bounds lock keyboard hook failed: " + ex.Message);
+                }
+            }
+            return Native.CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
+        }
+
+        /// <summary>
+        /// Finds our item under the pointer in a currently open system menu.
+        /// GetMenuItemRect gives the screen rectangle of the real popup, so a
+        /// click can be matched without injecting code into the target app.
+        /// </summary>
+        private bool TryHitOwnedMenuItem(Native.POINT point,
+            out WindowState state, out uint command)
+        {
+            state = null;
+            command = 0;
+            IntPtr popup = Native.WindowFromPoint(point);
+            if (popup == IntPtr.Zero) return false;
+
+            IntPtr owner = IntPtr.Zero;
+            uint processId;
+            uint threadId = Native.GetWindowThreadProcessId(popup, out processId);
+            Native.GUITHREADINFO info = new Native.GUITHREADINFO();
+            info.cbSize = Marshal.SizeOf(typeof(Native.GUITHREADINFO));
+            if (threadId != 0 && Native.GetGUIThreadInfo(threadId, ref info))
+            {
+                if ((info.flags & Native.GUI_INMENUMODE) == 0) return false;
+                owner = info.hwndMenuOwner;
+            }
+            if (owner == IntPtr.Zero) owner = Native.GetWindow(popup, Native.GW_OWNER);
+            if (owner == IntPtr.Zero) return false;
+
+            WindowState candidate;
+            if (!_windows.TryGetValue(owner, out candidate) ||
+                !IsSameWindow(candidate) || Native.IsIconic(owner))
+                return false;
+
+            IntPtr menu = Native.GetSystemMenu(owner, false);
+            if (menu == IntPtr.Zero) return false;
+
+            Native.RECT rect;
+            int position = FindMenuPosition(menu, candidate.PositionCommand);
+            if (position >= 0 &&
+                Native.GetMenuItemRect(owner, menu, (uint)position, out rect) &&
+                Contains(rect, point))
+            {
+                state = candidate;
+                command = candidate.PositionCommand;
+                return true;
+            }
+            int size = FindMenuPosition(menu, candidate.SizeCommand);
+            if (size >= 0 &&
+                Native.GetMenuItemRect(owner, menu, (uint)size, out rect) &&
+                Contains(rect, point))
+            {
+                state = candidate;
+                command = candidate.SizeCommand;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>GetMenuItemRect wants a zero-based position, not a command id.</summary>
+        private static int FindMenuPosition(IntPtr menu, uint command)
+        {
+            if (command == 0) return -1;
+            int count = Native.GetMenuItemCount(menu);
+            for (int i = 0; i < count; i++)
+                if (Native.GetMenuItemID(menu, i) == command)
+                    return i;
+            return -1;
+        }
+
+        private static bool Contains(Native.RECT rect, Native.POINT point)
+        {
+            return point.X >= rect.Left && point.X < rect.Right &&
+                   point.Y >= rect.Top && point.Y < rect.Bottom;
         }
 
         internal static bool TryResolveMenuCommand(int objectId, int childId,
@@ -388,8 +717,17 @@ namespace Okna
             uint threadId = Native.GetWindowThreadProcessId(hwnd, out processId);
             if (processId == 0 || processId == Native.GetCurrentProcessId()) return null;
 
+            if (!Native.IsWindowVisible(hwnd))
+                return null;
+
             string className = Native.GetWindowClass(hwnd);
             if (!IsTrackableWindowClass(className))
+                return null;
+
+            // A window without WS_SYSMENU has no system menu to extend. Skip
+            // it instead of hammering an invalid menu handle once a second.
+            if ((Native.GetWindowLongPtr(hwnd, Native.GWL_STYLE) &
+                    Native.WS_SYSMENU) == 0)
                 return null;
 
             WindowState state;
@@ -551,7 +889,12 @@ namespace Okna
             bool sizeChanged = desired.Width != current.Width || desired.Height != current.Height;
             if (!positionChanged && !sizeChanged) return;
 
-            uint flags = Native.SWP_NOZORDER | Native.SWP_NOACTIVATE;
+            // ASYNCWINDOWPOS matters: a synchronous SetWindowPos into another
+            // app's window can block this thread (and deadlock with that app
+            // resizing itself at the same moment). Queueing the move keeps the
+            // tray and engine responsive.
+            uint flags = Native.SWP_NOZORDER | Native.SWP_NOACTIVATE |
+                Native.SWP_ASYNCWINDOWPOS;
             if (!positionChanged) flags |= Native.SWP_NOMOVE;
             if (!sizeChanged) flags |= Native.SWP_NOSIZE;
             if (!Native.SetWindowPos(state.Handle, IntPtr.Zero, desired.Left, desired.Top,
@@ -612,6 +955,26 @@ namespace Okna
             {
                 Native.UnhookWinEvent(_foregroundHook);
                 _foregroundHook = IntPtr.Zero;
+            }
+            if (_focusHook != IntPtr.Zero)
+            {
+                Native.UnhookWinEvent(_focusHook);
+                _focusHook = IntPtr.Zero;
+            }
+            if (_menuHook != IntPtr.Zero)
+            {
+                Native.UnhookWinEvent(_menuHook);
+                _menuHook = IntPtr.Zero;
+            }
+            if (_mouseHook != IntPtr.Zero)
+            {
+                Native.UnhookWindowsHookEx(_mouseHook);
+                _mouseHook = IntPtr.Zero;
+            }
+            if (_keyboardHook != IntPtr.Zero)
+            {
+                Native.UnhookWindowsHookEx(_keyboardHook);
+                _keyboardHook = IntPtr.Zero;
             }
 
             foreach (WindowState state in _windows.Values)

@@ -227,7 +227,13 @@ namespace Okna
                 client.DownloadFileAsync(new Uri(info.DownloadUrl), temp);
                 done.WaitOne();
             }
-            if (downloadError != null) throw downloadError;
+            if (downloadError != null)
+            {
+                // Only the unfinished copy is removed; a previously verified
+                // release in StagedExe must stay installable.
+                try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+                throw downloadError;
+            }
 
             string expected = ReadChecksum(info.Sha256Url);
             string actual = Sha256(temp);
@@ -324,6 +330,16 @@ namespace Okna
                 return Version.TryParse(File.ReadAllText(PendingFile).Trim(), out v) ? v : null;
             }
             catch { return null; }
+        }
+
+        /// <summary>
+        /// Removes only an unfinished download. A verified staged release that
+        /// is already waiting for installation is left untouched, so a failed
+        /// re-check cannot destroy a ready update.
+        /// </summary>
+        public static void DiscardPartial()
+        {
+            try { if (File.Exists(StagedExe + ".part")) File.Delete(StagedExe + ".part"); } catch { }
         }
 
         /// <summary>

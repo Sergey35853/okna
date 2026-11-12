@@ -355,7 +355,7 @@ namespace Okna.Tests
             Check(s.GetCloseEffect("studio.exe") == 2, "wildcard override was not applied");
 
             s.SetCloseOverride("chrome.exe", 9);
-            Check(s.GetCloseEffect("chrome.exe") == 2, "effect should be clamped to 2");
+            Check(s.GetCloseEffect("chrome.exe") == 3, "effect should be clamped to 3");
         }
 
         private static void CloseOverrideEditing()

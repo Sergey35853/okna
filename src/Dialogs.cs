@@ -244,14 +244,17 @@ namespace Okna
             Controls.Add(MakeLabel("Что делать при закрытии", 20, 108, Theme.FontCardTitle, Theme.Text));
 
             JellyButton none = EffectButton("Без эффекта", 20, 0);
-            JellyButton shatter = EffectButton("Осколки", 170, 1);
-            JellyButton burn = EffectButton("Сгорание", 320, 2);
+            JellyButton shatter = EffectButton("Осколки", 130, 1);
+            JellyButton burn = EffectButton("Сгорание", 240, 2);
+            JellyButton fade = EffectButton("Затухание", 350, 3);
             none.Click += delegate { _effect = 0; _dirty = true; UpdateEffectStyles(); };
             shatter.Click += delegate { _effect = 1; _dirty = true; UpdateEffectStyles(); };
             burn.Click += delegate { _effect = 2; _dirty = true; UpdateEffectStyles(); };
+            fade.Click += delegate { _effect = 3; _dirty = true; UpdateEffectStyles(); };
             Controls.Add(none);
             Controls.Add(shatter);
             Controls.Add(burn);
+            Controls.Add(fade);
 
             Panel divider = new Panel();
             divider.Location = new Point(20, 180);
@@ -298,7 +301,7 @@ namespace Okna
             cancel.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
             Controls.Add(cancel);
 
-            _effect = settings.Burn ? 2 : (settings.Shatter ? 1 : 0);
+            _effect = settings.CloseEffect;
             if (!string.IsNullOrEmpty(presetProgram))
             {
                 _program.Text = presetProgram;
@@ -322,7 +325,7 @@ namespace Okna
             JellyButton b = new JellyButton();
             b.Text = text;
             b.Location = new Point(x, 132);
-            b.Size = new Size(140, 34);
+            b.Size = new Size(100, 34);
             b.Font = Theme.FontSmall;
             b.Tag = effect;
             return b;
@@ -378,7 +381,7 @@ namespace Okna
             }
             else
             {
-                _effect = _settings.Burn ? 2 : (_settings.Shatter ? 1 : 0);
+                _effect = _settings.CloseEffect;
                 _bend = true;
                 _shake = true;
                 _roll = true;

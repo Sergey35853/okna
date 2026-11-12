@@ -13,8 +13,20 @@ namespace Okna
         public const int WM_APP_SHOW = WM_APP + 1;
         public const int WM_APP_ALREADY_RUNNING = WM_APP + 2;
         public const int EVENT_OBJECT_INVOKED = 0x8013;
+        public const int EVENT_OBJECT_FOCUS = 0x8005;
         public const int EVENT_OBJECT_LOCATIONCHANGE = 0x800B;
         public const int EVENT_SYSTEM_FOREGROUND = 0x0003;
+        public const int EVENT_SYSTEM_MENUSTART = 0x0004;
+        public const int EVENT_SYSTEM_MENUEND = 0x0005;
+        public const int EVENT_SYSTEM_MENUPOPUPEND = 0x0007;
+        public const int GUI_INMENUMODE = 0x0004;
+        public const int WH_MOUSE_LL = 14;
+        public const int WH_KEYBOARD_LL = 13;
+        public const int WM_LBUTTONDOWN = 0x0201;
+        public const int WM_LBUTTONUP = 0x0202;
+        public const int WM_KEYDOWN = 0x0100;
+        public const int WM_SYSKEYDOWN = 0x0104;
+        public const int VK_RETURN = 0x0D;
         public const int OBJID_MENU = -3;
         public const int OBJID_CLIENT = -4;
         public const int OBJID_SYSMENU = -1;
@@ -29,6 +41,7 @@ namespace Okna
         public const int GWL_EXSTYLE = -20;
         public const int GW_OWNER = 4;
         public const long WS_CAPTION = 0x00C00000L;
+        public const long WS_SYSMENU = 0x00080000L;
         public const long WS_THICKFRAME = 0x00040000L;
         public const long WS_MAXIMIZEBOX = 0x00010000L;
         public const long WS_MINIMIZEBOX = 0x00020000L;
@@ -109,6 +122,40 @@ namespace Okna
         {
             public int X;
             public int Y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MSLLHOOKSTRUCT
+        {
+            public POINT pt;
+            public uint mouseData;
+            public uint flags;
+            public uint time;
+            public UIntPtr dwExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct KBDLLHOOKSTRUCT
+        {
+            public uint vkCode;
+            public uint scanCode;
+            public uint flags;
+            public uint time;
+            public UIntPtr dwExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct GUITHREADINFO
+        {
+            public int cbSize;
+            public int flags;
+            public IntPtr hwndActive;
+            public IntPtr hwndFocus;
+            public IntPtr hwndCapture;
+            public IntPtr hwndMenuOwner;
+            public IntPtr hwndMoveSize;
+            public IntPtr hwndCaret;
+            public RECT rcCaret;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -323,6 +370,12 @@ namespace Okna
         public static extern int GetMenuItemCount(IntPtr menu);
 
         [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool GetMenuItemRect(IntPtr hwnd, IntPtr menu, uint item, out RECT rect);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool GetGUIThreadInfo(uint threadId, ref GUITHREADINFO info);
+
+        [DllImport("user32.dll", SetLastError = true)]
         public static extern void NotifyWinEvent(uint eventType, IntPtr hwnd, int objectId, int childId);
 
         [DllImport("user32.dll", SetLastError = true)]
@@ -366,6 +419,19 @@ namespace Okna
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool UnhookWinEvent(IntPtr hook);
+
+        public delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern IntPtr SetWindowsHookEx(int idHook, HookProc callback,
+            IntPtr module, uint threadId);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool UnhookWindowsHookEx(IntPtr hook);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr CallNextHookEx(IntPtr hook, int nCode,
+            IntPtr wParam, IntPtr lParam);
 
         [DllImport("user32.dll")]
         public static extern bool TranslateMessage(ref MSG msg);
