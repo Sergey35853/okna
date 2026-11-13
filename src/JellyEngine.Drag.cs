@@ -8,6 +8,20 @@ namespace Okna
 {
     internal sealed partial class JellyEngine : IDisposable
     {
+        /// <summary>
+        /// Reads the lock state without touching the manager's dictionary:
+        /// the manager publishes a thread-safe snapshot for the engine thread.
+        /// </summary>
+        private bool TryGetLockState(IntPtr hwnd, out bool positionLocked,
+            out bool sizeLocked)
+        {
+            positionLocked = false;
+            sizeLocked = false;
+            WindowBoundsLockManager locks = _boundsLocks;
+            return locks != null &&
+                locks.TryGetLockState(hwnd, out positionLocked, out sizeLocked);
+        }
+
         private void TryBeginCandidate()
         {
             Native.POINT p;
@@ -30,6 +44,18 @@ namespace Okna
             Native.RECT rect;
             if (!Native.GetWindowRect(root, out rect)) return;
             if (rect.Width < 80 || rect.Height < 40) return;
+
+            // A position lock owns this window's coordinates. Taking the drag
+            // over here would move it against the lock and snap back on every
+            // frame: exactly the rubber-band ("jelly") the user sees. Leave the
+            // gesture to the lock manager, which cancels it cleanly.
+            bool positionLocked;
+            bool sizeLocked;
+            if (TryGetLockState(root, out positionLocked, out sizeLocked) && positionLocked)
+            {
+                Log.Debug("Drag candidate skipped: position is locked for " + root.ToInt64());
+                return;
+            }
 
             long exStyle = Native.GetWindowLongPtr(root, Native.GWL_EXSTYLE);
             if ((exStyle & Native.WS_EX_TOOLWINDOW) != 0) return;
@@ -309,6 +335,18 @@ namespace Okna
         {
             if (_mode != Mode.Idle || !Active) return;
             if (_settings.Economy || !_settings.Bend) return;
+
+            // The wave moves the window's center while it changes the size.
+            // With either axis fixed that is a fight with the lock manager, so
+            // the window keeps its own rigid size change instead.
+            bool lockedPosition;
+            bool lockedSize;
+            if (TryGetLockState(hwnd, out lockedPosition, out lockedSize) &&
+                (lockedPosition || lockedSize))
+            {
+                Log.Debug("Resize settle skipped: bounds are locked for " + hwnd.ToInt64());
+                return;
+            }
 
             string exe = Native.GetWindowProcessName(hwnd);
             int effect;
@@ -769,6 +807,16 @@ namespace Okna
             if (fg == IntPtr.Zero) return;
             if (!explicitOwn && Native.IsOwnProcessWindow(fg)) return;
             if (!Native.IsWindow(fg) || !Native.IsWindowVisible(fg) || Native.IsIconic(fg)) return;
+
+            // A position-locked window must not be moved even for a physical
+            // shake: the lock manager would drag it back every frame.
+            bool lockedPosition;
+            bool lockedSize;
+            if (TryGetLockState(fg, out lockedPosition, out lockedSize) && lockedPosition)
+            {
+                Log.Debug("Shake skipped: position is locked for " + fg.ToInt64());
+                return;
+            }
 
             Native.RECT rect;
             if (!Native.GetWindowRect(fg, out rect)) return;

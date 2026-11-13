@@ -20,6 +20,7 @@ namespace Okna
         public const int EVENT_SYSTEM_MENUEND = 0x0005;
         public const int EVENT_SYSTEM_MENUPOPUPEND = 0x0007;
         public const int GUI_INMENUMODE = 0x0004;
+        public const int GUI_INMOVESIZE = 0x0002;
         public const int WH_MOUSE_LL = 14;
         public const int WH_KEYBOARD_LL = 13;
         public const int WM_LBUTTONDOWN = 0x0201;
@@ -252,6 +253,7 @@ namespace Okna
         [DllImport("user32.dll")]
         public static extern bool IsZoomed(IntPtr hwnd);
 
+        public const int MONITOR_DEFAULTTONULL = 0;
         public const int MONITOR_DEFAULTTONEAREST = 2;
 
         [StructLayout(LayoutKind.Sequential)]

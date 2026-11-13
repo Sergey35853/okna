@@ -605,6 +605,11 @@ namespace Okna.Tests
                     result.Width == current.Width && result.Height == current.Height,
                 "unlocked bounds should remain unchanged");
 
+            Check(!WindowBoundsLockManager.IsReachableBounds(Rect(-30000, -30000, -29500, -29600)),
+                "a window parked off-screen must not be accepted as a lock position");
+            Check(WindowBoundsLockManager.IsReachableBounds(current),
+                "a normal on-screen rectangle must be accepted as a lock position");
+
             uint resolvedCommand;
             Check(WindowBoundsLockManager.TryResolveMenuCommand(Native.OBJID_MENU,
                     (int)positionCommand, positionCommand, sizeCommand, IntPtr.Zero,

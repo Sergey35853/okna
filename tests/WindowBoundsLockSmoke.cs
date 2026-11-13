@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 using System.Windows.Automation;
@@ -18,6 +19,15 @@ namespace Okna.Tests
         private const int ScKeyMenu = 0xF100;
         private const uint SetWindowFlags = Native.SWP_NOZORDER | Native.SWP_NOACTIVATE;
         private const int CreateThirdWindowMessage = Native.WM_APP + 80;
+        private const uint MouseLeftDown = 0x0002;
+        private const uint MouseLeftUp = 0x0004;
+
+        [DllImport("user32.dll")]
+        private static extern bool SetCursorPos(int x, int y);
+
+        [DllImport("user32.dll")]
+        private static extern void mouse_event(uint flags, int dx, int dy,
+            uint data, UIntPtr extraInfo);
         private static Native.WinEventProc _eventObserver;
         private static IntPtr _eventObserverHook;
         private static TrayApp _tray;
@@ -74,6 +84,12 @@ namespace Okna.Tests
 
                 AppSettings settings = new AppSettings();
                 settings.AutoUpdate = false;
+                settings.MaxShake = false;
+                settings.Roll = false;
+                settings.Shatter = false;
+                settings.Burn = false;
+                settings.Fade = false;
+                settings.WindowOpenEffect = 0;
                 _engine = new JellyEngine(settings);
                 _icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
                 if (_icon == null) _icon = (Icon)SystemIcons.Application.Clone();
@@ -166,9 +182,13 @@ namespace Okna.Tests
                     trayOtherAfter.Height == trayOtherBefore.Height,
                     "Tray locks changed the other external window");
 
+                VerifyRealGestures(manager, windows[0]);
+                VerifyOffscreenPositionRefused(manager, windows[1]);
+
                 Console.WriteLine("PASS: system-menu invocation callbacks toggle both locks; tray " +
                     "items route to the remembered active external window; position and size " +
-                    "restore independently; a second window remains unlocked.");
+                    "restore independently; a second window remains unlocked; real title-bar " +
+                    "and edge gestures leave locked axes in place without a jelly wave.");
                 Console.WriteLine("Position-only result: " + Format(positionResult));
                 Console.WriteLine("Size-only result: " + Format(sizeResult));
                 Console.WriteLine("Independent window result: " + Format(secondResult));
@@ -539,6 +559,275 @@ namespace Okna.Tests
             Require(tray.IsBoundsLockItemCheckedForSmoke(true) == position &&
                 tray.IsBoundsLockItemCheckedForSmoke(false) == size,
                 name + " tray checkmarks did not match");
+        }
+
+        /// <summary>
+        /// Exercises the real mouse path, not just SetWindowPos: a title-bar
+        /// drag and an edge resize. A fixed axis must stay put, the window must
+        /// stay visible, and the engine must not run its resize wave on a
+        /// locked window.
+        /// </summary>
+        private static void VerifyRealGestures(WindowBoundsLockManager manager, IntPtr hwnd)
+        {
+            manager.RememberActiveWindow(hwnd);
+            Pump(150);
+            RequireLockState(manager, hwnd, false, false, "real-gesture baseline");
+
+            // A locked position must survive a real drag, with the engine idle.
+            SetLock(manager, hwnd, true, true);
+            Native.RECT positionBaseline = GetRect(hwnd);
+            DragWindow(hwnd, 170, 120, 450);
+            WaitForRect(hwnd, delegate(Native.RECT r)
+            {
+                return r.Left == positionBaseline.Left && r.Top == positionBaseline.Top &&
+                       r.Width == positionBaseline.Width && r.Height == positionBaseline.Height;
+            }, "A real title-bar drag moved a position-locked window");
+            RequireVisibleAndOpaque(hwnd, "position-locked window after a real drag");
+            SetLock(manager, hwnd, true, false);
+
+            // A locked size must survive a real edge resize.
+            SetLock(manager, hwnd, false, true);
+            Native.RECT sizeBaseline = GetRect(hwnd);
+            ResizeWindow(hwnd, 130, 80, 450);
+            WaitForRect(hwnd, delegate(Native.RECT r)
+            {
+                return r.Left == sizeBaseline.Left && r.Top == sizeBaseline.Top &&
+                       r.Width == sizeBaseline.Width && r.Height == sizeBaseline.Height;
+            }, "A real edge drag resized a size-locked window");
+            RequireVisibleAndOpaque(hwnd, "size-locked window after a real resize");
+            SetLock(manager, hwnd, false, false);
+
+            // The engine must stand aside as well: with it running, neither
+            // the drag takeover nor the resize wave may touch a locked axis.
+            _engine.BoundsLocks = manager;
+            _engine.Start();
+            Pump(600);
+            try
+            {
+                SetLock(manager, hwnd, true, true);
+                Native.RECT engineBaseline = GetRect(hwnd);
+                DragWindow(hwnd, -150, 110, 450);
+                WaitForRect(hwnd, delegate(Native.RECT r)
+                {
+                    return r.Left == engineBaseline.Left && r.Top == engineBaseline.Top &&
+                           r.Width == engineBaseline.Width && r.Height == engineBaseline.Height;
+                }, "The engine dragged a position-locked window");
+                RequireVisibleAndOpaque(hwnd, "position-locked window with the engine running");
+                SetLock(manager, hwnd, true, false);
+
+                SetLock(manager, hwnd, false, true);
+                int wavesBefore = _engine.ResizeWaves;
+                Native.RECT engineSizeBaseline = GetRect(hwnd);
+                ResizeWindow(hwnd, 140, 90, 450);
+                WaitForRect(hwnd, delegate(Native.RECT r)
+                {
+                    return r.Left == engineSizeBaseline.Left && r.Top == engineSizeBaseline.Top &&
+                           r.Width == engineSizeBaseline.Width && r.Height == engineSizeBaseline.Height;
+                }, "The engine resized a size-locked window");
+                Pump(750);
+                Require(_engine.ResizeWaves == wavesBefore,
+                    "The resize wave ran on a size-locked window (" + wavesBefore +
+                    " -> " + _engine.ResizeWaves + ")");
+                RequireVisibleAndOpaque(hwnd, "size-locked window with the engine running");
+                SetLock(manager, hwnd, false, false);
+            }
+            finally
+            {
+                _engine.BoundsLocks = null;
+                _engine.Stop();
+            }
+
+            // After unlocking, the very same gestures must work again.
+            Native.RECT freeBaseline = GetRect(hwnd);
+            DragWindow(hwnd, 90, 70, 250);
+            WaitForRect(hwnd, delegate(Native.RECT r)
+            {
+                return Math.Abs(r.Left - freeBaseline.Left - 90) <= 25 &&
+                       Math.Abs(r.Top - freeBaseline.Top - 70) <= 25;
+            }, "An unlocked window did not follow a real drag");
+
+            Native.RECT freeSize = GetRect(hwnd);
+            ResizeWindow(hwnd, 90, 60, 250);
+            WaitForRect(hwnd, delegate(Native.RECT r)
+            {
+                return r.Width >= freeSize.Width + 55;
+            }, "An unlocked window did not resize after a real edge drag");
+
+            Console.WriteLine("Real gestures: position lock held through a title-bar drag " +
+                "(with and without the engine), size lock held through an edge drag, " +
+                "no resize wave on the locked axis, free gestures still work.");
+        }
+
+        /// <summary>
+        /// Regression for the window that vanished after locking its position:
+        /// while the jelly effect parks a window at -30000, a lock must not
+        /// remember those coordinates.
+        /// </summary>
+        private static void VerifyOffscreenPositionRefused(WindowBoundsLockManager manager,
+            IntPtr hwnd)
+        {
+            manager.RememberActiveWindow(hwnd);
+            Pump(150);
+            Native.RECT saved = GetRect(hwnd);
+
+            Native.SetWindowPos(hwnd, IntPtr.Zero, -30000, -30000, 0, 0,
+                Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+            Pump(300);
+            Native.RECT parked = GetRect(hwnd);
+            Require(parked.Left <= -20000 && parked.Top <= -20000,
+                "Could not park the window off-screen for the regression check; actual " +
+                Format(parked));
+
+            bool toggled = manager.ToggleWindowLock(hwnd, true);
+            bool positionLocked;
+            bool sizeLocked;
+            bool tracked = manager.TryGetLockState(hwnd, out positionLocked, out sizeLocked);
+            Require(!toggled && tracked && !positionLocked && !sizeLocked,
+                "An off-screen window accepted a position lock (toggled=" + toggled +
+                ", tracked=" + tracked + ", position=" + positionLocked +
+                ", size=" + sizeLocked + ")");
+
+            Native.SetWindowPos(hwnd, IntPtr.Zero, saved.Left, saved.Top,
+                saved.Width, saved.Height, SetWindowFlags);
+            Pump(300);
+            Native.RECT restored = GetRect(hwnd);
+            Require(restored.Left == saved.Left && restored.Top == saved.Top,
+                "The off-screen regression window did not come back; actual " +
+                Format(restored));
+            Console.WriteLine("Off-screen position lock: refused, window stayed reachable.");
+        }
+
+        private static void SetLock(WindowBoundsLockManager manager, IntPtr hwnd,
+            bool position, bool on)
+        {
+            bool positionLocked;
+            bool sizeLocked;
+            Require(manager.TryGetLockState(hwnd, out positionLocked, out sizeLocked),
+                "The gesture test window is not tracked");
+            bool current = position ? positionLocked : sizeLocked;
+            if (current != on)
+                Require(manager.ToggleWindowLock(hwnd, position),
+                    "Could not toggle the " + (position ? "position" : "size") + " lock");
+            RequireLockState(manager, hwnd, position ? on : positionLocked,
+                position ? sizeLocked : on, "gesture lock toggle");
+        }
+
+        private static void RequireLockState(WindowBoundsLockManager manager, IntPtr hwnd,
+            bool position, bool size, string name)
+        {
+            bool actualPosition;
+            bool actualSize;
+            Require(manager.TryGetLockState(hwnd, out actualPosition, out actualSize) &&
+                actualPosition == position && actualSize == size,
+                name + ": expected position/size " + position + "/" + size +
+                ", actual " + actualPosition + "/" + actualSize);
+        }
+
+        private static void RequireVisibleAndOpaque(IntPtr hwnd, string name)
+        {
+            Require(Native.IsWindowVisible(hwnd), name + " became invisible");
+            Native.RECT rect = GetRect(hwnd);
+            Require(rect.Width >= 80 && rect.Height >= 50,
+                name + " collapsed to " + Format(rect));
+
+            long ex = Native.GetWindowLongPtr(hwnd, Native.GWL_EXSTYLE);
+            if ((ex & Native.WS_EX_LAYERED) != 0)
+            {
+                byte alpha;
+                bool hasAlpha = Native.TryGetWindowAlpha(hwnd, out alpha);
+                Require(!hasAlpha || alpha >= 254,
+                    name + " was left transparent (alpha=" + alpha + ")");
+            }
+        }
+
+        private static void DragWindow(IntPtr hwnd, int dx, int dy, int holdMs)
+        {
+            Native.SetForegroundWindow(hwnd);
+            Pump(150);
+
+            Native.POINT caption = FindCaptionPoint(hwnd);
+            Native.POINT saved;
+            bool restoreCursor = Native.GetCursorPos(out saved);
+            SetCursorPos(caption.X, caption.Y);
+            Pump(80);
+            mouse_event(MouseLeftDown, 0, 0, 0, UIntPtr.Zero);
+            const int steps = 14;
+            for (int i = 1; i <= steps; i++)
+            {
+                SetCursorPos(caption.X + dx * i / steps,
+                    caption.Y + dy * i / steps);
+                Pump(18);
+            }
+            Pump(holdMs);
+            mouse_event(MouseLeftUp, 0, 0, 0, UIntPtr.Zero);
+            Pump(600);
+            if (restoreCursor) SetCursorPos(saved.X, saved.Y);
+        }
+
+        private static void ResizeWindow(IntPtr hwnd, int dx, int dy, int holdMs)
+        {
+            Native.SetForegroundWindow(hwnd);
+            Pump(150);
+
+            Native.POINT edge = FindResizePoint(hwnd);
+            Native.POINT saved;
+            bool restoreCursor = Native.GetCursorPos(out saved);
+            SetCursorPos(edge.X, edge.Y);
+            Pump(80);
+            mouse_event(MouseLeftDown, 0, 0, 0, UIntPtr.Zero);
+            const int steps = 14;
+            for (int i = 1; i <= steps; i++)
+            {
+                SetCursorPos(edge.X + dx * i / steps,
+                    edge.Y + dy * i / steps);
+                Pump(18);
+            }
+            Pump(holdMs);
+            mouse_event(MouseLeftUp, 0, 0, 0, UIntPtr.Zero);
+            Pump(600);
+            if (restoreCursor) SetCursorPos(saved.X, saved.Y);
+        }
+
+        private static Native.POINT FindCaptionPoint(IntPtr hwnd)
+        {
+            Native.RECT rect = GetRect(hwnd);
+            int x = rect.Left + rect.Width / 2;
+            int from = rect.Top + 4;
+            int to = Math.Min(rect.Top + 50, rect.Top + rect.Height / 4);
+            for (int y = from; y <= to; y += 2)
+            {
+                UIntPtr hit;
+                IntPtr ok = Native.SendMessageTimeout(hwnd, Native.WM_NCHITTEST,
+                    IntPtr.Zero, Native.MakeLParam(x, y),
+                    Native.SMTO_BLOCK | Native.SMTO_ABORTIFHUNG, 50, out hit);
+                if (ok != IntPtr.Zero && hit.ToUInt64() == (ulong)Native.HTCAPTION)
+                    return new Native.POINT { X = x, Y = y };
+            }
+            return new Native.POINT
+            {
+                X = x,
+                Y = rect.Top + Math.Max(8, Math.Min(24, rect.Height / 8))
+            };
+        }
+
+        private static Native.POINT FindResizePoint(IntPtr hwnd)
+        {
+            Native.RECT rect = GetRect(hwnd);
+            int y = rect.Top + rect.Height / 2;
+            for (int x = rect.Right - 1; x >= rect.Right - 12; x--)
+            {
+                UIntPtr hit;
+                IntPtr ok = Native.SendMessageTimeout(hwnd, Native.WM_NCHITTEST,
+                    IntPtr.Zero, Native.MakeLParam(x, y),
+                    Native.SMTO_BLOCK | Native.SMTO_ABORTIFHUNG, 50, out hit);
+                if (ok != IntPtr.Zero)
+                {
+                    ulong value = hit.ToUInt64();
+                    if (value >= 10 && value <= 17)
+                        return new Native.POINT { X = x, Y = y };
+                }
+            }
+            return new Native.POINT { X = rect.Right - 3, Y = y };
         }
 
         private static void CheckMenuState(WindowBoundsLockManager manager, IntPtr hwnd,

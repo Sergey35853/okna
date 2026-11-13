@@ -538,6 +538,22 @@ namespace Okna
         /// </summary>
         private void WatchResize(IntPtr foreground, double now)
         {
+            // A fixed axis must not be pulled by the wave. Checking the live
+            // lock here covers both a lock enabled before the press and one
+            // switched on while the edge is still being dragged.
+            if (_resizeWatch != IntPtr.Zero)
+            {
+                bool lockedPosition;
+                bool lockedSize;
+                if (TryGetLockState(_resizeWatch, out lockedPosition, out lockedSize) &&
+                    (lockedPosition || lockedSize))
+                {
+                    Log.Debug("Resize wave skipped: bounds are locked for " + _resizeWatch.ToInt64());
+                    ClearResizeWatch();
+                    return;
+                }
+            }
+
             // A slow release, or a window that finishes its resize after the
             // button is up (WinUI, Notepad), waits here for the final
             // rectangle. A new press cancels the pending wave.
@@ -679,6 +695,15 @@ namespace Okna
                 Native.IsZoomed(target) || Native.IsCloaked(target))
                 return;
             if (IsShellWindowClass(Native.GetWindowClass(target))) return;
+
+            bool targetPositionLocked;
+            bool targetSizeLocked;
+            if (TryGetLockState(target, out targetPositionLocked, out targetSizeLocked) &&
+                (targetPositionLocked || targetSizeLocked))
+            {
+                Log.Debug("Resize watch skipped: bounds are locked for " + target.ToInt64());
+                return;
+            }
 
             long style = Native.GetWindowLongPtr(target, Native.GWL_STYLE);
             if ((style & Native.WS_THICKFRAME) == 0 && !ReportsResizeBorder(target, p))

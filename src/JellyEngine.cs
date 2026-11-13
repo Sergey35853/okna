@@ -29,6 +29,7 @@ namespace Okna
 
         private readonly AppSettings _settings;
         private readonly AutoPause _autoPause;
+        private volatile WindowBoundsLockManager _boundsLocks;
         private Thread _thread;
         private volatile int _restarts;
         private volatile bool _stopping;
@@ -227,6 +228,17 @@ namespace Okna
             if (_parkMode == "1" || _parkMode == "true") _parkMode = "offscreen";
             if (_parkMode == "0" || _parkMode == "false") _parkMode = "under";
             if (_parkMode != "offscreen" && _parkMode != "clear") _parkMode = "under";
+        }
+
+        /// <summary>
+        /// The bounds lock manager. The engine reads it to stand aside when
+        /// the user fixed an axis: otherwise the effect and the lock pull the
+        /// same window in opposite directions, which looks like jelly.
+        /// </summary>
+        internal WindowBoundsLockManager BoundsLocks
+        {
+            get { return _boundsLocks; }
+            set { _boundsLocks = value; }
         }
 
         public string Status
@@ -724,6 +736,16 @@ namespace Okna
                     ResetEngine(_settings.Enabled ? "Готово" : "Пауза");
                     return;
                 }
+                bool candidatePositionLocked;
+                bool candidateSizeLocked;
+                if (TryGetLockState(_target, out candidatePositionLocked,
+                        out candidateSizeLocked) && candidatePositionLocked)
+                {
+                    // The position was locked after the press: stop before the
+                    // takeover and let the manager own the gesture.
+                    ResetEngine(_settings.Enabled ? "Готово" : "Пауза");
+                    return;
+                }
                 if (!IsTargetStillGood())
                 {
                     ResetEngine("Готово");
@@ -773,6 +795,16 @@ namespace Okna
                 if (!Active)
                 {
                     BeginSettle(now, false);
+                    return;
+                }
+                bool dragPositionLocked;
+                bool dragSizeLocked;
+                if (TryGetLockState(_target, out dragPositionLocked,
+                        out dragSizeLocked) && dragPositionLocked)
+                {
+                    Log.Debug("Drag takeover stopped: position lock enabled for " +
+                        _target.ToInt64());
+                    ResetEngine(_settings.Enabled ? "Готово" : "Пауза");
                     return;
                 }
                 if (!down)
@@ -888,6 +920,18 @@ namespace Okna
 
             if (_mode == Mode.Settling)
             {
+                bool settlePositionLocked;
+                bool settleSizeLocked;
+                if (TryGetLockState(_target, out settlePositionLocked,
+                        out settleSizeLocked) &&
+                    (settlePositionLocked || (_resizeOnly && settleSizeLocked)))
+                {
+                    // A lock switched on during the wave: stop immediately
+                    // instead of letting the manager undo every frame.
+                    ResetEngine(_settings.Enabled ? "Готово" : "Пауза");
+                    return;
+                }
+
                 if (down && !_latched)
                 {
                     // The user started a new gesture while the window was still settling.

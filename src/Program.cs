@@ -142,6 +142,7 @@ namespace Okna
                 try
                 {
                     tray.BoundsLocks = boundsLocks;
+                    engine.BoundsLocks = boundsLocks;
                     boundsLocks.Start();
                     tray.UpdateMenu();
                     Application.Run(tray);
@@ -155,6 +156,7 @@ namespace Okna
                         _healthTimer = null;
                     }
                     boundsLocks.Dispose();
+                    engine.BoundsLocks = null;
                     engine.Stop();
                     Log.Info("Application exit.");
                     try { if (dispatcher != null && !dispatcher.IsDisposed) dispatcher.Dispose(); } catch { }

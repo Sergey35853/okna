@@ -19,6 +19,12 @@ namespace Okna
 
         private readonly Dictionary<IntPtr, WindowState> _windows =
             new Dictionary<IntPtr, WindowState>();
+        // The engine thread reads the lock state while the UI thread updates
+        // it. A separate immutable snapshot keeps that read safe; touching the
+        // main dictionary from two threads is not.
+        private readonly object _stateLock = new object();
+        private readonly Dictionary<IntPtr, LockSnapshot> _lockStates =
+            new Dictionary<IntPtr, LockSnapshot>();
         private readonly Native.WinEventProc _eventCallback;
         private readonly Native.HookProc _mouseCallback;
         private readonly Native.HookProc _keyboardCallback;
@@ -64,9 +70,18 @@ namespace Okna
             public Native.RECT PositionBounds;
             public Native.RECT SizeBounds;
             public DateTime LastFailureLog;
+            public DateTime LastCancelAt;
             public DateTime MenuRetryAfter;
             public DateTime LastMenuFailureLog;
             public int MenuFailures;
+        }
+
+        private sealed class LockSnapshot
+        {
+            public uint ProcessId;
+            public uint ThreadId;
+            public bool PositionLocked;
+            public bool SizeLocked;
         }
 
         public WindowBoundsLockManager()
@@ -173,6 +188,7 @@ namespace Okna
                 ? TogglePosition(state)
                 : ToggleSize(state);
             if (!changed) return;
+            PublishLockState(state);
 
             IntPtr menu = Native.GetSystemMenu(state.Handle, false);
             if (menu != IntPtr.Zero) UpdateMenuChecks(state, menu);
@@ -218,7 +234,10 @@ namespace Okna
 
             if (stale != null)
                 for (int i = 0; i < stale.Count; i++)
+                {
                     _windows.Remove(stale[i]);
+                    ForgetLockState(stale[i]);
+                }
         }
 
         private static bool IsOwnedLabel(string text, string previous, string russian)
@@ -439,10 +458,15 @@ namespace Okna
                 }
 
                 WindowState state;
-                if (!_windows.TryGetValue(hwnd, out state)) return;
+                if (!_windows.TryGetValue(hwnd, out state))
+                {
+                    ForgetLockState(hwnd);
+                    return;
+                }
                 if (!IsSameWindow(state))
                 {
                     _windows.Remove(hwnd);
+                    ForgetLockState(hwnd);
                     return;
                 }
 
@@ -476,6 +500,7 @@ namespace Okna
                     changed = ToggleSize(state);
                 else return;
 
+                PublishLockState(state);
                 UpdateMenuChecks(state, menu);
                 EnforceBounds(state);
                 Log.Debug("System-menu bounds command " + command + " invoked for " +
@@ -740,8 +765,39 @@ namespace Okna
                 state.ThreadId = threadId;
                 _windows[hwnd] = state;
             }
+            PublishLockState(state);
             EnsureSystemMenu(state);
             return state;
+        }
+
+        /// <summary>
+        /// Copies the lock flags for the engine thread. Called on the UI
+        /// thread whenever a lock or a tracked window changes.
+        /// </summary>
+        private void PublishLockState(WindowState state)
+        {
+            lock (_stateLock)
+            {
+                LockSnapshot snapshot;
+                if (!_lockStates.TryGetValue(state.Handle, out snapshot) ||
+                    snapshot.ProcessId != state.ProcessId ||
+                    snapshot.ThreadId != state.ThreadId)
+                {
+                    snapshot = new LockSnapshot();
+                    snapshot.ProcessId = state.ProcessId;
+                    snapshot.ThreadId = state.ThreadId;
+                    _lockStates[state.Handle] = snapshot;
+                }
+                snapshot.PositionLocked = state.PositionLocked;
+                snapshot.SizeLocked = state.SizeLocked;
+            }
+        }
+
+        private void ForgetLockState(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return;
+            lock (_stateLock)
+                _lockStates.Remove(hwnd);
         }
 
         internal static bool IsTrackableWindowClass(string className)
@@ -772,12 +828,27 @@ namespace Okna
         {
             positionLocked = false;
             sizeLocked = false;
-            WindowState state;
-            if (hwnd == IntPtr.Zero || !_windows.TryGetValue(hwnd, out state) ||
-                !IsSameWindow(state))
-                return false;
-            positionLocked = state.PositionLocked;
-            sizeLocked = state.SizeLocked;
+            if (hwnd == IntPtr.Zero) return false;
+
+            uint processId = 0;
+            LockSnapshot snapshot;
+            lock (_stateLock)
+            {
+                if (!_lockStates.TryGetValue(hwnd, out snapshot)) return false;
+                positionLocked = snapshot.PositionLocked;
+                sizeLocked = snapshot.SizeLocked;
+                processId = snapshot.ProcessId;
+                if (snapshot.ThreadId == 0) return false;
+                uint actualProcess;
+                uint actualThread = Native.GetWindowThreadProcessId(hwnd, out actualProcess);
+                if (!Native.IsWindow(hwnd) || actualThread != snapshot.ThreadId ||
+                    actualProcess != processId)
+                {
+                    positionLocked = false;
+                    sizeLocked = false;
+                    return false;
+                }
+            }
             return true;
         }
 
@@ -800,6 +871,7 @@ namespace Okna
 
             bool toggled = position ? TogglePosition(state) : ToggleSize(state);
             if (!toggled) return false;
+            PublishLockState(state);
             IntPtr menu = Native.GetSystemMenu(hwnd, false);
             if (menu != IntPtr.Zero) UpdateMenuChecks(state, menu);
             EnforceBounds(state);
@@ -814,14 +886,38 @@ namespace Okna
                 return true;
             }
 
+            // A maximized window's coordinates belong to the system. Locking
+            // them would move the restored window to the maximized frame's
+            // corner; enforcing them while maximized would push most of the
+            // window off the screen.
+            if (Native.IsZoomed(state.Handle))
+            {
+                Log.Info("Position lock skipped for " + state.Handle.ToInt64() +
+                    ": the window is maximized");
+                return false;
+            }
+
             Native.RECT bounds;
             if (!Native.GetWindowRect(state.Handle, out bounds))
             {
                 Log.Debug("Could not capture window position for " + state.Handle.ToInt64());
                 return false;
             }
+
+            // The jelly effect parks a window off-screen while it shows a
+            // frozen copy. Locking at that moment used to remember -30000 and
+            // send the real window there for good when the effect ended.
+            if (!IsReachableBounds(bounds))
+            {
+                Log.Info("Position lock skipped for " + state.Handle.ToInt64() +
+                    ": the window is off-screen at " + bounds.Left + "," + bounds.Top);
+                return false;
+            }
+
             state.PositionBounds = bounds;
             state.PositionLocked = true;
+            Log.Debug("Position lock captured for " + state.Handle.ToInt64() + " at " +
+                bounds.Left + "," + bounds.Top);
             return true;
         }
 
@@ -842,6 +938,28 @@ namespace Okna
             state.SizeBounds = bounds;
             state.SizeLocked = true;
             return true;
+        }
+
+        /// <summary>
+        /// True when enough of the rectangle sits on a monitor for the user to
+        /// see and grab it. A window parked at -30000 is not reachable, and a
+        /// position lock must never remember such coordinates.
+        /// </summary>
+        internal static bool IsReachableBounds(Native.RECT bounds)
+        {
+            if (bounds.Width <= 0 || bounds.Height <= 0) return false;
+            IntPtr monitor = Native.MonitorFromRect(ref bounds, Native.MONITOR_DEFAULTTONULL);
+            if (monitor == IntPtr.Zero) return false;
+
+            Native.MONITORINFO info = new Native.MONITORINFO();
+            info.cbSize = Marshal.SizeOf(typeof(Native.MONITORINFO));
+            if (!Native.GetMonitorInfo(monitor, ref info)) return true;
+
+            int left = Math.Max(bounds.Left, info.rcMonitor.Left);
+            int top = Math.Max(bounds.Top, info.rcMonitor.Top);
+            int right = Math.Min(bounds.Right, info.rcMonitor.Right);
+            int bottom = Math.Min(bounds.Bottom, info.rcMonitor.Bottom);
+            return right - left >= 32 && bottom - top >= 16;
         }
 
         private static Native.RECT GetLockedBounds(Native.RECT current,
@@ -875,10 +993,30 @@ namespace Okna
             return lockPosition || lockSize;
         }
 
-        private static void EnforceBounds(WindowState state)
+        private void EnforceBounds(WindowState state)
         {
             if (!state.PositionLocked && !state.SizeLocked) return;
             if (!IsSameWindow(state) || Native.IsIconic(state.Handle)) return;
+
+            // A maximized window's frame is owned by the system: its left/top
+            // are off-screen shadow coordinates, and forcing the captured
+            // position onto it pushes the window out of sight. Enforce again
+            // once the user restores it.
+            if (Native.IsZoomed(state.Handle)) return;
+
+            // Monitors can be disconnected after the lock was captured. Never
+            // keep sending a window to coordinates that no longer exist.
+            if (state.PositionLocked && !IsReachableBounds(state.PositionBounds))
+            {
+                Log.Info("Position lock released for " + state.Handle.ToInt64() +
+                    ": stored position is off-screen at " +
+                    state.PositionBounds.Left + "," + state.PositionBounds.Top);
+                state.PositionLocked = false;
+                PublishLockState(state);
+                IntPtr menu = Native.GetSystemMenu(state.Handle, false);
+                if (menu != IntPtr.Zero) UpdateMenuChecks(state, menu);
+            }
+            if (!state.PositionLocked && !state.SizeLocked) return;
 
             Native.RECT current;
             if (!Native.GetWindowRect(state.Handle, out current)) return;
@@ -888,6 +1026,14 @@ namespace Okna
             bool positionChanged = desired.Left != current.Left || desired.Top != current.Top;
             bool sizeChanged = desired.Width != current.Width || desired.Height != current.Height;
             if (!positionChanged && !sizeChanged) return;
+
+            // The user is dragging an axis that is fixed. Cancel the system's
+            // modal move/size loop before restoring: without this, the window
+            // follows the mouse until every location-change event catches it,
+            // which reads as a rubber band being pulled.
+            if ((state.PositionLocked && positionChanged) ||
+                (state.SizeLocked && sizeChanged))
+                CancelUserGesture(state);
 
             // ASYNCWINDOWPOS matters: a synchronous SetWindowPos into another
             // app's window can block this thread (and deadlock with that app
@@ -908,6 +1054,27 @@ namespace Okna
                     state.LastFailureLog = now;
                 }
             }
+        }
+
+        /// <summary>
+        /// Ends a native move/size loop owned by the target's UI thread.
+        /// WM_CANCELMODE releases its mouse capture, so the window does not
+        /// keep following the pointer while the lock restores its bounds.
+        /// </summary>
+        private static void CancelUserGesture(WindowState state)
+        {
+            DateTime now = DateTime.UtcNow;
+            if (now - state.LastCancelAt < TimeSpan.FromMilliseconds(250)) return;
+
+            Native.GUITHREADINFO info = new Native.GUITHREADINFO();
+            info.cbSize = Marshal.SizeOf(typeof(Native.GUITHREADINFO));
+            if (!Native.GetGUIThreadInfo(state.ThreadId, ref info)) return;
+            if ((info.flags & Native.GUI_INMOVESIZE) == 0) return;
+            if (info.hwndMoveSize != IntPtr.Zero && info.hwndMoveSize != state.Handle) return;
+
+            state.LastCancelAt = now;
+            if (Native.PostMessage(state.Handle, Native.WM_CANCELMODE, IntPtr.Zero, IntPtr.Zero))
+                Log.Debug("Cancelled locked move/size gesture for " + state.Handle.ToInt64());
         }
 
         private static bool IsSameWindow(WindowState state)
@@ -986,6 +1153,8 @@ namespace Okna
                 }
             }
             _windows.Clear();
+            lock (_stateLock)
+                _lockStates.Clear();
         }
     }
 }
